@@ -1,0 +1,137 @@
+"""Match and tournament configuration."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Callable
+
+from splendor_ai.bots.base import Bot
+from splendor_ai.engine.env import SplendorEnv
+from splendor_ai.engine.state import SplendorState
+
+
+@dataclass(frozen=True, slots=True)
+class MatchConfig:
+    games: int = 100
+    seconds_per_move: float = 1.0
+    swap_seats: bool = True
+    max_turns_per_game: int = 400
+
+
+@dataclass(frozen=True, slots=True)
+class GameResult:
+    seed: int
+    turns: int
+    winner: int | None
+    final_scores: tuple[int, int]
+    bot_seats: tuple[str, str]
+    stalled: bool = False
+    timed_out: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class MatchResult:
+    games: tuple[GameResult, ...]
+
+    @property
+    def total_games(self) -> int:
+        return len(self.games)
+
+    @property
+    def wins_by_seat(self) -> tuple[int, int]:
+        seat0 = sum(1 for game in self.games if game.winner == 0)
+        seat1 = sum(1 for game in self.games if game.winner == 1)
+        return seat0, seat1
+
+    @property
+    def draws(self) -> int:
+        return sum(1 for game in self.games if game.winner is None)
+
+
+BotFactory = Callable[[], Bot]
+
+
+def play_game(
+    bot_seat_0: Bot,
+    bot_seat_1: Bot,
+    seed: int = 0,
+    max_turns: int = 400,
+) -> GameResult:
+    env = SplendorEnv(seed=seed)
+    state = env.initial_state()
+    bots = (bot_seat_0, bot_seat_1)
+
+    while not state.terminal:
+        if state.turn_index >= max_turns:
+            return GameResult(
+                seed=seed,
+                turns=state.turn_index,
+                winner=_adjudicate_scores(state),
+                final_scores=(state.players[0].score, state.players[1].score),
+                bot_seats=(type(bot_seat_0).__name__, type(bot_seat_1).__name__),
+                timed_out=True,
+            )
+
+        legal_actions = env.legal_actions(state)
+        if not legal_actions:
+            return GameResult(
+                seed=seed,
+                turns=state.turn_index,
+                winner=_adjudicate_scores(state),
+                final_scores=(state.players[0].score, state.players[1].score),
+                bot_seats=(type(bot_seat_0).__name__, type(bot_seat_1).__name__),
+                stalled=True,
+            )
+
+        actor = bots[state.current_player]
+        chosen_action = actor.choose_action(env, state, legal_actions)
+        if chosen_action is None:
+            raise RuntimeError("Bot returned no action in a non-terminal state.")
+        state = env.step(state, chosen_action)
+
+    return GameResult(
+        seed=seed,
+        turns=state.turn_index,
+        winner=state.winner,
+        final_scores=(state.players[0].score, state.players[1].score),
+        bot_seats=(type(bot_seat_0).__name__, type(bot_seat_1).__name__),
+    )
+
+
+def play_match(
+    bot_a_factory: BotFactory,
+    bot_b_factory: BotFactory,
+    config: MatchConfig | None = None,
+    seed_start: int = 0,
+) -> MatchResult:
+    cfg = config or MatchConfig()
+    results: list[GameResult] = []
+
+    for game_index in range(cfg.games):
+        swap = cfg.swap_seats and (game_index % 2 == 1)
+        seat0 = bot_b_factory() if swap else bot_a_factory()
+        seat1 = bot_a_factory() if swap else bot_b_factory()
+        results.append(
+            play_game(
+                bot_seat_0=seat0,
+                bot_seat_1=seat1,
+                seed=seed_start + game_index,
+                max_turns=cfg.max_turns_per_game,
+            )
+        )
+
+    return MatchResult(games=tuple(results))
+
+
+def _adjudicate_scores(state: SplendorState) -> int | None:
+    scores = [player.score for player in state.players]
+    best_score = max(scores)
+    contenders = [idx for idx, score in enumerate(scores) if score == best_score]
+    if len(contenders) == 1:
+        return contenders[0]
+
+    fewest_cards = min(len(state.players[idx].purchased_cards) for idx in contenders)
+    fewest_card_contenders = [
+        idx for idx in contenders if len(state.players[idx].purchased_cards) == fewest_cards
+    ]
+    return fewest_card_contenders[0] if len(fewest_card_contenders) == 1 else None

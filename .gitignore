@@ -1,0 +1,15 @@
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+
+data/*
+!data/.gitkeep
+outputs/*
+!outputs/.gitkeep
+tmp_timeout_analysis.json
+tmp_timeout_after_patch.json

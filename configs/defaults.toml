@@ -1,0 +1,18 @@
+project_name = "splendor-ai"
+game = "splendor-base"
+players = 2
+observation_mode = "legal"
+primary_device = "cuda"
+fallback_device = "cpu"
+compat_device = "directml"
+target_move_time_seconds = 1.0
+warm_start_enabled = true
+
+[training]
+seed = 0
+self_play_workers = 4
+batch_size = 256
+
+[evaluation]
+games_per_match = 100
+swap_seats = true
