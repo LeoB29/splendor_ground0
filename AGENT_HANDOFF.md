@@ -41,14 +41,15 @@ Model/training stack:
 - 256-float public observation tensor
 - replay export to JSONL
 - supervised policy/value MLP
-- supervised training CLI
+- supervised training CLI with train/validation metrics, progress logs, final-vs-best-validation checkpoint benchmarking, and saved metrics JSON
 
 Bots/eval:
 
 - random legal bot
 - greedy heuristic bot
-- shallow search bot
+- shallow search bot with anti-token-churn loop penalties
 - match runner
+- checkpoint benchmark CLI with saved per-game JSON output
 - Tkinter GUI for human-vs-bot inspection
 
 Infra:
@@ -59,19 +60,32 @@ Infra:
 
 ## Current Reality
 
-The environment is in decent shape. The weak point is corpus quality.
+The environment and warm-start pipeline are in much better shape than the original handoff. The key milestone is that search-generated data now produces a checkpoint that beats the greedy heuristic baseline in a larger benchmark.
 
-Observed corpus behavior:
+Important local artifacts:
 
-- `greedy:random` is acceptable for a first warm-start corpus
-- `greedy:greedy` produced too many token-churn loops
-- `search:greedy` was improved, but still hits too many `repetition_cutoff` terminations to be trusted as the main corpus source
+- `data/corpus_greedy_random_003/replays.jsonl`
+  - 2,000 games, 145,570 steps, 0 stalled, 0 timed out
+- `data/corpus_search_greedy_001/replays.jsonl`
+  - 200 games, 12,710 steps, 0 stalled, 0 timed out
+- `outputs/warmstart_search_001/supervised_policy_value.pt`
+  - current champion checkpoint
+- `outputs/benchmarks/warmstart_search_001_50g.json`
+  - saved 50-game benchmark report
+
+Observed results:
+
+- Scaling clean `greedy:random` helped reach roughly random-level play, but did not reliably beat `greedy`.
+- Search bot token-loop behavior was improved with game-history and take/return churn penalties.
+- After the search fix, `search:greedy` corpora are clean in the tested probes and in `corpus_search_greedy_001`.
+- Search-only supervised training on `corpus_search_greedy_001` produced the first checkpoint with a clear winning benchmark against `GreedyHeuristicBot`.
 
 Current practical recommendation:
 
-- use `data/corpus_greedy_random_001/replays.jsonl` for the first supervised checkpoint
-- exclude stalled/timeout games when training
-- treat search-bot improvement as ongoing work, not a blocker to getting the first model trained
+- Treat `outputs/warmstart_search_001/supervised_policy_value.pt` as the current champion.
+- Use the benchmark CLI for future checkpoint comparisons instead of ad hoc inline Python.
+- Generate more clean `search:greedy` data or experiment with mixed `search:greedy` + `greedy:random` training next.
+- Continue excluding stalled/timeout games when training.
 
 ## Known Technical Debt
 
@@ -80,30 +94,35 @@ Current practical recommendation:
    - It is not the preferred final architecture for serious self-play scale-up.
    - The likely future refactor is a legal-action scorer instead of a giant sparse softmax.
 
-2. Search bot quality is still not reliable enough for primary corpus generation.
-   - Current truncations are mostly `repetition_cutoff`
-   - failure mode is still token cycling
+2. Replay validation loss is only loosely correlated with benchmark strength.
+   - The training CLI now benchmarks both final and best-validation checkpoints.
+   - Pick champions by benchmark results, not validation loss alone.
 
-3. Training has not yet been run on the target CUDA machine.
-   - repo prep is done
-   - first real checkpoint still needs to be trained
+3. Search corpus generation is slow.
+   - `search:greedy` is much slower than `greedy:random`.
+   - Keep probing cleanliness before committing to very large search corpora.
+
+4. Search bot quality may still have hidden loop or style issues.
+   - The obvious `repetition_cutoff` token-churn pattern was improved.
+   - Continue watching timeout traces for any new pathologies.
 
 ## Recommended Next Step
 
-On the CUDA machine:
+Near-term:
 
-1. Clone the repo from GitHub.
-2. Bootstrap the environment with `scripts/bootstrap_windows_cuda.ps1`.
-3. Install CUDA-enabled PyTorch from the current official PyTorch command.
-4. Verify with `scripts/verify_training_env.py --expect-cuda`.
-5. Transfer or regenerate the `greedy:random` corpus.
-6. Train the first checkpoint:
+1. Run a larger robust benchmark of the current champion if needed:
 
 ```powershell
-.venv\Scripts\python.exe run_supervised.py --replay-path data\corpus_greedy_random_001\replays.jsonl --output-dir outputs\warmstart_001 --device cuda --epochs 5 --batch-size 64 --exclude-stalled-games --exclude-timeout-games
+.venv\Scripts\python.exe run_benchmark.py --checkpoint outputs\warmstart_search_001\supervised_policy_value.pt --device cuda --games 100 --opponents random greedy --seed-start 2000 --output-path outputs\benchmarks\warmstart_search_001_100g_seed2000.json
 ```
 
-7. Load that checkpoint into the GUI and inspect move quality manually.
+2. Generate a larger clean search corpus if benchmarks remain strong:
+
+```powershell
+.venv\Scripts\python.exe run_replay_corpus.py --output-dir data\corpus_search_greedy_002 --games 500 --seed-start 6000 --seat0-bot search --seat1-bot greedy --swap-seats --max-turns 400 --repetition-limit 4 --no-progress-limit 60 --search-depth 2 --search-max-branching 8 --search-buy-branching 5 --search-reserve-branching 2 --search-take-branching 2 --log-every 10
+```
+
+3. Train either search-only on the larger search corpus, or add multi-corpus/mixed training support and mix `search:greedy` with `greedy:random`.
 
 ## Files Worth Reading First
 
@@ -113,17 +132,28 @@ On the CUDA machine:
 - `src/splendor_ai/engine/env.py`
 - `src/splendor_ai/encoding/action_codec.py`
 - `src/splendor_ai/training/run_supervised.py`
+- `src/splendor_ai/eval/run_benchmark.py`
 - `src/splendor_ai/bots/heuristic_bot.py`
 - `src/splendor_ai/bots/search_bot.py`
 
 ## Test Status
 
-Before handoff, the full suite passed:
+Before this handoff update, the full suite passed:
 
-- `69 passed`
+- `79 passed`
 
 If behavior looks suspicious on the new machine, first rerun:
 
 ```powershell
 python -m pytest -q
 ```
+
+## Recent Commit Summary
+
+Changes prepared in this session:
+
+- Added train/validation split metrics, progress logging, and final-vs-best checkpoint handling to supervised training.
+- Added saved checkpoint benchmarking and a reusable `run_benchmark.py` CLI.
+- Improved `ShallowSearchBot` loop behavior by penalizing repeated no-progress token take/return cycles.
+- Added regression tests for search-loop behavior, training metrics/artifacts, benchmark summarization, and CLI helpers.
+- Created local Codex skill `repo-handoff-commit` for future handoff-update-plus-commit workflows.

@@ -10,8 +10,11 @@ from splendor_ai.training import (
     SupervisedTrainConfig,
     collate_replay_samples,
     compute_supervised_losses,
+    create_replay_dataloader,
     fit_supervised,
+    fit_supervised_dataloaders_with_artifacts,
     masked_policy_logits,
+    split_replay_dataset,
 )
 
 
@@ -169,8 +172,9 @@ def test_fit_supervised_runs_end_to_end_on_synthetic_data(tmp_path) -> None:
 
     assert isinstance(trained_model, PolicyValueMLP)
     assert len(metrics) == 2
-    assert all(metric.batches == 2 for metric in metrics)
-    assert all(math.isfinite(metric.total_loss) for metric in metrics)
+    assert all(metric.train.batches == 2 for metric in metrics)
+    assert all(math.isfinite(metric.train.total_loss) for metric in metrics)
+    assert all(metric.validation is None for metric in metrics)
 
 
 def test_fit_supervised_can_exclude_stalled_games(tmp_path) -> None:
@@ -206,7 +210,7 @@ def test_fit_supervised_can_exclude_stalled_games(tmp_path) -> None:
 
     assert isinstance(trained_model, PolicyValueMLP)
     assert len(metrics) == 1
-    assert metrics[0].batches == 1
+    assert metrics[0].train.batches == 1
 
 
 def test_fit_supervised_can_exclude_timed_out_games(tmp_path) -> None:
@@ -242,4 +246,103 @@ def test_fit_supervised_can_exclude_timed_out_games(tmp_path) -> None:
 
     assert isinstance(trained_model, PolicyValueMLP)
     assert len(metrics) == 1
-    assert metrics[0].batches == 1
+    assert metrics[0].train.batches == 1
+
+
+def test_split_replay_dataset_creates_train_and_validation_subsets(tmp_path) -> None:
+    replay_path = tmp_path / "synthetic.jsonl"
+    _write_synthetic_replay_jsonl(replay_path, _synthetic_rows() * 3)
+    dataset = SupervisedReplayDataset(replay_path)
+
+    train_dataset, validation_dataset = split_replay_dataset(dataset, validation_fraction=0.25, seed=7)
+
+    assert len(train_dataset) == 5
+    assert validation_dataset is not None
+    assert len(validation_dataset) == 1
+
+
+def test_fit_supervised_reports_validation_metrics_when_enabled(tmp_path) -> None:
+    replay_path = tmp_path / "synthetic.jsonl"
+    _write_synthetic_replay_jsonl(replay_path, _synthetic_rows() * 4)
+
+    model = PolicyValueMLP(
+        PolicyValueModelConfig(
+            observation_size=256,
+            action_space_size=8,
+            trunk_hidden_size=32,
+            trunk_depth=2,
+            dropout=0.0,
+        )
+    )
+    trained_model, metrics = fit_supervised(
+        replay_path=replay_path,
+        config=SupervisedTrainConfig(
+            batch_size=2,
+            learning_rate=1e-3,
+            weight_decay=0.0,
+            value_loss_weight=1.0,
+            epochs=1,
+            device="cpu",
+            shuffle=False,
+            validation_fraction=0.25,
+            validation_seed=3,
+        ),
+        model=model,
+    )
+
+    assert isinstance(trained_model, PolicyValueMLP)
+    assert len(metrics) == 1
+    assert metrics[0].validation is not None
+    assert metrics[0].train.samples == 6
+    assert metrics[0].validation.samples == 2
+    assert math.isfinite(metrics[0].validation.total_loss)
+
+
+def test_fit_supervised_artifacts_tracks_best_validation_epoch(tmp_path) -> None:
+    replay_path = tmp_path / "synthetic.jsonl"
+    _write_synthetic_replay_jsonl(replay_path, _synthetic_rows() * 4)
+    dataset = SupervisedReplayDataset(replay_path)
+
+    model = PolicyValueMLP(
+        PolicyValueModelConfig(
+            observation_size=256,
+            action_space_size=8,
+            trunk_hidden_size=32,
+            trunk_depth=2,
+            dropout=0.0,
+        )
+    )
+    train_dataset, validation_dataset = split_replay_dataset(dataset, validation_fraction=0.25, seed=3)
+    train_dataloader = create_replay_dataloader(
+        train_dataset,
+        batch_size=2,
+        action_space_size=model.config.action_space_size,
+        shuffle=False,
+    )
+    validation_dataloader = create_replay_dataloader(
+        validation_dataset,
+        batch_size=2,
+        action_space_size=model.config.action_space_size,
+        shuffle=False,
+    )
+
+    artifacts = fit_supervised_dataloaders_with_artifacts(
+        train_dataloader=train_dataloader,
+        validation_dataloader=validation_dataloader,
+        config=SupervisedTrainConfig(
+            batch_size=2,
+            learning_rate=1e-3,
+            weight_decay=0.0,
+            value_loss_weight=1.0,
+            epochs=2,
+            device="cpu",
+            shuffle=False,
+            validation_fraction=0.25,
+            validation_seed=3,
+        ),
+        model=model,
+    )
+
+    assert artifacts.best_epoch_index in (1, 2)
+    assert artifacts.best_model_state_dict is not None
+    assert len(artifacts.metrics) == 2

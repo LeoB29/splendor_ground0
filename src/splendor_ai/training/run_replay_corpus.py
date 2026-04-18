@@ -93,6 +93,30 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     pairings = _resolve_pairings(args)
+    pairing_labels = []
+    if args.pairing:
+        pairing_labels.extend(args.pairing)
+    else:
+        pairing_labels.append(f"{args.seat0_bot}:{args.seat1_bot}")
+
+    print(
+        f"[corpus] output_dir={args.output_dir}"
+        f" games={args.games}"
+        f" seed_start={args.seed_start}"
+        f" max_turns={args.max_turns}"
+        f" repetition_limit={args.repetition_limit}"
+        f" no_progress_limit={args.no_progress_limit}"
+        f" swap_seats={args.swap_seats}"
+    )
+    print(f"[corpus] pairings={', '.join(pairing_labels)}")
+    if any("search" in pairing for pairing in pairing_labels):
+        print(
+            f"[corpus] search_settings depth={args.search_depth}"
+            f" max_branching={args.search_max_branching}"
+            f" buy_branching={args.search_buy_branching}"
+            f" reserve_branching={args.search_reserve_branching}"
+            f" take_branching={args.search_take_branching}"
+        )
 
     stalled_games = 0
     timed_out_games = 0
@@ -124,6 +148,7 @@ def main() -> None:
         pairings=pairings,
         swap_seats=args.swap_seats,
     )
+    print("[corpus] generation complete, writing replay files...")
     replay_path, summary_path = write_replay_corpus(
         output_dir=args.output_dir,
         games=games,
