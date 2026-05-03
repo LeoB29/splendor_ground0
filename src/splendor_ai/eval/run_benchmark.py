@@ -30,6 +30,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed-start", type=int, default=0, help="First game seed.")
     parser.add_argument("--max-turns", type=int, default=400, help="Maximum turns per game.")
     parser.add_argument(
+        "--repetition-limit",
+        type=int,
+        default=4,
+        help="Optional repeated-state cutoff used for loop diagnostics. Set to 0 to disable.",
+    )
+    parser.add_argument(
+        "--no-progress-limit",
+        type=int,
+        default=60,
+        help="Optional no-progress cutoff used for loop diagnostics. Set to 0 to disable.",
+    )
+    parser.add_argument(
         "--no-swap-seats",
         action="store_true",
         help="Disable alternating seats across games.",
@@ -55,6 +67,8 @@ def benchmark_checkpoint(
     games: int = 50,
     seed_start: int = 0,
     max_turns: int = 400,
+    repetition_limit: int = 4,
+    no_progress_limit: int = 60,
     swap_seats: bool = True,
     log_every: int = 5,
 ) -> dict[str, object]:
@@ -65,6 +79,8 @@ def benchmark_checkpoint(
         "games_per_opponent": games,
         "seed_start": seed_start,
         "max_turns": max_turns,
+        "repetition_limit": repetition_limit,
+        "no_progress_limit": no_progress_limit,
         "swap_seats": swap_seats,
         "opponents": [],
     }
@@ -77,6 +93,8 @@ def benchmark_checkpoint(
             games=games,
             seed_start=seed_start,
             max_turns=max_turns,
+            repetition_limit=repetition_limit,
+            no_progress_limit=no_progress_limit,
             swap_seats=swap_seats,
             log_every=log_every,
         )
@@ -91,12 +109,15 @@ def summarize_games(
     seed_start: int,
     max_turns: int,
     device: str,
+    repetition_limit: int = 0,
+    no_progress_limit: int = 0,
 ) -> dict[str, object]:
     model_wins = 0
     opponent_wins = 0
     draws = 0
     timed_out = 0
     stalled = 0
+    termination_reasons: dict[str, int] = {}
     per_game: list[dict[str, object]] = []
 
     for game in games:
@@ -113,6 +134,7 @@ def summarize_games(
             timed_out += 1
         if game.stalled:
             stalled += 1
+        termination_reasons[game.termination_reason] = termination_reasons.get(game.termination_reason, 0) + 1
         per_game.append(
             {
                 "seed": game.seed,
@@ -123,6 +145,9 @@ def summarize_games(
                 "bot_seats": list(game.bot_seats),
                 "stalled": game.stalled,
                 "timed_out": game.timed_out,
+                "termination_reason": game.termination_reason,
+                "repetition_count": game.repetition_count,
+                "no_progress_streak": game.no_progress_streak,
             }
         )
 
@@ -134,12 +159,15 @@ def summarize_games(
         "draws": draws,
         "timed_out_games": timed_out,
         "stalled_games": stalled,
+        "termination_reasons": termination_reasons,
         "wins_by_seat": [
             sum(1 for game in games if game.winner == 0),
             sum(1 for game in games if game.winner == 1),
         ],
         "seed_start": seed_start,
         "max_turns": max_turns,
+        "repetition_limit": repetition_limit,
+        "no_progress_limit": no_progress_limit,
         "device": device,
         "games_detail": per_game,
     }
@@ -164,6 +192,8 @@ def _benchmark_opponent(
     games: int,
     seed_start: int,
     max_turns: int,
+    repetition_limit: int,
+    no_progress_limit: int,
     swap_seats: bool,
     log_every: int,
 ) -> dict[str, object]:
@@ -190,6 +220,8 @@ def _benchmark_opponent(
             bot_seat_1=seat1,
             seed=seed_start + game_index,
             max_turns=max_turns,
+            repetition_limit=repetition_limit,
+            no_progress_limit=no_progress_limit,
         )
         played_games.append(game)
 
@@ -225,6 +257,8 @@ def _benchmark_opponent(
         seed_start=seed_start,
         max_turns=max_turns,
         device=device,
+        repetition_limit=repetition_limit,
+        no_progress_limit=no_progress_limit,
     )
 
 
@@ -246,6 +280,8 @@ def main() -> None:
         games=args.games,
         seed_start=args.seed_start,
         max_turns=args.max_turns,
+        repetition_limit=args.repetition_limit,
+        no_progress_limit=args.no_progress_limit,
         swap_seats=not args.no_swap_seats,
         log_every=args.log_every,
     )

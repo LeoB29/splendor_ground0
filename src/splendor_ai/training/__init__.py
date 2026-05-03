@@ -1,6 +1,6 @@
 """Training utilities."""
 
-from .dataset import ReplaySample, SupervisedReplayDataset, collate_replay_samples
+from .dataset import ReplaySample, ReplaySourceSummary, SupervisedReplayDataset, collate_replay_samples, summarize_replay_dataset_sources
 from .corpus import CorpusSummary, generate_replay_corpus, summarize_replay_games, write_replay_corpus
 from .device import TrainingBackend, resolve_training_backend
 from .model import PolicyValueMLP, PolicyValueModelConfig, masked_policy_logits
@@ -32,6 +32,7 @@ __all__ = [
     "ReplayGame",
     "ReplayStep",
     "ReplaySample",
+    "ReplaySourceSummary",
     "PolicyValueMLP",
     "PolicyValueModelConfig",
     "CorpusSummary",
@@ -59,5 +60,6 @@ __all__ = [
     "split_replay_dataset",
     "summarize_replay_games",
     "train_supervised_epoch",
+    "summarize_replay_dataset_sources",
     "write_replay_corpus",
 ]

@@ -13,8 +13,9 @@ import torch
 
 from splendor_ai.bots import CheckpointPolicyBot, GreedyHeuristicBot, RandomLegalBot
 from splendor_ai.eval import MatchConfig, play_game
+from splendor_ai.eval.run_benchmark import summarize_games
 
-from .dataset import SupervisedReplayDataset
+from .dataset import SupervisedReplayDataset, summarize_replay_dataset_sources
 from .model import PolicyValueMLP, PolicyValueModelConfig
 from .supervised import (
     BatchProgress,
@@ -27,7 +28,12 @@ from .supervised import (
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train the baseline Splendor policy/value model from replay JSONL data.")
-    parser.add_argument("--replay-path", required=True, help="Path to replay JSONL exported by the replay collector.")
+    parser.add_argument(
+        "--replay-path",
+        action="append",
+        required=True,
+        help="Path to replay JSONL exported by the replay collector. Repeat to mix multiple corpora.",
+    )
     parser.add_argument("--output-dir", required=True, help="Directory where checkpoints and metrics should be written.")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -80,6 +86,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=400,
         help="Maximum turns per post-train benchmark game.",
+    )
+    parser.add_argument(
+        "--benchmark-repetition-limit",
+        type=int,
+        default=4,
+        help="Repeated-state cutoff used during post-train benchmarks. Set to 0 to disable.",
+    )
+    parser.add_argument(
+        "--benchmark-no-progress-limit",
+        type=int,
+        default=60,
+        help="No-progress cutoff used during post-train benchmarks. Set to 0 to disable.",
     )
     parser.add_argument(
         "--benchmark-log-every",
@@ -147,6 +165,8 @@ def _run_benchmarks(
     benchmark_device: str,
     benchmark_seed_start: int,
     benchmark_max_turns: int,
+    benchmark_repetition_limit: int,
+    benchmark_no_progress_limit: int,
     benchmark_log_every: int,
 ) -> list[dict[str, object]]:
     if benchmark_games <= 0 or not opponents:
@@ -168,9 +188,13 @@ def _run_benchmarks(
         opponent_wins = 0
         draws = 0
         timed_out_games = 0
-        stalled_games = 0
         start_time = time.perf_counter()
-        cfg = MatchConfig(games=benchmark_games, max_turns_per_game=benchmark_max_turns)
+        cfg = MatchConfig(
+            games=benchmark_games,
+            max_turns_per_game=benchmark_max_turns,
+            repetition_limit=benchmark_repetition_limit,
+            no_progress_limit=benchmark_no_progress_limit,
+        )
 
         for game_index in range(cfg.games):
             swap = cfg.swap_seats and (game_index % 2 == 1)
@@ -183,6 +207,8 @@ def _run_benchmarks(
                 bot_seat_1=seat1,
                 seed=benchmark_seed_start + game_index,
                 max_turns=cfg.max_turns_per_game,
+                repetition_limit=cfg.repetition_limit,
+                no_progress_limit=cfg.no_progress_limit,
             )
             games.append(game)
             if game.winner is None:
@@ -195,8 +221,6 @@ def _run_benchmarks(
                     opponent_wins += 1
             if game.timed_out:
                 timed_out_games += 1
-            if game.stalled:
-                stalled_games += 1
 
             done = game_index + 1
             if done == cfg.games or done == 1 or (benchmark_log_every > 0 and done % benchmark_log_every == 0):
@@ -215,27 +239,23 @@ def _run_benchmarks(
                     f" timed_out={timed_out_games}"
                 )
 
-        wins_by_seat = [
-            sum(1 for game in games if game.winner == 0),
-            sum(1 for game in games if game.winner == 1),
-        ]
-        benchmark_payload.append(
+        opponent_summary = summarize_games(
+            tuple(games),
+            opponent_name=opponent_name,
+            seed_start=benchmark_seed_start,
+            max_turns=benchmark_max_turns,
+            device=benchmark_device,
+            repetition_limit=benchmark_repetition_limit,
+            no_progress_limit=benchmark_no_progress_limit,
+        )
+        opponent_summary.update(
             {
                 "checkpoint_label": checkpoint_label,
                 "checkpoint_path": checkpoint_path.name,
-                "opponent": opponent_name,
-                "games": len(games),
-                "model_wins": model_wins,
-                "opponent_wins": opponent_wins,
-                "draws": draws,
-                "timed_out_games": timed_out_games,
-                "stalled_games": stalled_games,
-                "wins_by_seat": wins_by_seat,
-                "seed_start": benchmark_seed_start,
                 "max_turns_per_game": benchmark_max_turns,
-                "device": benchmark_device,
             }
         )
+        benchmark_payload.append(opponent_summary)
     return benchmark_payload
 
 
@@ -259,6 +279,7 @@ def _select_benchmark_champion(
 
 def _build_train_config_payload(args: argparse.Namespace) -> dict[str, object]:
     return {
+        "replay_paths": [str(Path(path)) for path in args.replay_path],
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
         "weight_decay": args.weight_decay,
@@ -271,13 +292,41 @@ def _build_train_config_payload(args: argparse.Namespace) -> dict[str, object]:
         "validation_seed": args.validation_seed,
         "log_every_batches": args.log_every_batches,
     }
+
+
+def _merge_source_counts(
+    total_counts: tuple[object, ...],
+    train_counts: tuple[object, ...],
+    validation_counts: tuple[object, ...],
+) -> list[dict[str, object]]:
+    merged: dict[str, dict[str, object]] = {}
+    for counts, field_name in (
+        (total_counts, "total_samples"),
+        (train_counts, "train_samples"),
+        (validation_counts, "validation_samples"),
+    ):
+        for summary in counts:
+            entry = merged.setdefault(
+                summary.path,
+                {
+                    "path": summary.path,
+                    "total_samples": 0,
+                    "train_samples": 0,
+                    "validation_samples": 0,
+                },
+            )
+            entry[field_name] = summary.samples
+    return [merged[path] for path in sorted(merged)]
+
+
 def main() -> None:
     args = build_parser().parse_args()
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    replay_paths = tuple(Path(path) for path in args.replay_path)
 
     print(
-        f"[train] replay_path={args.replay_path}"
+        f"[train] replay_paths={', '.join(str(path) for path in replay_paths)}"
         f" output_dir={output_dir}"
         f" device={args.device}"
         f" epochs={args.epochs}"
@@ -305,7 +354,7 @@ def main() -> None:
     )
     print("[train] loading replay dataset...")
     dataset = SupervisedReplayDataset(
-        args.replay_path,
+        replay_paths,
         include_stalled_games=train_config.include_stalled_games,
         include_timed_out_games=train_config.include_timed_out_games,
     )
@@ -319,6 +368,18 @@ def main() -> None:
         f" train_samples={len(train_dataset)}"
         f" validation_samples={len(validation_dataset) if validation_dataset is not None else 0}"
     )
+    dataset_source_counts = summarize_replay_dataset_sources(dataset)
+    train_source_counts = summarize_replay_dataset_sources(train_dataset)
+    validation_source_counts = (
+        summarize_replay_dataset_sources(validation_dataset)
+        if validation_dataset is not None
+        else tuple()
+    )
+    if len(dataset_source_counts) > 1:
+        print(
+            "[train] replay_mix="
+            + ", ".join(f"{summary.path}:{summary.samples}" for summary in dataset_source_counts)
+        )
     train_dataloader = create_replay_dataloader(
         train_dataset,
         batch_size=train_config.batch_size,
@@ -411,14 +472,22 @@ def main() -> None:
                     benchmark_device=benchmark_device,
                     benchmark_seed_start=args.benchmark_seed_start,
                     benchmark_max_turns=args.benchmark_max_turns,
+                    benchmark_repetition_limit=args.benchmark_repetition_limit,
+                    benchmark_no_progress_limit=args.benchmark_no_progress_limit,
                     benchmark_log_every=args.benchmark_log_every,
                 ),
             }
         )
     benchmark_champion = _select_benchmark_champion(candidate_benchmark_payload)
+    merged_source_counts = _merge_source_counts(
+        dataset_source_counts,
+        train_source_counts,
+        validation_source_counts,
+    )
     metrics_payload = {
         "dataset": {
-            "replay_path": str(Path(args.replay_path)),
+            "replay_path": str(replay_paths[0]) if len(replay_paths) == 1 else None,
+            "replay_paths": [str(path) for path in replay_paths],
             "total_samples": len(dataset),
             "train_samples": len(train_dataset),
             "validation_samples": len(validation_dataset) if validation_dataset is not None else 0,
@@ -426,6 +495,7 @@ def main() -> None:
             "validation_seed": args.validation_seed,
             "excluded_stalled_games": args.exclude_stalled_games,
             "excluded_timeout_games": args.exclude_timeout_games,
+            "sources": merged_source_counts,
         },
         "checkpoints": {
             "final_checkpoint_path": checkpoint_path.name,
@@ -489,6 +559,7 @@ def main() -> None:
                     f" opponent_wins={benchmark['opponent_wins']}"
                     f" draws={benchmark['draws']}"
                     f" timed_out={benchmark['timed_out_games']}"
+                    f" termination_reasons={benchmark['termination_reasons']}"
                 )
 
 

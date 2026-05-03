@@ -13,7 +13,7 @@ from torch import nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset, Subset
 
-from .dataset import SupervisedReplayDataset, collate_replay_samples
+from .dataset import ReplaySample, SupervisedReplayDataset, collate_replay_samples
 from .model import PolicyValueMLP, masked_policy_logits
 
 
@@ -89,7 +89,7 @@ def _create_dataloader(
 
 
 def create_replay_dataloader(
-    path: str | Path | Dataset[ReplaySample],
+    path: str | Path | tuple[str | Path, ...] | list[str | Path] | Dataset[ReplaySample],
     batch_size: int,
     action_space_size: int,
     shuffle: bool = True,
@@ -395,7 +395,7 @@ def fit_supervised_dataloaders(
 
 
 def fit_supervised(
-    replay_path: str | Path,
+    replay_path: str | Path | tuple[str | Path, ...] | list[str | Path],
     config: SupervisedTrainConfig | None = None,
     model: PolicyValueMLP | None = None,
 ) -> tuple[PolicyValueMLP, tuple[EpochMetrics, ...]]:

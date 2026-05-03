@@ -28,12 +28,17 @@ def test_summarize_games_counts_model_wins_with_swapped_seats() -> None:
                 final_scores=(10, 10),
                 bot_seats=("CheckpointPolicyBot", "GreedyHeuristicBot"),
                 timed_out=True,
+                termination_reason="repetition_cutoff",
+                repetition_count=4,
+                no_progress_streak=18,
             ),
         ),
         opponent_name="greedy",
         seed_start=10,
         max_turns=400,
         device="cuda",
+        repetition_limit=4,
+        no_progress_limit=60,
     )
 
     assert payload["opponent"] == "greedy"
@@ -42,8 +47,11 @@ def test_summarize_games_counts_model_wins_with_swapped_seats() -> None:
     assert payload["opponent_wins"] == 0
     assert payload["draws"] == 1
     assert payload["timed_out_games"] == 1
+    assert payload["termination_reasons"] == {"completed": 2, "repetition_cutoff": 1}
     assert payload["wins_by_seat"] == [1, 1]
     assert payload["games_detail"][1]["winner_name"] == "CheckpointPolicyBot"
+    assert payload["games_detail"][2]["termination_reason"] == "repetition_cutoff"
+    assert payload["games_detail"][2]["repetition_count"] == 4
 
 
 def test_default_output_path_includes_parent_and_checkpoint_stem() -> None:

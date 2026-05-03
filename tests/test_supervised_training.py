@@ -6,6 +6,7 @@ import torch
 from splendor_ai.training import (
     PolicyValueMLP,
     PolicyValueModelConfig,
+    ReplaySourceSummary,
     SupervisedReplayDataset,
     SupervisedTrainConfig,
     collate_replay_samples,
@@ -15,6 +16,7 @@ from splendor_ai.training import (
     fit_supervised_dataloaders_with_artifacts,
     masked_policy_logits,
     split_replay_dataset,
+    summarize_replay_dataset_sources,
 )
 
 
@@ -76,6 +78,22 @@ def test_supervised_replay_dataset_loads_samples(tmp_path) -> None:
     assert sample.action_index == 2
     assert sample.legal_action_indices == (1, 2, 3)
     assert sample.value_target == 1.0
+
+
+def test_supervised_replay_dataset_loads_multiple_paths(tmp_path) -> None:
+    replay_path_a = tmp_path / "synthetic_a.jsonl"
+    replay_path_b = tmp_path / "synthetic_b.jsonl"
+    _write_synthetic_replay_jsonl(replay_path_a, _synthetic_rows())
+    _write_synthetic_replay_jsonl(replay_path_b, _synthetic_rows())
+
+    dataset = SupervisedReplayDataset([replay_path_a, replay_path_b])
+
+    assert len(dataset) == 4
+    assert dataset.paths == (replay_path_a, replay_path_b)
+    assert summarize_replay_dataset_sources(dataset) == (
+        ReplaySourceSummary(path=str(replay_path_a), samples=2),
+        ReplaySourceSummary(path=str(replay_path_b), samples=2),
+    )
 
 
 def test_supervised_replay_dataset_can_exclude_stalled_games(tmp_path) -> None:
@@ -261,6 +279,25 @@ def test_split_replay_dataset_creates_train_and_validation_subsets(tmp_path) -> 
     assert len(validation_dataset) == 1
 
 
+def test_summarize_replay_dataset_sources_handles_subset(tmp_path) -> None:
+    replay_path_a = tmp_path / "synthetic_a.jsonl"
+    replay_path_b = tmp_path / "synthetic_b.jsonl"
+    _write_synthetic_replay_jsonl(replay_path_a, _synthetic_rows())
+    _write_synthetic_replay_jsonl(replay_path_b, _synthetic_rows())
+    dataset = SupervisedReplayDataset([replay_path_a, replay_path_b])
+
+    train_dataset, validation_dataset = split_replay_dataset(dataset, validation_fraction=0.25, seed=7)
+
+    assert summarize_replay_dataset_sources(train_dataset) == (
+        ReplaySourceSummary(path=str(replay_path_a), samples=2),
+        ReplaySourceSummary(path=str(replay_path_b), samples=1),
+    )
+    assert validation_dataset is not None
+    assert summarize_replay_dataset_sources(validation_dataset) == (
+        ReplaySourceSummary(path=str(replay_path_b), samples=1),
+    )
+
+
 def test_fit_supervised_reports_validation_metrics_when_enabled(tmp_path) -> None:
     replay_path = tmp_path / "synthetic.jsonl"
     _write_synthetic_replay_jsonl(replay_path, _synthetic_rows() * 4)
@@ -296,6 +333,44 @@ def test_fit_supervised_reports_validation_metrics_when_enabled(tmp_path) -> Non
     assert metrics[0].train.samples == 6
     assert metrics[0].validation.samples == 2
     assert math.isfinite(metrics[0].validation.total_loss)
+
+
+def test_fit_supervised_accepts_multiple_replay_paths(tmp_path) -> None:
+    replay_path_a = tmp_path / "synthetic_a.jsonl"
+    replay_path_b = tmp_path / "synthetic_b.jsonl"
+    _write_synthetic_replay_jsonl(replay_path_a, _synthetic_rows() * 2)
+    _write_synthetic_replay_jsonl(replay_path_b, _synthetic_rows() * 2)
+
+    model = PolicyValueMLP(
+        PolicyValueModelConfig(
+            observation_size=256,
+            action_space_size=8,
+            trunk_hidden_size=32,
+            trunk_depth=2,
+            dropout=0.0,
+        )
+    )
+    trained_model, metrics = fit_supervised(
+        replay_path=[replay_path_a, replay_path_b],
+        config=SupervisedTrainConfig(
+            batch_size=2,
+            learning_rate=1e-3,
+            weight_decay=0.0,
+            value_loss_weight=1.0,
+            epochs=1,
+            device="cpu",
+            shuffle=False,
+            validation_fraction=0.25,
+            validation_seed=3,
+        ),
+        model=model,
+    )
+
+    assert isinstance(trained_model, PolicyValueMLP)
+    assert len(metrics) == 1
+    assert metrics[0].train.samples == 6
+    assert metrics[0].validation is not None
+    assert metrics[0].validation.samples == 2
 
 
 def test_fit_supervised_artifacts_tracks_best_validation_epoch(tmp_path) -> None:

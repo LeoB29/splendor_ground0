@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from splendor_ai.bots.base import Bot
+from splendor_ai.diagnostics import is_progress_transition, state_signature
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import SplendorState
 
@@ -16,6 +17,8 @@ class MatchConfig:
     seconds_per_move: float = 1.0
     swap_seats: bool = True
     max_turns_per_game: int = 400
+    repetition_limit: int = 0
+    no_progress_limit: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +30,9 @@ class GameResult:
     bot_seats: tuple[str, str]
     stalled: bool = False
     timed_out: bool = False
+    termination_reason: str = "completed"
+    repetition_count: int = 0
+    no_progress_streak: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,12 +62,32 @@ def play_game(
     bot_seat_1: Bot,
     seed: int = 0,
     max_turns: int = 400,
+    repetition_limit: int = 0,
+    no_progress_limit: int = 0,
 ) -> GameResult:
     env = SplendorEnv(seed=seed)
     state = env.initial_state()
     bots = (bot_seat_0, bot_seat_1)
+    state_visit_counts: dict[tuple[object, ...], int] = {}
+    no_progress_streak = 0
 
     while not state.terminal:
+        signature = state_signature(state)
+        seen_count = state_visit_counts.get(signature, 0) + 1
+        state_visit_counts[signature] = seen_count
+        if repetition_limit > 0 and seen_count >= repetition_limit:
+            return GameResult(
+                seed=seed,
+                turns=state.turn_index,
+                winner=_adjudicate_scores(state),
+                final_scores=(state.players[0].score, state.players[1].score),
+                bot_seats=(type(bot_seat_0).__name__, type(bot_seat_1).__name__),
+                timed_out=True,
+                termination_reason="repetition_cutoff",
+                repetition_count=seen_count,
+                no_progress_streak=no_progress_streak,
+            )
+
         if state.turn_index >= max_turns:
             return GameResult(
                 seed=seed,
@@ -70,6 +96,9 @@ def play_game(
                 final_scores=(state.players[0].score, state.players[1].score),
                 bot_seats=(type(bot_seat_0).__name__, type(bot_seat_1).__name__),
                 timed_out=True,
+                termination_reason="max_turns",
+                repetition_count=seen_count,
+                no_progress_streak=no_progress_streak,
             )
 
         legal_actions = env.legal_actions(state)
@@ -81,13 +110,34 @@ def play_game(
                 final_scores=(state.players[0].score, state.players[1].score),
                 bot_seats=(type(bot_seat_0).__name__, type(bot_seat_1).__name__),
                 stalled=True,
+                termination_reason="stalled",
+                repetition_count=seen_count,
+                no_progress_streak=no_progress_streak,
             )
 
         actor = bots[state.current_player]
         chosen_action = actor.choose_action(env, state, legal_actions)
         if chosen_action is None:
             raise RuntimeError("Bot returned no action in a non-terminal state.")
-        state = env.step(state, chosen_action)
+        next_state = env.step(state, chosen_action)
+        if is_progress_transition(state, next_state, chosen_action):
+            no_progress_streak = 0
+        else:
+            no_progress_streak += 1
+            if no_progress_limit > 0 and no_progress_streak >= no_progress_limit:
+                state = next_state
+                return GameResult(
+                    seed=seed,
+                    turns=state.turn_index,
+                    winner=_adjudicate_scores(state),
+                    final_scores=(state.players[0].score, state.players[1].score),
+                    bot_seats=(type(bot_seat_0).__name__, type(bot_seat_1).__name__),
+                    timed_out=True,
+                    termination_reason="no_progress_cutoff",
+                    repetition_count=seen_count,
+                    no_progress_streak=no_progress_streak,
+                )
+        state = next_state
 
     return GameResult(
         seed=seed,
@@ -95,6 +145,9 @@ def play_game(
         winner=state.winner,
         final_scores=(state.players[0].score, state.players[1].score),
         bot_seats=(type(bot_seat_0).__name__, type(bot_seat_1).__name__),
+        termination_reason="completed",
+        repetition_count=state_visit_counts.get(state_signature(state), 0),
+        no_progress_streak=no_progress_streak,
     )
 
 
@@ -117,6 +170,8 @@ def play_match(
                 bot_seat_1=seat1,
                 seed=seed_start + game_index,
                 max_turns=cfg.max_turns_per_game,
+                repetition_limit=cfg.repetition_limit,
+                no_progress_limit=cfg.no_progress_limit,
             )
         )
 
