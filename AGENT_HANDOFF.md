@@ -63,7 +63,7 @@ Infra:
 
 ## Current Reality
 
-The warm-start pipeline is in a stronger place than the prior handoff. Sharded `search:greedy` corpus scaling plus multi-corpus supervised training produced a stronger local champion checkpoint, and a narrow inference-only loop fallback now mitigates the rare checkpoint repetition failures seen in greedy benchmarks.
+The warm-start pipeline is in a stronger place than the prior handoff. Continued sharded `search:greedy` corpus scaling plus multi-corpus supervised training produced a new local champion checkpoint, and a narrow inference-only loop fallback now mitigates the rare checkpoint repetition failures seen in greedy benchmarks.
 
 Important local artifacts:
 
@@ -79,7 +79,11 @@ Important local artifacts:
   - 125 games, 7,942 steps, 0 stalled, 0 timed out
 - `data/corpus_search_greedy_003d/replays.jsonl`
   - 125 games, 8,012 steps, 0 stalled, 0 timed out
+- `data/corpus_search_greedy_004[1-5]/replays.jsonl`
+  - 125 games total, 7,964 steps, 0 stalled, 0 timed out
 - `outputs/warmstart_search_003/supervised_policy_value_best.pt`
+  - prior champion checkpoint
+- `outputs/warmstart_search_004/supervised_policy_value_best.pt`
   - current champion checkpoint
 - `outputs/benchmarks/warmstart_search_003_best_100g_seed5000.json`
   - 100-game benchmark: 98-2 vs random, 83-16-1 vs greedy, 2 repetition-cutoff games vs greedy
@@ -99,6 +103,14 @@ Important local artifacts:
   - local/ignored artifact, search-weighted mixed training; benchmark champion final checkpoint went 19-1 vs random, 9-11 vs greedy on seed block 7000
 - `outputs/benchmarks/warmstart_search_003_best_20g_seed7000.json`
   - local/ignored artifact, current champion comparison on same seed block: 20-0 vs random, 16-4 vs greedy
+- `outputs/warmstart_search_004/supervised_metrics.json`
+  - local/ignored artifact, search-only training on `002 + 003[a-d] + 004[1-5]`; best-validation checkpoint selected as benchmark champion
+- `outputs/benchmarks/warmstart_search_004_best_100g_seed5000.json`
+  - local/ignored artifact, 100-game benchmark vs greedy: 85-15-0, 0 timed out, 4 fallback triggers
+- `outputs/benchmarks/warmstart_search_004_best_100g_seed6000.json`
+  - local/ignored artifact, 100-game benchmark vs greedy: 86-14-0, 0 timed out, 1 fallback trigger
+- `outputs/benchmarks/warmstart_search_004_best_random_100g_seed5000.json`
+  - local/ignored artifact, 100-game sanity benchmark vs random: 100-0-0, 0 timed out, 4 fallback triggers
 
 Observed results:
 
@@ -124,10 +136,20 @@ Observed results:
   - `warmstart_mix_001`: existing search corpora plus `corpus_greedy_random_003`, 209,430 samples, 8 epochs, final checkpoint selected by benchmark, 5-15 vs greedy on seed block 7000
   - `warmstart_mix_002_search_weighted`: search corpora repeated 3x plus `corpus_greedy_random_003`, 337,150 samples, 8 epochs, final checkpoint selected by benchmark, 9-11 vs greedy on seed block 7000
   - current champion `warmstart_search_003/supervised_policy_value_best.pt` went 16-4 vs greedy on the same seed block, so neither mixed checkpoint should be promoted
+- Generated clean `search:greedy` shard block `004[1-5]`:
+  - 125 games, 7,964 steps, 0 stalled, 0 timed out
+- Trained `warmstart_search_004` on search-only data (`002 + 003[a-d] + 004[1-5]`):
+  - 71,824 total samples, 8 epochs, best validation epoch 6
+  - post-train 20-game seed-7000 benchmark: best-validation checkpoint went 20-0 vs random and 19-1 vs greedy
+  - 100-game greedy validation: 85-15 on seed block 5000, 86-14 on seed block 6000
+  - 100-game random sanity benchmark: 100-0 on seed block 5000
+  - combined vs greedy: 171-29-0 across 200 games, 0 timeouts, 5 fallback triggers
+  - compared to fallback-enabled `warmstart_search_003_best`: 170-30-0 across 200 games, 0 timeouts, 13 fallback triggers
+  - promote `warmstart_search_004/supervised_policy_value_best.pt` as the new local champion; the win-rate gain is small, but fallback use is materially lower
 
 Current practical recommendation:
 
-- Treat `outputs/warmstart_search_003/supervised_policy_value_best.pt` as the current champion.
+- Treat `outputs/warmstart_search_004/supervised_policy_value_best.pt` as the current champion.
 - Use the benchmark CLI for future checkpoint comparisons instead of ad hoc inline Python.
 - Keep the loop fallback enabled for GUI/benchmark play, but continue recording trigger counts so it remains measurable and removable.
 - Important caveat: the fallback is a pragmatic guardrail, not a pure policy improvement. It may slightly affect marginal benchmark strength by overriding the model in rare loop-risk states, so compare future champions using both win rate and fallback trigger counts.
@@ -170,7 +192,7 @@ Near-term:
 1. Treat the current champion as:
 
 ```powershell
-outputs\warmstart_search_003\supervised_policy_value_best.pt
+outputs\warmstart_search_004\supervised_policy_value_best.pt
 ```
 
 2. Do not promote the mixed-data experiments.
@@ -178,8 +200,8 @@ outputs\warmstart_search_003\supervised_policy_value_best.pt
    - Even a 3x search-weighted mix only reached 9-11 vs greedy on seed block 7000, while the current champion reached 16-4.
    - The lesson is that broader data needs quality control or weighting by playing strength, not just more rows.
 
-3. Next experiment should generate stronger data rather than mix in weak random-opponent games.
-   - Best near-term option: generate another clean sharded `search:greedy` block, then train on search-only data again.
+3. Next experiment should continue generating stronger search-only data or start designing champion-assisted data.
+   - Best near-term option: generate another clean sharded `search:greedy` block, then train a `warmstart_search_005` successor.
    - Alternative: generate champion-assisted data, but do this only if replay export can mark policy source/quality clearly enough to avoid training on bad fallback artifacts.
 
 4. Use the sharded replay pattern if continuing data scaling:
@@ -223,6 +245,13 @@ Direct verification completed in this session:
   - `warmstart_mix_001`: 85 passed before run, trained successfully, benchmark champion final checkpoint 17-3 vs random and 5-15 vs greedy on seed block 7000
   - `warmstart_mix_002_search_weighted`: trained successfully, benchmark champion final checkpoint 19-1 vs random and 9-11 vs greedy on seed block 7000
   - current champion comparison on seed block 7000: 20-0 vs random and 16-4 vs greedy
+- `warmstart_search_004`:
+  - generated `corpus_search_greedy_004[1-5]`: 125 games, 7,964 steps, 0 stalled, 0 timed out
+  - trained successfully on 71,824 search-only replay samples
+  - post-train benchmark selected `supervised_policy_value_best.pt`
+  - seed block 5000 vs greedy: 85-15-0, 0 timeouts, 4 fallback triggers
+  - seed block 6000 vs greedy: 86-14-0, 0 timeouts, 1 fallback trigger
+  - seed block 5000 vs random: 100-0-0, 0 timeouts, 4 fallback triggers
 
 Plain pytest without `--basetemp` can still hit Windows temp permission issues around local pytest temp directories. Use a repo-local basetemp:
 
@@ -241,3 +270,4 @@ Changes prepared in this session:
 - Added focused tests for fallback behavior and updated benchmark summary expectations.
 - Validated fallback on greedy seed blocks 5000 and 6000, removing observed repetition cutoffs while preserving roughly the same win rate.
 - Ran and rejected `warmstart_mix_001` and `warmstart_mix_002_search_weighted`; current champion remains `warmstart_search_003/supervised_policy_value_best.pt`.
+- Generated clean `corpus_search_greedy_004[1-5]`, trained `warmstart_search_004`, and promoted `outputs/warmstart_search_004/supervised_policy_value_best.pt` based on 200-game greedy validation.
