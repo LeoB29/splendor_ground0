@@ -93,6 +93,12 @@ Important local artifacts:
   - local/ignored artifact, 100-game benchmark vs greedy with fallback enabled: 85-15-0, 0 timed out, 100 completed, 5 fallback triggers
 - `outputs/benchmarks/loop_fallback_disabled_seed5008_probe.json`
   - local/ignored artifact, confirms seed 5008 still hits `repetition_cutoff` when fallback is disabled
+- `outputs/warmstart_mix_001/supervised_metrics.json`
+  - local/ignored artifact, naive mixed search+greedy_random training; benchmark champion final checkpoint went 17-3 vs random, 5-15 vs greedy on seed block 7000
+- `outputs/warmstart_mix_002_search_weighted/supervised_metrics.json`
+  - local/ignored artifact, search-weighted mixed training; benchmark champion final checkpoint went 19-1 vs random, 9-11 vs greedy on seed block 7000
+- `outputs/benchmarks/warmstart_search_003_best_20g_seed7000.json`
+  - local/ignored artifact, current champion comparison on same seed block: 20-0 vs random, 16-4 vs greedy
 
 Observed results:
 
@@ -114,12 +120,17 @@ Observed results:
   - seed block 5000: 85-15-0, 0 timeouts, 8 fallback triggers
   - seed block 6000: 85-15-0, 0 timeouts, 5 fallback triggers
   - combined: 170-30-0 across 200 games, 0 timeouts, 13 fallback triggers
+- Ran two mixed-data warm-start experiments after accepting the fallback:
+  - `warmstart_mix_001`: existing search corpora plus `corpus_greedy_random_003`, 209,430 samples, 8 epochs, final checkpoint selected by benchmark, 5-15 vs greedy on seed block 7000
+  - `warmstart_mix_002_search_weighted`: search corpora repeated 3x plus `corpus_greedy_random_003`, 337,150 samples, 8 epochs, final checkpoint selected by benchmark, 9-11 vs greedy on seed block 7000
+  - current champion `warmstart_search_003/supervised_policy_value_best.pt` went 16-4 vs greedy on the same seed block, so neither mixed checkpoint should be promoted
 
 Current practical recommendation:
 
 - Treat `outputs/warmstart_search_003/supervised_policy_value_best.pt` as the current champion.
 - Use the benchmark CLI for future checkpoint comparisons instead of ad hoc inline Python.
 - Keep the loop fallback enabled for GUI/benchmark play, but continue recording trigger counts so it remains measurable and removable.
+- Important caveat: the fallback is a pragmatic guardrail, not a pure policy improvement. It may slightly affect marginal benchmark strength by overriding the model in rare loop-risk states, so compare future champions using both win rate and fallback trigger counts.
 - Keep using sharded search corpora plus multi-path training instead of single giant replay jobs.
 - Continue excluding stalled/timeout games when training.
 - Watch raw checkpoint loop behavior separately from guarded benchmark behavior. The fallback mitigates observed loops, but the long-term fix should come from stronger data/training/self-play targets.
@@ -146,6 +157,8 @@ Current practical recommendation:
 
 5. Raw checkpoint policy can still produce rare non-progress benchmark games.
    - The loop fallback is an inference guardrail, not a training fix.
+   - It is intentionally narrow and has validated well so far, but it can still change move choice at the margin when it fires.
+   - Track `model_loop_fallback_triggers`; a future stronger model should need it less often, and ideally not at all.
    - With fallback disabled, seed `5008` still ends at turn 39 with `termination_reason='repetition_cutoff'`, `final_scores=(0, 0)`, and `no_progress_streak=27`.
    - With fallback enabled, seed `5008` completed in 82 turns, model won 15-7, and the fallback fired once.
    - This remains a learned policy behavior / benchmark cutoff issue, distinct from the earlier `ShallowSearchBot` corpus-generation loop fix.
@@ -160,20 +173,24 @@ Near-term:
 outputs\warmstart_search_003\supervised_policy_value_best.pt
 ```
 
-2. Next experiment should be more/broader warm-start data now that the loop guardrail is accepted.
-   - Prefer a mixed corpus experiment rather than blindly scaling search-only data.
-   - Good first mix: existing clean `search:greedy` corpora plus existing `greedy:random` data, then train a new `warmstart_mix_001` and benchmark against random/greedy.
-   - If more data is needed, generate another sharded `search:greedy` block and optionally start adding champion-vs-greedy or champion-vs-search data later.
+2. Do not promote the mixed-data experiments.
+   - Adding `greedy:random` data diluted the stronger search policy target and regressed benchmark strength.
+   - Even a 3x search-weighted mix only reached 9-11 vs greedy on seed block 7000, while the current champion reached 16-4.
+   - The lesson is that broader data needs quality control or weighting by playing strength, not just more rows.
 
-3. Use the sharded replay pattern if continuing data scaling:
+3. Next experiment should generate stronger data rather than mix in weak random-opponent games.
+   - Best near-term option: generate another clean sharded `search:greedy` block, then train on search-only data again.
+   - Alternative: generate champion-assisted data, but do this only if replay export can mark policy source/quality clearly enough to avoid training on bad fallback artifacts.
+
+4. Use the sharded replay pattern if continuing data scaling:
 
 ```powershell
 .venv\Scripts\python.exe run_replay_corpus.py --output-dir data\corpus_search_greedy_004a --games 125 --seed-start 8000 --seat0-bot search --seat1-bot greedy --swap-seats --max-turns 400 --repetition-limit 4 --no-progress-limit 60 --search-depth 2 --search-max-branching 8 --search-buy-branching 5 --search-reserve-branching 2 --search-take-branching 2 --log-every 10
 ```
 
-4. Train with repeated replay paths rather than merging corpora by hand.
+5. Train with repeated replay paths rather than merging corpora by hand.
 
-5. Benchmark the resulting checkpoint with fallback metrics enabled, and choose champions by 100+ game benchmark performance rather than validation loss alone.
+6. Benchmark the resulting checkpoint with fallback metrics enabled, and choose champions by 100+ game benchmark performance rather than validation loss alone.
 
 ## Files Worth Reading First
 
@@ -202,6 +219,10 @@ Direct verification completed in this session:
 - 100-game fallback validation:
   - seed block 5000: 85-15-0 vs greedy, 0 timeouts, 8 fallback triggers
   - seed block 6000: 85-15-0 vs greedy, 0 timeouts, 5 fallback triggers
+- Mixed-data experiments:
+  - `warmstart_mix_001`: 85 passed before run, trained successfully, benchmark champion final checkpoint 17-3 vs random and 5-15 vs greedy on seed block 7000
+  - `warmstart_mix_002_search_weighted`: trained successfully, benchmark champion final checkpoint 19-1 vs random and 9-11 vs greedy on seed block 7000
+  - current champion comparison on seed block 7000: 20-0 vs random and 16-4 vs greedy
 
 Plain pytest without `--basetemp` can still hit Windows temp permission issues around local pytest temp directories. Use a repo-local basetemp:
 
@@ -219,3 +240,4 @@ Changes prepared in this session:
 - Reused loaded checkpoint bots across benchmark games in standalone and post-training benchmark paths.
 - Added focused tests for fallback behavior and updated benchmark summary expectations.
 - Validated fallback on greedy seed blocks 5000 and 6000, removing observed repetition cutoffs while preserving roughly the same win rate.
+- Ran and rejected `warmstart_mix_001` and `warmstart_mix_002_search_weighted`; current champion remains `warmstart_search_003/supervised_policy_value_best.pt`.
