@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from splendor_ai.bots import CheckpointPolicyBot, GreedyHeuristicBot, RandomLegalBot
+from splendor_ai.bots import CheckpointPolicyBot, GreedyHeuristicBot, LoopFallbackConfig, RandomLegalBot
 from splendor_ai.bots.base import Bot
 
 from .match import GameResult, MatchConfig, play_game
@@ -57,6 +57,29 @@ def build_parser() -> argparse.ArgumentParser:
         default=5,
         help="Print progress every N games. Set to 0 to only log first/last game.",
     )
+    parser.add_argument(
+        "--disable-loop-fallback",
+        action="store_true",
+        help="Disable checkpoint inference fallback for repeated/no-progress loops.",
+    )
+    parser.add_argument(
+        "--loop-fallback-min-state-visits",
+        type=int,
+        default=2,
+        help="Repeated state visits needed before the loop fallback can choose a buy.",
+    )
+    parser.add_argument(
+        "--loop-fallback-min-own-no-progress-actions",
+        type=int,
+        default=6,
+        help="Consecutive non-progress checkpoint actions needed before fallback can choose a buy.",
+    )
+    parser.add_argument(
+        "--loop-fallback-max-buy-logit-gap",
+        type=float,
+        default=8.0,
+        help="Maximum legal-top-minus-buy logit gap allowed for fallback buy selection.",
+    )
     return parser
 
 
@@ -71,8 +94,10 @@ def benchmark_checkpoint(
     no_progress_limit: int = 60,
     swap_seats: bool = True,
     log_every: int = 5,
+    loop_fallback: LoopFallbackConfig | None = None,
 ) -> dict[str, object]:
     checkpoint = Path(checkpoint_path)
+    fallback_config = loop_fallback or LoopFallbackConfig()
     payload: dict[str, object] = {
         "checkpoint": str(checkpoint),
         "device": device,
@@ -82,6 +107,12 @@ def benchmark_checkpoint(
         "repetition_limit": repetition_limit,
         "no_progress_limit": no_progress_limit,
         "swap_seats": swap_seats,
+        "loop_fallback": {
+            "enabled": fallback_config.enabled,
+            "min_state_visits": fallback_config.min_state_visits,
+            "min_own_non_progress_actions": fallback_config.min_own_non_progress_actions,
+            "max_buy_logit_gap": fallback_config.max_buy_logit_gap,
+        },
         "opponents": [],
     }
 
@@ -97,6 +128,7 @@ def benchmark_checkpoint(
             no_progress_limit=no_progress_limit,
             swap_seats=swap_seats,
             log_every=log_every,
+            loop_fallback=fallback_config,
         )
         payload["opponents"].append(opponent_payload)
 
@@ -119,9 +151,16 @@ def summarize_games(
     stalled = 0
     termination_reasons: dict[str, int] = {}
     per_game: list[dict[str, object]] = []
+    model_loop_fallback_triggers = 0
 
     for game in games:
         winner_name = None
+        game_model_loop_fallback_triggers = sum(
+            game.loop_fallback_triggers_by_seat[seat]
+            for seat, bot_name in enumerate(game.bot_seats)
+            if bot_name == "CheckpointPolicyBot"
+        )
+        model_loop_fallback_triggers += game_model_loop_fallback_triggers
         if game.winner is None:
             draws += 1
         else:
@@ -148,6 +187,8 @@ def summarize_games(
                 "termination_reason": game.termination_reason,
                 "repetition_count": game.repetition_count,
                 "no_progress_streak": game.no_progress_streak,
+                "loop_fallback_triggers_by_seat": list(game.loop_fallback_triggers_by_seat),
+                "model_loop_fallback_triggers": game_model_loop_fallback_triggers,
             }
         )
 
@@ -169,6 +210,7 @@ def summarize_games(
         "repetition_limit": repetition_limit,
         "no_progress_limit": no_progress_limit,
         "device": device,
+        "model_loop_fallback_triggers": model_loop_fallback_triggers,
         "games_detail": per_game,
     }
 
@@ -196,6 +238,7 @@ def _benchmark_opponent(
     no_progress_limit: int,
     swap_seats: bool,
     log_every: int,
+    loop_fallback: LoopFallbackConfig,
 ) -> dict[str, object]:
     opponent_factory = _opponent_factory(opponent_name, seed_start)
     played_games: list[GameResult] = []
@@ -209,9 +252,9 @@ def _benchmark_opponent(
         f"[benchmark] checkpoint={checkpoint_path} opponent={opponent_name}"
         f" games={games} device={device} swap_seats={swap_seats}"
     )
+    model_bot = CheckpointPolicyBot(checkpoint_path, device=device, loop_fallback=loop_fallback)
     for game_index in range(games):
         swap = swap_seats and game_index % 2 == 1
-        model_bot = CheckpointPolicyBot(checkpoint_path, device=device)
         opponent_bot = opponent_factory()
         seat0 = opponent_bot if swap else model_bot
         seat1 = model_bot if swap else opponent_bot
@@ -284,6 +327,12 @@ def main() -> None:
         no_progress_limit=args.no_progress_limit,
         swap_seats=not args.no_swap_seats,
         log_every=args.log_every,
+        loop_fallback=LoopFallbackConfig(
+            enabled=not args.disable_loop_fallback,
+            min_state_visits=args.loop_fallback_min_state_visits,
+            min_own_non_progress_actions=args.loop_fallback_min_own_no_progress_actions,
+            max_buy_logit_gap=args.loop_fallback_max_buy_logit_gap,
+        ),
     )
     written_path = write_benchmark_payload(output_path, payload)
     print(f"[benchmark] wrote results: {written_path}")

@@ -78,6 +78,7 @@ def test_run_benchmarks_summarizes_match_results(monkeypatch, tmp_path) -> None:
             "no_progress_limit": 60,
             "max_turns_per_game": 200,
             "device": "cpu",
+            "model_loop_fallback_triggers": 0,
             "games_detail": [
                 {
                     "seed": 11,
@@ -91,6 +92,8 @@ def test_run_benchmarks_summarizes_match_results(monkeypatch, tmp_path) -> None:
                     "termination_reason": "completed",
                     "repetition_count": 0,
                     "no_progress_streak": 0,
+                    "loop_fallback_triggers_by_seat": [0, 0],
+                    "model_loop_fallback_triggers": 0,
                 },
                 {
                     "seed": 12,
@@ -104,6 +107,8 @@ def test_run_benchmarks_summarizes_match_results(monkeypatch, tmp_path) -> None:
                     "termination_reason": "max_turns",
                     "repetition_count": 0,
                     "no_progress_streak": 0,
+                    "loop_fallback_triggers_by_seat": [0, 0],
+                    "model_loop_fallback_triggers": 0,
                 },
             ],
         }

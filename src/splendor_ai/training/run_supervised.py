@@ -195,10 +195,10 @@ def _run_benchmarks(
             repetition_limit=benchmark_repetition_limit,
             no_progress_limit=benchmark_no_progress_limit,
         )
+        model_bot = CheckpointPolicyBot(checkpoint_path, device=benchmark_device)
 
         for game_index in range(cfg.games):
             swap = cfg.swap_seats and (game_index % 2 == 1)
-            model_bot = CheckpointPolicyBot(checkpoint_path, device=benchmark_device)
             opponent_bot = opponent_factories[opponent_name]()
             seat0 = opponent_bot if swap else model_bot
             seat1 = model_bot if swap else opponent_bot

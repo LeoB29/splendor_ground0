@@ -33,6 +33,7 @@ class GameResult:
     termination_reason: str = "completed"
     repetition_count: int = 0
     no_progress_streak: int = 0
+    loop_fallback_triggers_by_seat: tuple[int, int] = (0, 0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +87,7 @@ def play_game(
                 termination_reason="repetition_cutoff",
                 repetition_count=seen_count,
                 no_progress_streak=no_progress_streak,
+                loop_fallback_triggers_by_seat=_loop_fallback_triggers(bots),
             )
 
         if state.turn_index >= max_turns:
@@ -99,6 +101,7 @@ def play_game(
                 termination_reason="max_turns",
                 repetition_count=seen_count,
                 no_progress_streak=no_progress_streak,
+                loop_fallback_triggers_by_seat=_loop_fallback_triggers(bots),
             )
 
         legal_actions = env.legal_actions(state)
@@ -113,6 +116,7 @@ def play_game(
                 termination_reason="stalled",
                 repetition_count=seen_count,
                 no_progress_streak=no_progress_streak,
+                loop_fallback_triggers_by_seat=_loop_fallback_triggers(bots),
             )
 
         actor = bots[state.current_player]
@@ -136,6 +140,7 @@ def play_game(
                     termination_reason="no_progress_cutoff",
                     repetition_count=seen_count,
                     no_progress_streak=no_progress_streak,
+                    loop_fallback_triggers_by_seat=_loop_fallback_triggers(bots),
                 )
         state = next_state
 
@@ -148,6 +153,7 @@ def play_game(
         termination_reason="completed",
         repetition_count=state_visit_counts.get(state_signature(state), 0),
         no_progress_streak=no_progress_streak,
+        loop_fallback_triggers_by_seat=_loop_fallback_triggers(bots),
     )
 
 
@@ -190,3 +196,10 @@ def _adjudicate_scores(state: SplendorState) -> int | None:
         idx for idx in contenders if len(state.players[idx].purchased_cards) == fewest_cards
     ]
     return fewest_card_contenders[0] if len(fewest_card_contenders) == 1 else None
+
+
+def _loop_fallback_triggers(bots: tuple[Bot, Bot]) -> tuple[int, int]:
+    return (
+        int(getattr(bots[0], "loop_fallback_triggers", 0)),
+        int(getattr(bots[1], "loop_fallback_triggers", 0)),
+    )

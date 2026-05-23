@@ -52,6 +52,7 @@ Bots/eval:
 - match runner
 - checkpoint benchmark CLI with saved per-game JSON output
 - explicit benchmark loop diagnostics: `repetition_cutoff`, `no_progress_cutoff`, per-game termination metadata
+- loop-aware checkpoint inference fallback with per-game trigger counts and CLI controls
 - Tkinter GUI for human-vs-bot inspection
 
 Infra:
@@ -62,7 +63,7 @@ Infra:
 
 ## Current Reality
 
-The warm-start pipeline is in a stronger place than the prior handoff. The key new milestone is that sharded `search:greedy` corpus scaling plus multi-corpus supervised training produced a stronger local champion checkpoint.
+The warm-start pipeline is in a stronger place than the prior handoff. Sharded `search:greedy` corpus scaling plus multi-corpus supervised training produced a stronger local champion checkpoint, and a narrow inference-only loop fallback now mitigates the rare checkpoint repetition failures seen in greedy benchmarks.
 
 Important local artifacts:
 
@@ -86,6 +87,12 @@ Important local artifacts:
   - 100-game benchmark: 100-0 vs random, 86-14 vs greedy, 1 repetition-cutoff game vs greedy
 - `outputs/benchmarks/warmstart_search_003_final_100g_seed5000.json`
   - final checkpoint benchmark: worse than `best_validation`
+- `outputs/benchmarks/loop_fallback_enabled_100g_seed5000.json`
+  - local/ignored artifact, 100-game benchmark vs greedy with fallback enabled: 85-15-0, 0 timed out, 100 completed, 8 fallback triggers
+- `outputs/benchmarks/loop_fallback_enabled_100g_seed6000.json`
+  - local/ignored artifact, 100-game benchmark vs greedy with fallback enabled: 85-15-0, 0 timed out, 100 completed, 5 fallback triggers
+- `outputs/benchmarks/loop_fallback_disabled_seed5008_probe.json`
+  - local/ignored artifact, confirms seed 5008 still hits `repetition_cutoff` when fallback is disabled
 
 Observed results:
 
@@ -96,14 +103,26 @@ Observed results:
 - Added multi-corpus supervised training support; `run_supervised.py` now accepts repeated `--replay-path` arguments and records per-source sample counts in metrics.
 - Training on `002 + 003[a-d]` produced `warmstart_search_003`, where the `best_validation` checkpoint is materially stronger than the final checkpoint.
 - `warmstart_search_003_best.pt` beat `GreedyHeuristicBot` in two 100-game runs at 83% and 86%, while remaining near-perfect vs random.
+- Added a conservative `CheckpointPolicyBot` loop fallback:
+  - tracks repeated public state signatures and the bot's own consecutive non-progress actions
+  - only intervenes when legal buy actions exist
+  - chooses the model's highest-logit legal buy, and only if it is within the configured logit-gap threshold
+  - can be disabled/tuned through benchmark CLI flags
+  - reports per-game and aggregate fallback trigger counts in benchmark JSON
+- Reused a single loaded checkpoint bot across benchmark games in both standalone and post-training benchmark paths, avoiding repeated checkpoint reload overhead while resetting per-game loop counters.
+- Validated fallback on the two known greedy seed blocks:
+  - seed block 5000: 85-15-0, 0 timeouts, 8 fallback triggers
+  - seed block 6000: 85-15-0, 0 timeouts, 5 fallback triggers
+  - combined: 170-30-0 across 200 games, 0 timeouts, 13 fallback triggers
 
 Current practical recommendation:
 
 - Treat `outputs/warmstart_search_003/supervised_policy_value_best.pt` as the current champion.
 - Use the benchmark CLI for future checkpoint comparisons instead of ad hoc inline Python.
+- Keep the loop fallback enabled for GUI/benchmark play, but continue recording trigger counts so it remains measurable and removable.
 - Keep using sharded search corpora plus multi-path training instead of single giant replay jobs.
 - Continue excluding stalled/timeout games when training.
-- Watch checkpoint benchmark loop cutoffs separately from corpus cleanliness. The remaining issue is now rare `repetition_cutoff` behavior in checkpoint-vs-greedy play, not in corpus generation.
+- Watch raw checkpoint loop behavior separately from guarded benchmark behavior. The fallback mitigates observed loops, but the long-term fix should come from stronger data/training/self-play targets.
 
 ## Known Technical Debt
 
@@ -125,10 +144,10 @@ Current practical recommendation:
    - The obvious `repetition_cutoff` token-churn pattern was improved.
    - Corpus generation is currently clean, but continue watching new search styles if branching/depth change.
 
-5. Checkpoint policy can still produce rare non-progress benchmark games.
-   - The remaining failure mode is now explicit `repetition_cutoff`, not opaque 400-turn timeout.
-   - `warmstart_search_003_best.pt` still produced 3 repetition-cutoff games across 200 greedy benchmark games on seed blocks 5000 and 6000.
-   - One of those is reproducible directly: seed `5008` with model seat 0 ends at turn 39 with `termination_reason='repetition_cutoff'`, `final_scores=(0, 0)`, and `no_progress_streak=27`.
+5. Raw checkpoint policy can still produce rare non-progress benchmark games.
+   - The loop fallback is an inference guardrail, not a training fix.
+   - With fallback disabled, seed `5008` still ends at turn 39 with `termination_reason='repetition_cutoff'`, `final_scores=(0, 0)`, and `no_progress_streak=27`.
+   - With fallback enabled, seed `5008` completed in 82 turns, model won 15-7, and the fallback fired once.
    - This remains a learned policy behavior / benchmark cutoff issue, distinct from the earlier `ShallowSearchBot` corpus-generation loop fix.
 
 ## Recommended Next Step
@@ -141,9 +160,10 @@ Near-term:
 outputs\warmstart_search_003\supervised_policy_value_best.pt
 ```
 
-2. Decide whether the next experiment is more data or loop mitigation.
-   - The highest-signal engineering option is a small loop-aware inference fallback in `CheckpointPolicyBot` when repetition/no-progress patterns appear and legal buy actions exist.
-   - The highest-signal data option is to mix clean `search:greedy` with some `greedy:random` or future champion-generated data rather than scaling search-only data blindly.
+2. Next experiment should be more/broader warm-start data now that the loop guardrail is accepted.
+   - Prefer a mixed corpus experiment rather than blindly scaling search-only data.
+   - Good first mix: existing clean `search:greedy` corpora plus existing `greedy:random` data, then train a new `warmstart_mix_001` and benchmark against random/greedy.
+   - If more data is needed, generate another sharded `search:greedy` block and optionally start adding champion-vs-greedy or champion-vs-search data later.
 
 3. Use the sharded replay pattern if continuing data scaling:
 
@@ -152,6 +172,8 @@ outputs\warmstart_search_003\supervised_policy_value_best.pt
 ```
 
 4. Train with repeated replay paths rather than merging corpora by hand.
+
+5. Benchmark the resulting checkpoint with fallback metrics enabled, and choose champions by 100+ game benchmark performance rather than validation loss alone.
 
 ## Files Worth Reading First
 
@@ -171,23 +193,29 @@ outputs\warmstart_search_003\supervised_policy_value_best.pt
 
 Direct verification completed in this session:
 
-- `.venv\Scripts\python.exe -m py_compile` over the modified `src/` files succeeded
-- manual validation script confirmed multi-corpus dataset loading/splitting and `fit_supervised(...)` with repeated replay paths
-- manual validation script confirmed benchmark summaries and `_run_benchmarks(...)` include the new loop diagnostic fields
-- direct `play_game(...)` reproduction matched the saved `warmstart_search_003_best` repetition-cutoff benchmark seed
+- `.venv\Scripts\python.exe -m pytest -q --basetemp .codex_pytest_tmp_all` passed: 85 passed
+- `.venv\Scripts\python.exe -m py_compile` over modified source files succeeded
+- Focused tests cover normal masked argmax behavior, fallback activation after loop evidence, and fallback logit-gap refusal.
+- Benchmark seed 5008 before/after:
+  - fallback enabled: completed, model won 15-7, 1 fallback trigger
+  - fallback disabled: `repetition_cutoff` at turn 39, greedy adjudicated winner, 0 fallback triggers
+- 100-game fallback validation:
+  - seed block 5000: 85-15-0 vs greedy, 0 timeouts, 8 fallback triggers
+  - seed block 6000: 85-15-0 vs greedy, 0 timeouts, 5 fallback triggers
 
-Pytest is currently unreliable on this machine/session because tempdir creation/cleanup hits permission issues around local pytest temp directories. If behavior looks suspicious, first rerun:
+Plain pytest without `--basetemp` can still hit Windows temp permission issues around local pytest temp directories. Use a repo-local basetemp:
 
 ```powershell
-.venv\Scripts\python.exe -m pytest -q
+.venv\Scripts\python.exe -m pytest -q --basetemp .codex_pytest_tmp_all
 ```
 
 ## Recent Commit Summary
 
 Changes prepared in this session:
 
-- Added shared gameplay diagnostics for repeated-state and no-progress detection.
-- Extended benchmark and post-train evaluation flows with explicit loop diagnostics and richer per-game summaries.
-- Added multi-corpus replay loading and repeated `--replay-path` training support with per-source dataset accounting.
-- Generated clean sharded `corpus_search_greedy_003[a-d]` data and trained `warmstart_search_003`.
-- Promoted `warmstart_search_003/supervised_policy_value_best.pt` to local champion based on two 100-game greedy benchmark runs.
+- Added conservative loop-aware inference fallback to `CheckpointPolicyBot`.
+- Added fallback trigger counts to `GameResult` and benchmark JSON summaries.
+- Added benchmark CLI flags to disable/tune the loop fallback.
+- Reused loaded checkpoint bots across benchmark games in standalone and post-training benchmark paths.
+- Added focused tests for fallback behavior and updated benchmark summary expectations.
+- Validated fallback on greedy seed blocks 5000 and 6000, removing observed repetition cutoffs while preserving roughly the same win rate.
