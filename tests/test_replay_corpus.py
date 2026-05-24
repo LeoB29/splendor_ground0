@@ -44,9 +44,31 @@ def test_write_replay_corpus_writes_jsonl_and_summary(tmp_path) -> None:
     assert summary_payload["games"] == 1
     assert "stalled_rate" in summary_payload
     assert "timed_out_rate" in summary_payload
+    assert summary_payload["loop_fallback_triggers"] == 0
+    assert summary_payload["loop_fallback_games"] == 0
 
     lines = replay_path.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == len(games[0].steps)
+
+
+def test_write_replay_corpus_includes_summary_metadata(tmp_path) -> None:
+    games, summary = generate_replay_corpus(
+        bot_seat_0_factory=lambda: GreedyHeuristicBot(seed=3),
+        bot_seat_1_factory=lambda: RandomLegalBot(seed=4),
+        games=1,
+        seed_start=9,
+        max_turns=400,
+    )
+
+    _replay_path, summary_path = write_replay_corpus(
+        tmp_path,
+        games,
+        summary,
+        metadata={"pairings": ["greedy:random"]},
+    )
+
+    summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary_payload["metadata"] == {"pairings": ["greedy:random"]}
 
 
 def test_generate_replay_corpus_can_swap_seats_across_pairings() -> None:
@@ -99,6 +121,8 @@ def test_write_replay_corpus_writes_stalled_trace_file(tmp_path) -> None:
             draws=0,
             stalled_games=1,
             timed_out_games=0,
+            loop_fallback_triggers=0,
+            loop_fallback_games=0,
             average_turns=42.0,
             average_final_score_seat0=15.0,
             average_final_score_seat1=13.0,
@@ -153,6 +177,8 @@ def test_write_replay_corpus_writes_timed_out_trace_file(tmp_path) -> None:
             draws=0,
             stalled_games=0,
             timed_out_games=1,
+            loop_fallback_triggers=0,
+            loop_fallback_games=0,
             average_turns=400.0,
             average_final_score_seat0=11.0,
             average_final_score_seat1=12.0,

@@ -29,6 +29,8 @@ def test_collect_game_replay_records_legal_training_examples() -> None:
     assert len(replay.bot_seats) == 2
     assert "bank_tokens" in replay.final_state_snapshot
     assert replay.timed_out is False
+    assert replay.loop_fallback_triggers_by_seat == (0, 0)
+    assert replay.bot_metadata[0]["bot_class"] == "GreedyHeuristicBot"
     for step in replay.steps:
         assert len(step.observation_vector) == 256
         assert step.action_index in step.legal_action_indices
@@ -56,6 +58,9 @@ def test_export_replay_games_jsonl_writes_one_line_per_step(tmp_path) -> None:
     first_payload = json.loads(lines[0])
     assert first_payload["game_seed"] == replay.seed
     assert first_payload["game_bot_seats"] == list(replay.bot_seats)
+    assert first_payload["game_bot_metadata"] == list(replay.bot_metadata)
+    assert first_payload["game_loop_fallback_triggers_by_seat"] == [0, 0]
+    assert first_payload["game_model_loop_fallback_triggers"] == 0
     assert first_payload["game_timed_out"] is False
     assert first_payload["game_termination_reason"] == "completed"
     assert len(first_payload["observation_vector"]) == 256

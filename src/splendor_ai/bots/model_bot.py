@@ -57,6 +57,10 @@ class CheckpointPolicyBot:
     def loop_fallback_triggers(self) -> int:
         return self._loop_fallback_triggers
 
+    @property
+    def loop_fallback_config(self) -> LoopFallbackConfig:
+        return self._loop_fallback
+
     def choose_action(
         self,
         env: SplendorEnv,

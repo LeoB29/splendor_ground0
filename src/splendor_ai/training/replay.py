@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +40,10 @@ class ReplayGame:
     bot_seats: tuple[str, str]
     final_state_snapshot: dict[str, Any]
     steps: tuple[ReplayStep, ...]
+    loop_fallback_triggers_by_seat: tuple[int, int] = (0, 0)
+    bot_metadata: tuple[dict[str, Any], dict[str, Any]] = field(
+        default_factory=lambda: ({}, {})
+    )
 
 
 def collect_game_replay(
@@ -144,6 +148,8 @@ def collect_game_replay(
         bot_seats=(type(bot_seat_0).__name__, type(bot_seat_1).__name__),
         final_state_snapshot=_serialize_state_for_diagnostics(state),
         steps=steps,
+        loop_fallback_triggers_by_seat=_loop_fallback_triggers(bots),
+        bot_metadata=(_bot_metadata(bot_seat_0), _bot_metadata(bot_seat_1)),
     )
 
 
@@ -163,6 +169,9 @@ def export_replay_games_jsonl(path: str | Path, games: list[ReplayGame] | tuple[
                     "game_timed_out": game.timed_out,
                     "game_termination_reason": game.termination_reason,
                     "game_bot_seats": list(game.bot_seats),
+                    "game_bot_metadata": list(game.bot_metadata),
+                    "game_loop_fallback_triggers_by_seat": list(game.loop_fallback_triggers_by_seat),
+                    "game_model_loop_fallback_triggers": _model_loop_fallback_triggers(game),
                     **asdict(step),
                     "legal_action_indices": list(step.legal_action_indices),
                     "observation_vector": list(step.observation_vector),
@@ -188,6 +197,9 @@ def export_stalled_traces_jsonl(
                 "game_final_scores": list(game.final_scores),
                 "game_termination_reason": game.termination_reason,
                 "game_bot_seats": list(game.bot_seats),
+                "game_bot_metadata": list(game.bot_metadata),
+                "game_loop_fallback_triggers_by_seat": list(game.loop_fallback_triggers_by_seat),
+                "game_model_loop_fallback_triggers": _model_loop_fallback_triggers(game),
                 "final_state_snapshot": game.final_state_snapshot,
                 "steps": [
                     {
@@ -222,6 +234,9 @@ def export_timed_out_traces_jsonl(
                 "game_final_scores": list(game.final_scores),
                 "game_termination_reason": game.termination_reason,
                 "game_bot_seats": list(game.bot_seats),
+                "game_bot_metadata": list(game.bot_metadata),
+                "game_loop_fallback_triggers_by_seat": list(game.loop_fallback_triggers_by_seat),
+                "game_model_loop_fallback_triggers": _model_loop_fallback_triggers(game),
                 "final_state_snapshot": game.final_state_snapshot,
                 "steps": [
                     {
@@ -257,6 +272,32 @@ def _final_value_for_player(winner: int | None, player_id: int) -> float:
     if winner is None:
         return 0.0
     return 1.0 if winner == player_id else -1.0
+
+
+def _loop_fallback_triggers(bots: tuple[Bot, Bot]) -> tuple[int, int]:
+    return (
+        int(getattr(bots[0], "loop_fallback_triggers", 0)),
+        int(getattr(bots[1], "loop_fallback_triggers", 0)),
+    )
+
+
+def _model_loop_fallback_triggers(game: ReplayGame) -> int:
+    return sum(
+        game.loop_fallback_triggers_by_seat[seat]
+        for seat, bot_name in enumerate(game.bot_seats)
+        if bot_name == "CheckpointPolicyBot"
+    )
+
+
+def _bot_metadata(bot: Bot) -> dict[str, Any]:
+    metadata: dict[str, Any] = {"bot_class": type(bot).__name__}
+    checkpoint_path = getattr(bot, "checkpoint_path", None)
+    if checkpoint_path is not None:
+        metadata["checkpoint_path"] = str(checkpoint_path)
+    fallback_config = getattr(bot, "loop_fallback_config", None)
+    if fallback_config is not None:
+        metadata["loop_fallback"] = asdict(fallback_config)
+    return metadata
 
 
 def _serialize_action(action: Action) -> dict[str, Any]:

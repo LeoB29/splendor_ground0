@@ -31,6 +31,8 @@ class CorpusSummary:
     draws: int
     stalled_games: int
     timed_out_games: int
+    loop_fallback_triggers: int
+    loop_fallback_games: int
     average_turns: float
     average_final_score_seat0: float
     average_final_score_seat1: float
@@ -96,6 +98,8 @@ def summarize_replay_games(games: tuple[ReplayGame, ...]) -> CorpusSummary:
             draws=0,
             stalled_games=0,
             timed_out_games=0,
+            loop_fallback_triggers=0,
+            loop_fallback_games=0,
             average_turns=0.0,
             average_final_score_seat0=0.0,
             average_final_score_seat1=0.0,
@@ -106,6 +110,10 @@ def summarize_replay_games(games: tuple[ReplayGame, ...]) -> CorpusSummary:
     draws = sum(1 for game in games if game.winner is None)
     stalled_games = sum(1 for game in games if game.stalled)
     timed_out_games = sum(1 for game in games if game.timed_out)
+    loop_fallback_triggers = sum(sum(game.loop_fallback_triggers_by_seat) for game in games)
+    loop_fallback_games = sum(
+        1 for game in games if sum(game.loop_fallback_triggers_by_seat) > 0
+    )
     total_steps = sum(len(game.steps) for game in games)
     average_turns = sum(game.turns for game in games) / len(games)
     average_final_score_seat0 = sum(game.final_scores[0] for game in games) / len(games)
@@ -119,6 +127,8 @@ def summarize_replay_games(games: tuple[ReplayGame, ...]) -> CorpusSummary:
         draws=draws,
         stalled_games=stalled_games,
         timed_out_games=timed_out_games,
+        loop_fallback_triggers=loop_fallback_triggers,
+        loop_fallback_games=loop_fallback_games,
         average_turns=average_turns,
         average_final_score_seat0=average_final_score_seat0,
         average_final_score_seat1=average_final_score_seat1,
@@ -129,6 +139,7 @@ def write_replay_corpus(
     output_dir: str | Path,
     games: tuple[ReplayGame, ...],
     summary: CorpusSummary,
+    metadata: dict[str, object] | None = None,
 ) -> tuple[Path, Path]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -151,11 +162,20 @@ def write_replay_corpus(
         "stalled_rate": (summary.stalled_games / summary.games) if summary.games else 0.0,
         "timed_out_games": summary.timed_out_games,
         "timed_out_rate": (summary.timed_out_games / summary.games) if summary.games else 0.0,
+        "loop_fallback_triggers": summary.loop_fallback_triggers,
+        "loop_fallback_games": summary.loop_fallback_games,
+        "loop_fallback_game_rate": (
+            summary.loop_fallback_games / summary.games
+        )
+        if summary.games
+        else 0.0,
         "average_turns": summary.average_turns,
         "average_final_score_seat0": summary.average_final_score_seat0,
         "average_final_score_seat1": summary.average_final_score_seat1,
         "stalled_trace_path": stalled_trace_path.name if stalled_trace_count else None,
         "timed_out_trace_path": timed_out_trace_path.name if timed_out_trace_count else None,
     }
+    if metadata is not None:
+        summary_payload["metadata"] = metadata
     summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
     return replay_path, summary_path
