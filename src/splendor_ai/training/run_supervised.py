@@ -120,6 +120,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Ignore replay rows from games that hit the max-turn cap fallback.",
     )
+    parser.add_argument(
+        "--max-game-model-loop-fallback-triggers",
+        type=int,
+        default=None,
+        help=(
+            "Ignore replay rows from games with more than this many checkpoint "
+            "loop fallback triggers. Rows without this metadata count as 0."
+        ),
+    )
     return parser
 
 
@@ -288,6 +297,7 @@ def _build_train_config_payload(args: argparse.Namespace) -> dict[str, object]:
         "device": args.device,
         "include_stalled_games": not args.exclude_stalled_games,
         "include_timed_out_games": not args.exclude_timeout_games,
+        "max_model_loop_fallback_triggers": args.max_game_model_loop_fallback_triggers,
         "validation_fraction": args.validation_fraction,
         "validation_seed": args.validation_seed,
         "log_every_batches": args.log_every_batches,
@@ -349,6 +359,7 @@ def main() -> None:
         device=args.device,
         include_stalled_games=not args.exclude_stalled_games,
         include_timed_out_games=not args.exclude_timeout_games,
+        max_model_loop_fallback_triggers=args.max_game_model_loop_fallback_triggers,
         validation_fraction=args.validation_fraction,
         validation_seed=args.validation_seed,
     )
@@ -357,6 +368,7 @@ def main() -> None:
         replay_paths,
         include_stalled_games=train_config.include_stalled_games,
         include_timed_out_games=train_config.include_timed_out_games,
+        max_model_loop_fallback_triggers=train_config.max_model_loop_fallback_triggers,
     )
     train_dataset, validation_dataset = split_replay_dataset(
         dataset,
@@ -495,6 +507,7 @@ def main() -> None:
             "validation_seed": args.validation_seed,
             "excluded_stalled_games": args.exclude_stalled_games,
             "excluded_timeout_games": args.exclude_timeout_games,
+            "max_game_model_loop_fallback_triggers": args.max_game_model_loop_fallback_triggers,
             "sources": merged_source_counts,
         },
         "checkpoints": {

@@ -44,6 +44,7 @@ Model/training stack:
 - supervised training CLI with train/validation metrics, progress logs, final-vs-best-validation checkpoint benchmarking, and saved metrics JSON
 - multi-corpus replay loading and repeated `--replay-path` support
 - checkpoint-driven replay corpus generation with checkpoint/fallback provenance metadata
+- supervised replay filtering by per-game checkpoint fallback trigger count
 
 Bots/eval:
 
@@ -117,6 +118,10 @@ Important local artifacts:
   - local/ignored artifact, search-only training on `002 + 003[a-d] + 004[1-5] + 005[1-5]`; benchmark champion final checkpoint went 20-0 vs random and 15-5 vs greedy on seed block 7000, so it was not promoted
 - `data/corpus_checkpoint_greedy_probe_001/`
   - local/ignored artifact, 2-game checkpoint-vs-greedy end-to-end replay probe: 126 steps, 0 stalled, 0 timed out, 0 fallback triggers
+- `data/corpus_checkpoint_greedy_00[1-5]/`
+  - local/ignored artifacts, 125 games total, 8,156 steps, 0 stalled, 0 timed out, 4 fallback triggers across 4 games
+- `outputs/warmstart_champion_mix_001/supervised_metrics.json`
+  - local/ignored artifact, search-only champion data plus checkpoint-vs-greedy data with fallback-triggered games excluded; benchmark champion final checkpoint went 20-0 vs random and 15-5 vs greedy on seed block 7000, so it was not promoted
 
 Observed results:
 
@@ -159,6 +164,10 @@ Observed results:
   - checkpoint models are cached per bot factory/seat, avoiding repeated checkpoint reloads while keeping separate per-seat state
   - replay rows now include `game_bot_metadata`, `game_loop_fallback_triggers_by_seat`, and `game_model_loop_fallback_triggers`
   - corpus `summary.json` now includes aggregate `loop_fallback_triggers`, `loop_fallback_games`, and CLI provenance metadata
+- Added supervised replay filtering for checkpoint fallback games:
+  - `SupervisedReplayDataset` accepts `max_model_loop_fallback_triggers`
+  - `run_supervised.py` exposes `--max-game-model-loop-fallback-triggers`
+  - rows without checkpoint fallback metadata count as 0, preserving compatibility with older search corpora
 - Trained `warmstart_search_005` after generating clean `corpus_search_greedy_005[1-5]`, but it regressed in the quick seed-7000 benchmark:
   - benchmark-selected final checkpoint: 20-0 vs random, 15-5 vs greedy
   - `warmstart_search_004_best` on comparable post-train seed-7000 benchmark: 20-0 vs random, 19-1 vs greedy
@@ -166,6 +175,14 @@ Observed results:
 - Validated the new path with `data/corpus_checkpoint_greedy_probe_001`:
   - pairing `checkpoint:greedy`, current champion checkpoint, CUDA, swap seats
   - 2 games, 126 steps, 0 stalled, 0 timed out, 0 fallback triggers
+- Generated `data/corpus_checkpoint_greedy_00[1-5]`:
+  - 125 games, 8,156 steps, 0 stalled, 0 timed out
+  - 4 fallback triggers across 4 games
+- Trained `warmstart_champion_mix_001` on search data through `004[1-5]` plus checkpoint-vs-greedy data, excluding any game with more than 0 checkpoint fallback triggers:
+  - dataset after filtering: 79,708 samples
+  - benchmark champion final checkpoint: 20-0 vs random, 15-5 vs greedy on seed block 7000
+  - current champion `warmstart_search_004_best` on the comparable seed block was 20-0 vs random, 19-1 vs greedy
+  - do not promote `warmstart_champion_mix_001`
 
 Judgement calls made for checkpoint replay support:
 
@@ -174,6 +191,7 @@ Judgement calls made for checkpoint replay support:
 - Cached checkpoint bots per factory/seat instead of reloading the model every game. This is much faster and relies on the existing per-game reset logic in `CheckpointPolicyBot`; separate factories still give each seat its own bot instance.
 - Added provenance to both replay rows and `summary.json` rather than only printing it in logs. Future training filters can then exclude high-fallback games or select by checkpoint source without rerunning generation.
 - Ran only a tiny 2-game checkpoint probe for validation. Checkpoint-generated data can reinforce model habits, so the next useful step is a controlled probe block and analysis, not immediate large-scale self-play.
+- Trained one controlled champion-data mix after the 125-game probe, but rejected it on benchmark strength. This suggests naive imitation of the current champion against greedy is not enough; the next champion-assisted step needs a better target, weighting, or policy-improvement signal rather than simply adding model-play rows.
 
 Current practical recommendation:
 
@@ -230,8 +248,11 @@ outputs\warmstart_search_004\supervised_policy_value_best.pt
 
 3. Next experiment should continue generating stronger search-only data or start designing champion-assisted data.
    - `warmstart_search_005` was trained after another clean search-only block but regressed in the quick seed-7000 benchmark, so do not promote it without further study.
-   - The replay exporter now marks checkpoint source/quality clearly enough to start controlled champion-assisted probes.
-   - Best near-term option: generate a modest `checkpoint:greedy` shard with current champion `warmstart_search_004_best`, then inspect fallback trigger rate and benchmark usefulness before training on it.
+   - The first controlled checkpoint-vs-greedy mix also regressed in the quick seed-7000 benchmark, so do not promote it.
+   - The next useful step is not more naive imitation data. Prefer one of:
+     - add a stronger target from search-on-checkpoint positions
+     - add outcome/advantage weighting instead of flat imitation
+     - start a small policy-improvement loop where champion move choices are compared against shallow search recommendations before export
 
 4. Use the sharded replay pattern if continuing data scaling:
 
@@ -243,13 +264,14 @@ outputs\warmstart_search_004\supervised_policy_value_best.pt
 
 6. Benchmark the resulting checkpoint with fallback metrics enabled, and choose champions by 100+ game benchmark performance rather than validation loss alone.
 
-Suggested checkpoint replay probe:
+Checkpoint replay command that was validated:
 
 ```powershell
 .venv\Scripts\python.exe run_replay_corpus.py --output-dir data\corpus_checkpoint_greedy_001 --games 25 --seed-start 9100 --seat0-bot checkpoint --seat1-bot greedy --checkpoint-path outputs\warmstart_search_004\supervised_policy_value_best.pt --checkpoint-device cuda --swap-seats --max-turns 400 --repetition-limit 4 --no-progress-limit 60 --log-every 5
 ```
 
 Train on checkpoint-generated data only after inspecting `loop_fallback_triggers`, `timed_out_games`, and the per-row `game_model_loop_fallback_triggers` fields.
+Use `--max-game-model-loop-fallback-triggers 0` to exclude all fallback-triggered games from supervised training.
 
 ## Files Worth Reading First
 
@@ -290,11 +312,15 @@ Direct verification completed in this session:
   - seed block 6000 vs greedy: 86-14-0, 0 timeouts, 1 fallback trigger
   - seed block 5000 vs random: 100-0-0, 0 timeouts, 4 fallback triggers
 - Checkpoint replay support:
-  - `.venv\Scripts\python.exe -m pytest -q --basetemp .codex_pytest_tmp_all` passed: 89 passed
+  - `.venv\Scripts\python.exe -m pytest -q --basetemp .codex_pytest_tmp_all` passed before filtering work: 89 passed
   - focused replay/checkpoint tests passed: 16 passed
   - `.venv\Scripts\python.exe -m py_compile` over modified replay/corpus/checkpoint files succeeded
   - `warmstart_search_005` completed but was rejected: final checkpoint 20-0 vs random and 15-5 vs greedy on seed block 7000
   - `data/corpus_checkpoint_greedy_probe_001`: 2 games, 126 steps, 0 stalled, 0 timed out, 0 fallback triggers
+- Champion-data filtering and mix:
+  - focused dataset/training/replay tests passed: 28 passed
+  - `data/corpus_checkpoint_greedy_00[1-5]`: 125 games, 8,156 steps, 0 stalled, 0 timed out, 4 fallback triggers
+  - `warmstart_champion_mix_001`: trained with `--max-game-model-loop-fallback-triggers 0`, final checkpoint 20-0 vs random and 15-5 vs greedy on seed block 7000; rejected
 
 Plain pytest without `--basetemp` can still hit Windows temp permission issues around local pytest temp directories. Use a repo-local basetemp:
 
@@ -316,3 +342,4 @@ Changes prepared in this session:
 - Generated clean `corpus_search_greedy_004[1-5]`, trained `warmstart_search_004`, and promoted `outputs/warmstart_search_004/supervised_policy_value_best.pt` based on 200-game greedy validation.
 - Generated clean `corpus_search_greedy_005[1-5]` and trained `warmstart_search_005`, but rejected it because the quick greedy benchmark regressed.
 - Added checkpoint bot support to replay corpus generation, including checkpoint provenance and fallback-trigger metadata in replay rows and corpus summaries.
+- Added supervised filtering by checkpoint fallback trigger count, generated `corpus_checkpoint_greedy_00[1-5]`, trained `warmstart_champion_mix_001`, and rejected it because the quick greedy benchmark regressed.

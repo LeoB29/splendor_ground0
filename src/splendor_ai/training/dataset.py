@@ -36,14 +36,17 @@ class SupervisedReplayDataset(Dataset[ReplaySample]):
         path: str | Path | Sequence[str | Path],
         include_stalled_games: bool = True,
         include_timed_out_games: bool = True,
+        max_model_loop_fallback_triggers: int | None = None,
     ) -> None:
         self._paths = _normalize_paths(path)
         self._include_stalled_games = include_stalled_games
         self._include_timed_out_games = include_timed_out_games
+        self._max_model_loop_fallback_triggers = max_model_loop_fallback_triggers
         self._samples = self._load_samples(
             self._paths,
             include_stalled_games=self._include_stalled_games,
             include_timed_out_games=self._include_timed_out_games,
+            max_model_loop_fallback_triggers=self._max_model_loop_fallback_triggers,
         )
 
     @property
@@ -78,6 +81,7 @@ class SupervisedReplayDataset(Dataset[ReplaySample]):
         paths: tuple[Path, ...],
         include_stalled_games: bool = True,
         include_timed_out_games: bool = True,
+        max_model_loop_fallback_triggers: int | None = None,
     ) -> list[dict[str, object]]:
         samples: list[dict[str, object]] = []
         for path in paths:
@@ -90,6 +94,12 @@ class SupervisedReplayDataset(Dataset[ReplaySample]):
                     if not include_stalled_games and payload.get("game_stalled", False):
                         continue
                     if not include_timed_out_games and payload.get("game_timed_out", False):
+                        continue
+                    if (
+                        max_model_loop_fallback_triggers is not None
+                        and int(payload.get("game_model_loop_fallback_triggers", 0))
+                        > max_model_loop_fallback_triggers
+                    ):
                         continue
                     payload["_source_path"] = str(path)
                     samples.append(payload)

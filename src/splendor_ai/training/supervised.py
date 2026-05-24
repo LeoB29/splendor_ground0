@@ -28,6 +28,7 @@ class SupervisedTrainConfig:
     shuffle: bool = True
     include_stalled_games: bool = True
     include_timed_out_games: bool = True
+    max_model_loop_fallback_triggers: int | None = None
     validation_fraction: float = 0.0
     validation_seed: int = 0
 
@@ -95,6 +96,7 @@ def create_replay_dataloader(
     shuffle: bool = True,
     include_stalled_games: bool = True,
     include_timed_out_games: bool = True,
+    max_model_loop_fallback_triggers: int | None = None,
 ) -> DataLoader:
     if isinstance(path, Dataset):
         dataset = path
@@ -103,6 +105,7 @@ def create_replay_dataloader(
             path,
             include_stalled_games=include_stalled_games,
             include_timed_out_games=include_timed_out_games,
+            max_model_loop_fallback_triggers=max_model_loop_fallback_triggers,
         )
     return _create_dataloader(
         dataset=dataset,
@@ -405,6 +408,7 @@ def fit_supervised(
         replay_path,
         include_stalled_games=cfg.include_stalled_games,
         include_timed_out_games=cfg.include_timed_out_games,
+        max_model_loop_fallback_triggers=cfg.max_model_loop_fallback_triggers,
     )
     train_dataset, validation_dataset = split_replay_dataset(
         dataset,

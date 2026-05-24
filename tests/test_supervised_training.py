@@ -120,6 +120,33 @@ def test_supervised_replay_dataset_can_exclude_timed_out_games(tmp_path) -> None
     assert dataset[0].action_index == 2
 
 
+def test_supervised_replay_dataset_can_filter_loop_fallback_games(tmp_path) -> None:
+    replay_path = tmp_path / "synthetic.jsonl"
+    rows = _synthetic_rows()
+    rows[1]["game_model_loop_fallback_triggers"] = 1
+    _write_synthetic_replay_jsonl(replay_path, rows)
+
+    dataset = SupervisedReplayDataset(
+        replay_path,
+        max_model_loop_fallback_triggers=0,
+    )
+
+    assert len(dataset) == 1
+    assert dataset[0].action_index == 2
+
+
+def test_supervised_replay_dataset_treats_missing_loop_fallback_metadata_as_zero(tmp_path) -> None:
+    replay_path = tmp_path / "synthetic.jsonl"
+    _write_synthetic_replay_jsonl(replay_path, _synthetic_rows())
+
+    dataset = SupervisedReplayDataset(
+        replay_path,
+        max_model_loop_fallback_triggers=0,
+    )
+
+    assert len(dataset) == 2
+
+
 def test_collate_and_masked_policy_logits_work_together(tmp_path) -> None:
     replay_path = tmp_path / "synthetic.jsonl"
     _write_synthetic_replay_jsonl(replay_path, _synthetic_rows())
