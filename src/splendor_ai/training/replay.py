@@ -11,8 +11,10 @@ from splendor_ai.diagnostics import is_progress_transition, state_signature
 from splendor_ai.bots.base import Bot
 from splendor_ai.encoding import ActionCodec, encode_public_observation_tensor
 from splendor_ai.engine.actions import Action
+from splendor_ai.engine.constants import ALL_TOKEN_TYPES, TOKEN_COLORS
+from splendor_ai.engine.data import build_base_deck_by_tier, build_base_nobles
 from splendor_ai.engine.env import SplendorEnv
-from splendor_ai.engine.state import SplendorState
+from splendor_ai.engine.state import PlayerState, SplendorState
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +28,7 @@ class ReplayStep:
     observation_vector: tuple[float, ...]
     final_value: float
     winner: int | None
+    state_snapshot: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +57,7 @@ def collect_game_replay(
     repetition_limit: int = 4,
     no_progress_limit: int = 60,
     codec: ActionCodec | None = None,
+    include_state_snapshots: bool = False,
 ) -> ReplayGame:
     env = SplendorEnv(seed=seed)
     state = env.initial_state()
@@ -105,6 +109,9 @@ def collect_game_replay(
                 "action_payload": _serialize_action(chosen_action),
                 "legal_action_indices": legal_action_indices,
                 "observation_vector": observation.vector,
+                "state_snapshot": serialize_state_snapshot(state)
+                if include_state_snapshots
+                else None,
             }
         )
         next_state = env.step(state, chosen_action)
@@ -133,6 +140,11 @@ def collect_game_replay(
             observation_vector=tuple(step["observation_vector"]),
             final_value=_final_value_for_player(winner, int(step["player_id"])),
             winner=winner,
+            state_snapshot=(
+                dict(step["state_snapshot"])
+                if step.get("state_snapshot") is not None
+                else None
+            ),
         )
         for step in pending_steps
     )
@@ -160,6 +172,9 @@ def export_replay_games_jsonl(path: str | Path, games: list[ReplayGame] | tuple[
     with output_path.open("w", encoding="utf-8") as handle:
         for game in games:
             for step in game.steps:
+                step_payload = asdict(step)
+                if step_payload["state_snapshot"] is None:
+                    step_payload.pop("state_snapshot")
                 payload = {
                     "game_seed": game.seed,
                     "game_turns": game.turns,
@@ -172,7 +187,7 @@ def export_replay_games_jsonl(path: str | Path, games: list[ReplayGame] | tuple[
                     "game_bot_metadata": list(game.bot_metadata),
                     "game_loop_fallback_triggers_by_seat": list(game.loop_fallback_triggers_by_seat),
                     "game_model_loop_fallback_triggers": _model_loop_fallback_triggers(game),
-                    **asdict(step),
+                    **step_payload,
                     "legal_action_indices": list(step.legal_action_indices),
                     "observation_vector": list(step.observation_vector),
                 }
@@ -300,6 +315,109 @@ def _bot_metadata(bot: Bot) -> dict[str, Any]:
     return metadata
 
 
+def serialize_action(action: Action) -> dict[str, Any]:
+    return _serialize_action(action)
+
+
+def serialize_state_snapshot(state: SplendorState) -> dict[str, Any]:
+    return {
+        "current_player": state.current_player,
+        "turn_index": state.turn_index,
+        "start_player": state.start_player,
+        "pending_round_end": state.pending_round_end,
+        "terminal": state.terminal,
+        "winner": state.winner,
+        "bank_tokens": dict(state.bank_tokens),
+        "visible_tier_cards": {
+            str(tier): [card.card_id for card in cards]
+            for tier, cards in state.visible_tier_cards.items()
+        },
+        "hidden_tier_decks": {
+            str(tier): [card.card_id for card in cards]
+            for tier, cards in state.hidden_tier_decks.items()
+        },
+        "deck_counts": dict(state.deck_counts),
+        "nobles": [noble.noble_id for noble in state.nobles],
+        "players": [
+            {
+                "player_id": player.player_id,
+                "tokens": dict(player.tokens),
+                "bonuses": dict(player.bonuses),
+                "score": player.score,
+                "reserved_card_ids": [card.card_id for card in player.reserved_cards],
+                "purchased_card_ids": [card.card_id for card in player.purchased_cards],
+                "noble_ids": [noble.noble_id for noble in player.nobles],
+            }
+            for player in state.players
+        ],
+    }
+
+
+def deserialize_state_snapshot(snapshot: dict[str, Any]) -> SplendorState:
+    cards_by_id = {
+        card.card_id: card
+        for cards in build_base_deck_by_tier().values()
+        for card in cards
+    }
+    nobles_by_id = {noble.noble_id: noble for noble in build_base_nobles()}
+
+    visible_tier_cards = {
+        int(tier): [_lookup_card(cards_by_id, card_id) for card_id in card_ids]
+        for tier, card_ids in snapshot["visible_tier_cards"].items()
+    }
+    hidden_tier_decks = {
+        int(tier): [_lookup_card(cards_by_id, card_id) for card_id in card_ids]
+        for tier, card_ids in snapshot["hidden_tier_decks"].items()
+    }
+    deck_counts = {
+        int(tier): int(count)
+        for tier, count in snapshot.get("deck_counts", {}).items()
+    }
+    if not deck_counts:
+        deck_counts = {tier: len(cards) for tier, cards in hidden_tier_decks.items()}
+
+    players = []
+    for player_payload in snapshot["players"]:
+        players.append(
+            PlayerState(
+                player_id=int(player_payload["player_id"]),
+                tokens=_normalize_token_counts(player_payload.get("tokens", {})),
+                bonuses=_normalize_bonus_counts(player_payload.get("bonuses", {})),
+                score=int(player_payload["score"]),
+                reserved_cards=[
+                    _lookup_card(cards_by_id, card_id)
+                    for card_id in player_payload.get("reserved_card_ids", [])
+                ],
+                purchased_cards=[
+                    _lookup_card(cards_by_id, card_id)
+                    for card_id in player_payload.get("purchased_card_ids", [])
+                ],
+                nobles=[
+                    _lookup_noble(nobles_by_id, noble_id)
+                    for noble_id in player_payload.get("noble_ids", [])
+                ],
+            )
+        )
+
+    return SplendorState(
+        current_player=int(snapshot["current_player"]),
+        bank_tokens=_normalize_token_counts(snapshot["bank_tokens"]),
+        players=players,
+        visible_tier_cards=visible_tier_cards,
+        hidden_tier_decks=hidden_tier_decks,
+        deck_counts=deck_counts,
+        nobles=[
+            _lookup_noble(nobles_by_id, noble_id)
+            for noble_id in snapshot.get("nobles", [])
+        ],
+        turn_index=int(snapshot["turn_index"]),
+        start_player=int(snapshot.get("start_player", 0)),
+        pending_round_end=bool(snapshot.get("pending_round_end", False)),
+        terminal=bool(snapshot.get("terminal", False)),
+        winner=snapshot.get("winner"),
+    )
+
+
 def _serialize_action(action: Action) -> dict[str, Any]:
     return {
         "action_type": action.action_type.name,
@@ -341,3 +459,25 @@ def _serialize_state_for_diagnostics(state: SplendorState) -> dict[str, Any]:
             for player in state.players
         ],
     }
+
+
+def _lookup_card(cards_by_id: dict[str, Any], card_id: str) -> Any:
+    try:
+        return cards_by_id[card_id]
+    except KeyError as exc:
+        raise ValueError(f"Unknown card id in state snapshot: {card_id}") from exc
+
+
+def _lookup_noble(nobles_by_id: dict[str, Any], noble_id: str) -> Any:
+    try:
+        return nobles_by_id[noble_id]
+    except KeyError as exc:
+        raise ValueError(f"Unknown noble id in state snapshot: {noble_id}") from exc
+
+
+def _normalize_token_counts(payload: dict[str, Any]) -> dict[str, int]:
+    return {color: int(payload.get(color, 0)) for color in ALL_TOKEN_TYPES}
+
+
+def _normalize_bonus_counts(payload: dict[str, Any]) -> dict[str, int]:
+    return {color: int(payload.get(color, 0)) for color in TOKEN_COLORS}

@@ -45,6 +45,8 @@ Model/training stack:
 - multi-corpus replay loading and repeated `--replay-path` support
 - checkpoint-driven replay corpus generation with checkpoint/fallback provenance metadata
 - supervised replay filtering by per-game checkpoint fallback trigger count
+- optional pre-action replay state snapshots for reconstructing exact training positions
+- shallow-search replay action improvement tooling for policy-target relabeling
 
 Bots/eval:
 
@@ -183,6 +185,39 @@ Observed results:
   - benchmark champion final checkpoint: 20-0 vs random, 15-5 vs greedy on seed block 7000
   - current champion `warmstart_search_004_best` on the comparable seed block was 20-0 vs random, 19-1 vs greedy
   - do not promote `warmstart_champion_mix_001`
+- Added the first policy-improvement tooling:
+  - `run_replay_corpus.py --include-state-snapshots` writes compact pre-action state snapshots into replay rows without changing the default corpus format
+  - `deserialize_state_snapshot` reconstructs exact `SplendorState` objects from those rows
+  - `ShallowSearchBot.rank_actions(...)` exposes ranked/scored root actions
+  - `run_improve_replay_actions.py` reads snapshot-enabled replay JSONL, reranks each position with shallow search, and writes relabeled policy rows plus a summary JSON
+  - improved rows preserve `original_action_index`, `original_action_payload`, and `improvement_metadata`
+  - metadata explicitly marks `target_semantics` as `policy_relabel_only_original_final_value_retained`
+- Ran the first policy-improvement probe:
+  - generated `data/corpus_checkpoint_greedy_snapshots_001`
+  - 25 games, 1,650 steps, 0 stalled, 0 timed out, 0 loop fallback triggers
+  - relabeled all 1,650 rows with depth-2 shallow search into `improved_search_policy_full.jsonl`
+  - search changed 1,123 rows and left 527 rows unchanged
+  - added `run_supervised.py --init-checkpoint` and fine-tuned from `outputs/warmstart_search_004/supervised_policy_value_best.pt`
+  - trained `outputs/policy_improve_001` for 4 policy-only epochs with `--value-loss-weight 0.0`
+  - quick seed-7000 benchmark: 19-1 vs random with 1 `repetition_cutoff`, 18-2 vs greedy with 0 timeouts
+  - do not promote `policy_improve_001`; current champion remains `warmstart_search_004_best`, whose comparable quick seed-7000 result was 20-0 vs random and 19-1 vs greedy
+- Added confidence-gated shallow-search relabeling:
+  - `run_improve_replay_actions.py` now supports `--min-search-margin` and `--exclude-changed-action-types`
+  - the gate requires the original action to be present in the pruned search candidate set when a margin is requested
+  - filtered rows are counted separately for low margin, missing original score, and excluded selected action type
+- Ran `policy_improve_margin500_001`, the first successful policy-improvement candidate:
+  - relabel settings: `--min-search-margin 500 --exclude-changed-action-types TAKE_TOKENS --write-unchanged`
+  - relabel output: `data/corpus_checkpoint_greedy_snapshots_001/improved_search_policy_margin500_no_take.jsonl`
+  - 901 rows written: 374 high-confidence changed labels and 527 unchanged anchors
+  - filtered 193 low-margin changes, 399 changes where the original action was pruned from search candidates, and 157 selected-token-take changes
+  - fine-tuned from `outputs/warmstart_search_004/supervised_policy_value_best.pt` for 4 policy-only epochs with `--value-loss-weight 0.0`
+  - quick seed-7000 benchmark: 20-0 vs random, 19-1 vs greedy, 0 timeouts
+  - 100-game random sanity seed block 5000: 100-0-0, 0 timeouts, 0 fallback triggers
+  - 100-game greedy seed block 5000: 94-6-0, 0 timeouts, 0 fallback triggers
+  - 100-game greedy seed block 6000: 95-5-0, 0 timeouts, 1 fallback trigger
+  - combined greedy validation: 189-11-0 across 200 games, 0 timeouts, 1 fallback trigger
+  - this beats `warmstart_search_004_best` on the same two 100-game greedy blocks: 171-29-0 with 5 fallback triggers
+  - recommend promoting `outputs/policy_improve_margin500_001/supervised_policy_value.pt` as the new local champion after checkpointing the code/handoff
 
 Judgement calls made for checkpoint replay support:
 
@@ -193,9 +228,24 @@ Judgement calls made for checkpoint replay support:
 - Ran only a tiny 2-game checkpoint probe for validation. Checkpoint-generated data can reinforce model habits, so the next useful step is a controlled probe block and analysis, not immediate large-scale self-play.
 - Trained one controlled champion-data mix after the 125-game probe, but rejected it on benchmark strength. This suggests naive imitation of the current champion against greedy is not enough; the next champion-assisted step needs a better target, weighting, or policy-improvement signal rather than simply adding model-play rows.
 
+Judgement calls made for replay action improvement:
+
+- Made state snapshots opt-in through `--include-state-snapshots`. This avoids bloating ordinary replay corpora while giving improvement scripts exact hidden decks, visible markets, nobles, and player zones when needed.
+- Stored card/noble IDs rather than full card payloads. The base component table is canonical in code, so ID snapshots are smaller and less likely to drift.
+- Added a search ranker instead of only calling `choose_action`. This lets relabeled rows record search value, heuristic score, loop penalty, and whether the original action was considered by the search candidate cap.
+- Defaulted `run_improve_replay_actions.py` to writing changed rows only. This keeps improvement corpora focused and reduces duplicate imitation rows; `--write-unchanged` is available for diagnostics or full relabeled datasets.
+- Kept original `final_value` on relabeled rows and marked that fact in metadata. This is the important caveat: if the action is changed, the old game outcome is no longer a clean value target. Use these rows primarily as policy-improvement targets, or train with reduced/zero value loss for this source until we add rollout-backed value labels.
+- Defaulted relabeling to stateless per-row search. Because changing an action makes later original replay states off-policy, carrying a search history across all rows could inject inconsistent loop context. `--stateful-search-history` exists for sequential diagnostics.
+- For `policy_improve_001`, fine-tuned from the current champion rather than training from scratch. A tiny relabeled corpus is not enough to relearn the whole policy; the right test was whether it can nudge the champion upward.
+- After a power outage interrupted the first relabel attempt, verified the 25-game snapshot corpus was complete and restarted only the relabel step. The half-written relabel output was empty, so there was no useful partial data to salvage.
+- Used `--write-unchanged` for the first training probe. Since 68% of actions changed, keeping unchanged rows gave the model both positive corrections and explicit "search agrees" anchors.
+- Used `--value-loss-weight 0.0` for the fine-tune because changed actions retain original game outcomes and are not clean value targets.
+- For the successful gated run, used `--min-search-margin 500` and excluded selected `TAKE_TOKENS` labels. This preserved the useful tactical corrections, mostly buy/reserve over original token takes, while avoiding the noisy high-volume token-take relabels that likely hurt the ungated run.
+
 Current practical recommendation:
 
-- Treat `outputs/warmstart_search_004/supervised_policy_value_best.pt` as the current champion.
+- Treat `outputs/policy_improve_margin500_001/supervised_policy_value.pt` as the current champion.
+- Keep `outputs/warmstart_search_004/supervised_policy_value_best.pt` as the previous champion baseline.
 - Use the benchmark CLI for future checkpoint comparisons instead of ad hoc inline Python.
 - Keep the loop fallback enabled for GUI/benchmark play, but continue recording trigger counts so it remains measurable and removable.
 - Important caveat: the fallback is a pragmatic guardrail, not a pure policy improvement. It may slightly affect marginal benchmark strength by overriding the model in rare loop-risk states, so compare future champions using both win rate and fallback trigger counts.
@@ -235,7 +285,13 @@ Current practical recommendation:
 
 Near-term:
 
-1. Treat the current champion as:
+1. Treat the current champion candidate as:
+
+```powershell
+outputs\policy_improve_margin500_001\supervised_policy_value.pt
+```
+
+The previous champion remains:
 
 ```powershell
 outputs\warmstart_search_004\supervised_policy_value_best.pt
@@ -249,10 +305,14 @@ outputs\warmstart_search_004\supervised_policy_value_best.pt
 3. Next experiment should continue generating stronger search-only data or start designing champion-assisted data.
    - `warmstart_search_005` was trained after another clean search-only block but regressed in the quick seed-7000 benchmark, so do not promote it without further study.
    - The first controlled checkpoint-vs-greedy mix also regressed in the quick seed-7000 benchmark, so do not promote it.
-   - The next useful step is not more naive imitation data. Prefer one of:
-     - add a stronger target from search-on-checkpoint positions
-     - add outcome/advantage weighting instead of flat imitation
-     - start a small policy-improvement loop where champion move choices are compared against shallow search recommendations before export
+   - The next useful step is not more naive imitation data. Start a small policy-improvement probe:
+     - generate a snapshot-enabled champion-vs-greedy corpus
+     - run `run_improve_replay_actions.py` over it with shallow search
+     - train a small policy-focused candidate using the improved rows with reduced/zero value loss for that source
+     - benchmark against `warmstart_search_004_best` before scaling
+   - First ungated version of this probe was completed as `policy_improve_001` and rejected. The useful lesson is that shallow-search relabeling changed many champion actions, but directly fine-tuning on all labels slightly hurt benchmark strength and reintroduced one random-game repetition cutoff.
+   - The gated version `policy_improve_margin500_001` succeeded and should be the template for the next iteration.
+   - Next improvement attempt should use the same gated recipe on a larger/newer snapshot corpus or test a small margin sweep before scaling heavily.
 
 4. Use the sharded replay pattern if continuing data scaling:
 
@@ -273,6 +333,18 @@ Checkpoint replay command that was validated:
 Train on checkpoint-generated data only after inspecting `loop_fallback_triggers`, `timed_out_games`, and the per-row `game_model_loop_fallback_triggers` fields.
 Use `--max-game-model-loop-fallback-triggers 0` to exclude all fallback-triggered games from supervised training.
 
+Snapshot-enabled champion replay command template:
+
+```powershell
+.venv\Scripts\python.exe run_replay_corpus.py --output-dir data\corpus_checkpoint_greedy_snapshots_001 --games 25 --seed-start 9300 --seat0-bot checkpoint --seat1-bot greedy --checkpoint-path outputs\warmstart_search_004\supervised_policy_value_best.pt --checkpoint-device cuda --swap-seats --max-turns 400 --repetition-limit 4 --no-progress-limit 60 --include-state-snapshots --log-every 5
+```
+
+Action-improvement command template:
+
+```powershell
+.venv\Scripts\python.exe run_improve_replay_actions.py --input-path data\corpus_checkpoint_greedy_snapshots_001\replays.jsonl --output-path data\corpus_checkpoint_greedy_snapshots_001\improved_search_policy.jsonl --summary-path data\corpus_checkpoint_greedy_snapshots_001\improved_search_policy_summary.json --search-depth 2 --search-max-branching 10 --search-buy-branching 6 --search-reserve-branching 3 --search-take-branching 3 --log-every 1000
+```
+
 ## Files Worth Reading First
 
 - `README.md`
@@ -281,6 +353,8 @@ Use `--max-game-model-loop-fallback-triggers 0` to exclude all fallback-triggere
 - `src/splendor_ai/engine/env.py`
 - `src/splendor_ai/encoding/action_codec.py`
 - `src/splendor_ai/training/run_supervised.py`
+- `src/splendor_ai/training/replay.py`
+- `src/splendor_ai/training/improve_replay_actions.py`
 - `src/splendor_ai/eval/run_benchmark.py`
 - `src/splendor_ai/eval/match.py`
 - `src/splendor_ai/diagnostics.py`
@@ -321,6 +395,28 @@ Direct verification completed in this session:
   - focused dataset/training/replay tests passed: 28 passed
   - `data/corpus_checkpoint_greedy_00[1-5]`: 125 games, 8,156 steps, 0 stalled, 0 timed out, 4 fallback triggers
   - `warmstart_champion_mix_001`: trained with `--max-game-model-loop-fallback-triggers 0`, final checkpoint 20-0 vs random and 15-5 vs greedy on seed block 7000; rejected
+- Replay action improvement tooling:
+  - focused tests passed: `.venv\Scripts\python.exe -m pytest -q tests\test_replay_export.py tests\test_improve_replay_actions.py --basetemp .codex_pytest_tmp_improve` -> 6 passed
+  - full suite passed: `.venv\Scripts\python.exe -m pytest -q --basetemp .codex_pytest_tmp_all` -> 94 passed
+  - CLI smoke probe passed:
+    - generated 1 snapshot-enabled random-vs-random probe game
+    - relabeled first 5 rows with `run_improve_replay_actions.py`
+    - cleaned temporary probe output afterward
+- Policy-improvement probe:
+  - `data/corpus_checkpoint_greedy_snapshots_001`: 25 games, 1,650 steps, 0 stalled, 0 timed out, 0 fallback triggers
+  - `improved_search_policy_full_summary.json`: 1,650 rows written, 1,123 changed, 527 unchanged, 0 missing snapshots
+  - `outputs/policy_improve_001`: policy-only fine-tune from current champion, best validation epoch 4
+  - benchmark final/best checkpoints both produced 19-1 vs random with 1 repetition cutoff and 18-2 vs greedy with 0 timeouts on seed block 7000
+  - `.venv\Scripts\python.exe -m pytest -q --basetemp .codex_pytest_tmp_all` passed after the probe: 94 passed
+- Gated policy-improvement probe:
+  - focused gated relabel tests passed: `.venv\Scripts\python.exe -m pytest -q tests\test_improve_replay_actions.py --basetemp .codex_pytest_tmp_improve` -> 4 passed
+  - `improved_search_policy_margin500_no_take_summary.json`: 901 rows written, 374 changed, 527 unchanged, 193 filtered by margin, 399 filtered by missing original score, 157 filtered by selected action type
+  - `outputs/policy_improve_margin500_001`: policy-only fine-tune from `warmstart_search_004_best`, best validation epoch 4
+  - quick seed-7000 benchmark: 20-0 vs random, 19-1 vs greedy, 0 timeouts
+  - 100-game seed-5000 random sanity: 100-0-0, 0 timeouts, 0 fallback triggers
+  - 100-game seed-5000 greedy: 94-6-0, 0 timeouts, 0 fallback triggers
+  - 100-game seed-6000 greedy: 95-5-0, 0 timeouts, 1 fallback trigger
+  - full suite passed after the gated probe: `.venv\Scripts\python.exe -m pytest -q --basetemp .codex_pytest_tmp_all` -> 96 passed
 
 Plain pytest without `--basetemp` can still hit Windows temp permission issues around local pytest temp directories. Use a repo-local basetemp:
 
@@ -343,3 +439,6 @@ Changes prepared in this session:
 - Generated clean `corpus_search_greedy_005[1-5]` and trained `warmstart_search_005`, but rejected it because the quick greedy benchmark regressed.
 - Added checkpoint bot support to replay corpus generation, including checkpoint provenance and fallback-trigger metadata in replay rows and corpus summaries.
 - Added supervised filtering by checkpoint fallback trigger count, generated `corpus_checkpoint_greedy_00[1-5]`, trained `warmstart_champion_mix_001`, and rejected it because the quick greedy benchmark regressed.
+- Added optional replay state snapshots, exact snapshot reconstruction, shallow-search action ranking, and `run_improve_replay_actions.py` for policy-improvement relabeling.
+- Added `run_supervised.py --init-checkpoint`, ran `policy_improve_001`, and rejected it because the quick benchmark was slightly worse than `warmstart_search_004_best`.
+- Added confidence/margin-gated relabeling, trained `policy_improve_margin500_001`, and recommend promoting it because it beat the previous champion by 18 games over the same two 100-game greedy validation blocks while reducing fallback use.

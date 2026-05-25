@@ -142,6 +142,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Alternate seat ownership for each full pairing cycle.",
     )
+    parser.add_argument(
+        "--include-state-snapshots",
+        action="store_true",
+        help="Write compact pre-action state snapshots for action improvement tools.",
+    )
     parser.add_argument("--log-every", type=int, default=10, help="Print progress every N completed games.")
     return parser
 
@@ -212,6 +217,7 @@ def main() -> None:
         progress_callback=progress_callback,
         pairings=pairings,
         swap_seats=args.swap_seats,
+        include_state_snapshots=args.include_state_snapshots,
     )
     print("[corpus] generation complete, writing replay files...")
     replay_path, summary_path = write_replay_corpus(
@@ -285,6 +291,7 @@ def _summary_metadata(args: argparse.Namespace, pairing_labels: list[str]) -> di
     metadata: dict[str, object] = {
         "pairings": pairing_labels,
         "swap_seats": args.swap_seats,
+        "include_state_snapshots": args.include_state_snapshots,
         "seed_start": args.seed_start,
         "max_turns": args.max_turns,
         "repetition_limit": args.repetition_limit,

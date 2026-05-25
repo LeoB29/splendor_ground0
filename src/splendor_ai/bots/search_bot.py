@@ -23,6 +23,14 @@ class _RankedCandidate:
     strategic_signature: tuple[object, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class SearchActionScore:
+    action: Action
+    value: float
+    heuristic_score: float
+    loop_penalty: float
+
+
 class ShallowSearchBot:
     """Depth-limited minimax bot with heuristic leaf evaluation.
 
@@ -127,6 +135,54 @@ class ShallowSearchBot:
         self._post_action_state_counts[next_signature] = self._post_action_state_counts.get(next_signature, 0) + 1
         self._last_turn_index = state.turn_index
         return chosen_candidate.action
+
+    def rank_actions(
+        self,
+        env: SplendorEnv,
+        state: SplendorState,
+        legal_actions: list[Action] | None = None,
+    ) -> tuple[SearchActionScore, ...]:
+        actions = legal_actions if legal_actions is not None else env.legal_actions(state)
+        if not actions:
+            return ()
+
+        root_player = state.current_player
+        self._transposition_cache = {}
+        root_signature = self._heuristic.state_signature(state)
+        candidates = self._ordered_candidates(
+            env=env,
+            state=state,
+            actions=actions,
+            root_player=root_player,
+        )
+        scores = []
+        for candidate in candidates:
+            value = self._minimax(
+                env=env,
+                state=candidate.next_state,
+                depth=self._depth - 1,
+                root_player=root_player,
+                alpha=-math.inf,
+                beta=math.inf,
+                path_signatures={root_signature},
+            )
+            value -= candidate.loop_penalty
+            scores.append(
+                SearchActionScore(
+                    action=candidate.action,
+                    value=value,
+                    heuristic_score=candidate.heuristic_score,
+                    loop_penalty=candidate.loop_penalty,
+                )
+            )
+
+        return tuple(
+            sorted(
+                scores,
+                key=lambda item: (item.value, item.heuristic_score),
+                reverse=True,
+            )
+        )
 
     def _minimax(
         self,

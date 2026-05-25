@@ -2,7 +2,12 @@ import json
 
 from splendor_ai.bots import GreedyHeuristicBot, RandomLegalBot
 from splendor_ai.encoding import ActionCodec
-from splendor_ai.training import collect_game_replay, export_replay_games_jsonl
+from splendor_ai.engine.env import SplendorEnv
+from splendor_ai.training import (
+    collect_game_replay,
+    deserialize_state_snapshot,
+    export_replay_games_jsonl,
+)
 
 
 class TokenOnlyBot:
@@ -66,6 +71,35 @@ def test_export_replay_games_jsonl_writes_one_line_per_step(tmp_path) -> None:
     assert len(first_payload["observation_vector"]) == 256
     assert first_payload["action_index"] in first_payload["legal_action_indices"]
     assert "action_payload" in first_payload
+    assert "state_snapshot" not in first_payload
+
+
+def test_collect_game_replay_can_record_reconstructable_state_snapshots(tmp_path) -> None:
+    codec = ActionCodec()
+    replay = collect_game_replay(
+        bot_seat_0=GreedyHeuristicBot(seed=5),
+        bot_seat_1=RandomLegalBot(seed=6),
+        seed=7,
+        max_turns=20,
+        codec=codec,
+        include_state_snapshots=True,
+    )
+
+    first_step = replay.steps[0]
+    assert first_step.state_snapshot is not None
+    reconstructed_state = deserialize_state_snapshot(first_step.state_snapshot)
+    legal_actions = SplendorEnv().legal_actions(reconstructed_state)
+    legal_indices = codec.legal_action_indices(reconstructed_state, legal_actions)
+
+    assert reconstructed_state.turn_index == first_step.turn_index
+    assert reconstructed_state.current_player == first_step.player_id
+    assert first_step.action_index in legal_indices
+    assert tuple(legal_indices) == first_step.legal_action_indices
+
+    output_path = tmp_path / "replays.jsonl"
+    export_replay_games_jsonl(output_path, [replay])
+    first_payload = json.loads(output_path.read_text(encoding="utf-8").splitlines()[0])
+    assert first_payload["state_snapshot"]["turn_index"] == first_step.turn_index
 
 
 def test_collect_game_replay_applies_no_progress_cutoff() -> None:

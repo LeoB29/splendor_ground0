@@ -49,6 +49,7 @@ def generate_replay_corpus(
     progress_callback: Callable[[int, int, ReplayGame, float], None] | None = None,
     pairings: tuple[BotPairing, ...] = (),
     swap_seats: bool = False,
+    include_state_snapshots: bool = False,
 ) -> tuple[tuple[ReplayGame, ...], CorpusSummary]:
     if pairings:
         pairing_schedule = pairings
@@ -74,6 +75,7 @@ def generate_replay_corpus(
             max_turns=max_turns,
             repetition_limit=repetition_limit,
             no_progress_limit=no_progress_limit,
+            include_state_snapshots=include_state_snapshots,
         )
         replay_games.append(replay_game)
         if progress_callback is not None:

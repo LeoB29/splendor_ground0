@@ -41,6 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--value-loss-weight", type=float, default=1.0)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument(
+        "--init-checkpoint",
+        default=None,
+        help="Optional checkpoint to initialize/fine-tune from instead of random weights.",
+    )
     parser.add_argument("--trunk-hidden-size", type=int, default=256)
     parser.add_argument("--trunk-depth", type=int, default=3)
     parser.add_argument("--dropout", type=float, default=0.0)
@@ -286,6 +291,34 @@ def _select_benchmark_champion(
     )
 
 
+def _build_model(args: argparse.Namespace) -> PolicyValueMLP:
+    if args.init_checkpoint is None:
+        return PolicyValueMLP(
+            PolicyValueModelConfig(
+                trunk_hidden_size=args.trunk_hidden_size,
+                trunk_depth=args.trunk_depth,
+                dropout=args.dropout,
+            )
+        )
+
+    checkpoint_path = Path(args.init_checkpoint)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    config_payload = checkpoint.get("model_config", {})
+    model_config = (
+        PolicyValueModelConfig(**config_payload)
+        if config_payload
+        else PolicyValueModelConfig(
+            trunk_hidden_size=args.trunk_hidden_size,
+            trunk_depth=args.trunk_depth,
+            dropout=args.dropout,
+        )
+    )
+    model = PolicyValueMLP(model_config)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    print(f"[train] initialized model from checkpoint: {checkpoint_path}")
+    return model
+
+
 def _build_train_config_payload(args: argparse.Namespace) -> dict[str, object]:
     return {
         "replay_paths": [str(Path(path)) for path in args.replay_path],
@@ -295,6 +328,7 @@ def _build_train_config_payload(args: argparse.Namespace) -> dict[str, object]:
         "value_loss_weight": args.value_loss_weight,
         "epochs": args.epochs,
         "device": args.device,
+        "init_checkpoint": args.init_checkpoint,
         "include_stalled_games": not args.exclude_stalled_games,
         "include_timed_out_games": not args.exclude_timeout_games,
         "max_model_loop_fallback_triggers": args.max_game_model_loop_fallback_triggers,
@@ -343,13 +377,7 @@ def main() -> None:
         f" batch_size={args.batch_size}"
     )
 
-    model = PolicyValueMLP(
-        PolicyValueModelConfig(
-            trunk_hidden_size=args.trunk_hidden_size,
-            trunk_depth=args.trunk_depth,
-            dropout=args.dropout,
-        )
-    )
+    model = _build_model(args)
     train_config = SupervisedTrainConfig(
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
