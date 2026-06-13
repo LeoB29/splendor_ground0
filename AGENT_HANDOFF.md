@@ -220,6 +220,20 @@ Observed results:
   - combined greedy validation: 189-11-0 across 200 games, 0 timeouts, 1 fallback trigger
   - this beats `warmstart_search_004_best` on the same two 100-game greedy blocks: 171-29-0 with 5 fallback triggers
   - promoted `outputs/policy_improve_margin500_001/supervised_policy_value.pt` as the new local champion after checkpointing the code/handoff
+- Ran a second gated policy-improvement iteration, `policy_improve_margin500_002`:
+  - generated `data/corpus_checkpoint_greedy_snapshots_002` from `policy_improve_margin500_001` vs greedy
+  - 25 games, 1,634 steps, 0 stalled, 0 timed out, 0 fallback triggers
+  - relabel settings unchanged: `--min-search-margin 500 --exclude-changed-action-types TAKE_TOKENS --write-unchanged`
+  - relabel output: `data/corpus_checkpoint_greedy_snapshots_002/improved_search_policy_margin500_no_take.jsonl`
+  - 882 rows written: 362 high-confidence changed labels and 520 unchanged anchors
+  - filtered 164 low-margin changes, 426 changes where the original action was pruned from search candidates, and 162 selected-token-take changes
+  - fine-tuned from `outputs/policy_improve_margin500_001/supervised_policy_value.pt` for 4 policy-only epochs with `--value-loss-weight 0.0`
+  - quick seed-7000 benchmark: 20-0 vs random, 19-1 vs greedy, 0 timeouts
+  - 100-game random sanity seed block 5000: 100-0-0, 0 timeouts, 0 fallback triggers
+  - 100-game greedy seed block 8000: 97-3-0, 0 timeouts, 0 fallback triggers
+  - 100-game greedy seed block 5000: 96-4-0, 0 timeouts, 1 fallback trigger
+  - this improves over `policy_improve_margin500_001` on the checked blocks: seed 8000 improved from 87-13 to 97-3, seed 5000 improved from 94-6 to 96-4
+  - recommend promoting `outputs/policy_improve_margin500_002/supervised_policy_value.pt` as the current local champion
 
 Judgement calls made for checkpoint replay support:
 
@@ -243,11 +257,13 @@ Judgement calls made for replay action improvement:
 - Used `--write-unchanged` for the first training probe. Since 68% of actions changed, keeping unchanged rows gave the model both positive corrections and explicit "search agrees" anchors.
 - Used `--value-loss-weight 0.0` for the fine-tune because changed actions retain original game outcomes and are not clean value targets.
 - For the successful gated run, used `--min-search-margin 500` and excluded selected `TAKE_TOKENS` labels. This preserved the useful tactical corrections, mostly buy/reserve over original token takes, while avoiding the noisy high-volume token-take relabels that likely hurt the ungated run.
+- Reused the same gate for `policy_improve_margin500_002` because the relabel distribution stayed similar to the first successful run. The model was slower in greedy benchmarks, so future iterations should track elapsed time / turns as secondary signals, not just win rate.
 
 Current practical recommendation:
 
-- Treat `outputs/policy_improve_margin500_001/supervised_policy_value.pt` as the current champion.
-- Keep `outputs/warmstart_search_004/supervised_policy_value_best.pt` as the previous champion baseline.
+- Treat `outputs/policy_improve_margin500_002/supervised_policy_value.pt` as the current champion candidate / recommended promotion.
+- Keep `outputs/policy_improve_margin500_001/supervised_policy_value.pt` as the previous champion baseline.
+- Keep `outputs/warmstart_search_004/supervised_policy_value_best.pt` as the older pre-policy-improvement baseline.
 - Use the benchmark CLI for future checkpoint comparisons instead of ad hoc inline Python.
 - Keep the loop fallback enabled for GUI/benchmark play, but continue recording trigger counts so it remains measurable and removable.
 - Important caveat: the fallback is a pragmatic guardrail, not a pure policy improvement. It may slightly affect marginal benchmark strength by overriding the model in rare loop-risk states, so compare future champions using both win rate and fallback trigger counts.
@@ -290,13 +306,13 @@ Near-term:
 1. Treat the current champion as:
 
 ```powershell
-outputs\policy_improve_margin500_001\supervised_policy_value.pt
+outputs\policy_improve_margin500_002\supervised_policy_value.pt
 ```
 
 The previous champion remains:
 
 ```powershell
-outputs\warmstart_search_004\supervised_policy_value_best.pt
+outputs\policy_improve_margin500_001\supervised_policy_value.pt
 ```
 
 2. Do not promote the mixed-data experiments.
@@ -313,8 +329,8 @@ outputs\warmstart_search_004\supervised_policy_value_best.pt
      - train a small policy-focused candidate using the improved rows with reduced/zero value loss for that source
      - benchmark against `warmstart_search_004_best` before scaling
    - First ungated version of this probe was completed as `policy_improve_001` and rejected. The useful lesson is that shallow-search relabeling changed many champion actions, but directly fine-tuning on all labels slightly hurt benchmark strength and reintroduced one random-game repetition cutoff.
-   - The gated version `policy_improve_margin500_001` succeeded and should be the template for the next iteration.
-   - Next improvement attempt should use the same gated recipe on a larger/newer snapshot corpus or test a small margin sweep before scaling heavily.
+   - The gated version `policy_improve_margin500_001` succeeded, and `policy_improve_margin500_002` improved again on the checked blocks.
+   - Next improvement attempt can either repeat the same gated recipe for one more 25-game shard, or run a small margin sweep before scaling heavily.
 
 4. Use the sharded replay pattern if continuing data scaling:
 
@@ -419,6 +435,15 @@ Direct verification completed in this session:
   - 100-game seed-5000 greedy: 94-6-0, 0 timeouts, 0 fallback triggers
   - 100-game seed-6000 greedy: 95-5-0, 0 timeouts, 1 fallback trigger
   - full suite passed after the gated probe: `.venv\Scripts\python.exe -m pytest -q --basetemp .codex_pytest_tmp_all` -> 96 passed
+- Second gated policy-improvement probe:
+  - `data/corpus_checkpoint_greedy_snapshots_002`: 25 games, 1,634 steps, 0 stalled, 0 timed out, 0 fallback triggers
+  - `improved_search_policy_margin500_no_take_summary.json`: 882 rows written, 362 changed, 520 unchanged, 164 filtered by margin, 426 filtered by missing original score, 162 filtered by selected action type
+  - `outputs/policy_improve_margin500_002`: policy-only fine-tune from `policy_improve_margin500_001`, best validation epoch 4
+  - quick seed-7000 benchmark: 20-0 vs random, 19-1 vs greedy, 0 timeouts
+  - 100-game seed-5000 random sanity: 100-0-0, 0 timeouts, 0 fallback triggers
+  - 100-game seed-8000 greedy: 97-3-0, 0 timeouts, 0 fallback triggers
+  - 100-game seed-5000 greedy: 96-4-0, 0 timeouts, 1 fallback trigger
+  - full suite passed after the second gated probe: `.venv\Scripts\python.exe -m pytest -q --basetemp .codex_pytest_tmp_all` -> 96 passed
 
 Plain pytest without `--basetemp` can still hit Windows temp permission issues around local pytest temp directories. Use a repo-local basetemp:
 
