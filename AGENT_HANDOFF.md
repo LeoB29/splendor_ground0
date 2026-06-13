@@ -89,7 +89,9 @@ Important local artifacts:
 - `outputs/warmstart_search_003/supervised_policy_value_best.pt`
   - prior champion checkpoint
 - `outputs/warmstart_search_004/supervised_policy_value_best.pt`
-  - current champion checkpoint
+  - previous champion checkpoint before gated policy improvement
+- `outputs/policy_improve_margin500_001/supervised_policy_value.pt`
+  - current local champion checkpoint, local/ignored artifact
 - `outputs/benchmarks/warmstart_search_003_best_100g_seed5000.json`
   - 100-game benchmark: 98-2 vs random, 83-16-1 vs greedy, 2 repetition-cutoff games vs greedy
 - `outputs/benchmarks/warmstart_search_003_best_100g_seed6000.json`
@@ -107,7 +109,7 @@ Important local artifacts:
 - `outputs/warmstart_mix_002_search_weighted/supervised_metrics.json`
   - local/ignored artifact, search-weighted mixed training; benchmark champion final checkpoint went 19-1 vs random, 9-11 vs greedy on seed block 7000
 - `outputs/benchmarks/warmstart_search_003_best_20g_seed7000.json`
-  - local/ignored artifact, current champion comparison on same seed block: 20-0 vs random, 16-4 vs greedy
+  - local/ignored artifact, then-current champion comparison on same seed block: 20-0 vs random, 16-4 vs greedy
 - `outputs/warmstart_search_004/supervised_metrics.json`
   - local/ignored artifact, search-only training on `002 + 003[a-d] + 004[1-5]`; best-validation checkpoint selected as benchmark champion
 - `outputs/benchmarks/warmstart_search_004_best_100g_seed5000.json`
@@ -148,7 +150,7 @@ Observed results:
 - Ran two mixed-data warm-start experiments after accepting the fallback:
   - `warmstart_mix_001`: existing search corpora plus `corpus_greedy_random_003`, 209,430 samples, 8 epochs, final checkpoint selected by benchmark, 5-15 vs greedy on seed block 7000
   - `warmstart_mix_002_search_weighted`: search corpora repeated 3x plus `corpus_greedy_random_003`, 337,150 samples, 8 epochs, final checkpoint selected by benchmark, 9-11 vs greedy on seed block 7000
-  - current champion `warmstart_search_003/supervised_policy_value_best.pt` went 16-4 vs greedy on the same seed block, so neither mixed checkpoint should be promoted
+  - then-current champion `warmstart_search_003/supervised_policy_value_best.pt` went 16-4 vs greedy on the same seed block, so neither mixed checkpoint should be promoted
 - Generated clean `search:greedy` shard block `004[1-5]`:
   - 125 games, 7,964 steps, 0 stalled, 0 timed out
 - Trained `warmstart_search_004` on search-only data (`002 + 003[a-d] + 004[1-5]`):
@@ -175,7 +177,7 @@ Observed results:
   - `warmstart_search_004_best` on comparable post-train seed-7000 benchmark: 20-0 vs random, 19-1 vs greedy
   - do not promote `warmstart_search_005`
 - Validated the new path with `data/corpus_checkpoint_greedy_probe_001`:
-  - pairing `checkpoint:greedy`, current champion checkpoint, CUDA, swap seats
+  - pairing `checkpoint:greedy`, then-current champion checkpoint, CUDA, swap seats
   - 2 games, 126 steps, 0 stalled, 0 timed out, 0 fallback triggers
 - Generated `data/corpus_checkpoint_greedy_00[1-5]`:
   - 125 games, 8,156 steps, 0 stalled, 0 timed out
@@ -200,7 +202,7 @@ Observed results:
   - added `run_supervised.py --init-checkpoint` and fine-tuned from `outputs/warmstart_search_004/supervised_policy_value_best.pt`
   - trained `outputs/policy_improve_001` for 4 policy-only epochs with `--value-loss-weight 0.0`
   - quick seed-7000 benchmark: 19-1 vs random with 1 `repetition_cutoff`, 18-2 vs greedy with 0 timeouts
-  - do not promote `policy_improve_001`; current champion remains `warmstart_search_004_best`, whose comparable quick seed-7000 result was 20-0 vs random and 19-1 vs greedy
+  - do not promote `policy_improve_001`; then-current champion remained `warmstart_search_004_best`, whose comparable quick seed-7000 result was 20-0 vs random and 19-1 vs greedy
 - Added confidence-gated shallow-search relabeling:
   - `run_improve_replay_actions.py` now supports `--min-search-margin` and `--exclude-changed-action-types`
   - the gate requires the original action to be present in the pruned search candidate set when a margin is requested
@@ -217,7 +219,7 @@ Observed results:
   - 100-game greedy seed block 6000: 95-5-0, 0 timeouts, 1 fallback trigger
   - combined greedy validation: 189-11-0 across 200 games, 0 timeouts, 1 fallback trigger
   - this beats `warmstart_search_004_best` on the same two 100-game greedy blocks: 171-29-0 with 5 fallback triggers
-  - recommend promoting `outputs/policy_improve_margin500_001/supervised_policy_value.pt` as the new local champion after checkpointing the code/handoff
+  - promoted `outputs/policy_improve_margin500_001/supervised_policy_value.pt` as the new local champion after checkpointing the code/handoff
 
 Judgement calls made for checkpoint replay support:
 
@@ -285,7 +287,7 @@ Current practical recommendation:
 
 Near-term:
 
-1. Treat the current champion candidate as:
+1. Treat the current champion as:
 
 ```powershell
 outputs\policy_improve_margin500_001\supervised_policy_value.pt
@@ -377,7 +379,7 @@ Direct verification completed in this session:
 - Mixed-data experiments:
   - `warmstart_mix_001`: 85 passed before run, trained successfully, benchmark champion final checkpoint 17-3 vs random and 5-15 vs greedy on seed block 7000
   - `warmstart_mix_002_search_weighted`: trained successfully, benchmark champion final checkpoint 19-1 vs random and 9-11 vs greedy on seed block 7000
-  - current champion comparison on seed block 7000: 20-0 vs random and 16-4 vs greedy
+  - then-current champion comparison on seed block 7000: 20-0 vs random and 16-4 vs greedy
 - `warmstart_search_004`:
   - generated `corpus_search_greedy_004[1-5]`: 125 games, 7,964 steps, 0 stalled, 0 timed out
   - trained successfully on 71,824 search-only replay samples
@@ -434,11 +436,11 @@ Changes prepared in this session:
 - Reused loaded checkpoint bots across benchmark games in standalone and post-training benchmark paths.
 - Added focused tests for fallback behavior and updated benchmark summary expectations.
 - Validated fallback on greedy seed blocks 5000 and 6000, removing observed repetition cutoffs while preserving roughly the same win rate.
-- Ran and rejected `warmstart_mix_001` and `warmstart_mix_002_search_weighted`; current champion remains `warmstart_search_003/supervised_policy_value_best.pt`.
+- Ran and rejected `warmstart_mix_001` and `warmstart_mix_002_search_weighted`; then-current champion remained `warmstart_search_003/supervised_policy_value_best.pt`.
 - Generated clean `corpus_search_greedy_004[1-5]`, trained `warmstart_search_004`, and promoted `outputs/warmstart_search_004/supervised_policy_value_best.pt` based on 200-game greedy validation.
 - Generated clean `corpus_search_greedy_005[1-5]` and trained `warmstart_search_005`, but rejected it because the quick greedy benchmark regressed.
 - Added checkpoint bot support to replay corpus generation, including checkpoint provenance and fallback-trigger metadata in replay rows and corpus summaries.
 - Added supervised filtering by checkpoint fallback trigger count, generated `corpus_checkpoint_greedy_00[1-5]`, trained `warmstart_champion_mix_001`, and rejected it because the quick greedy benchmark regressed.
 - Added optional replay state snapshots, exact snapshot reconstruction, shallow-search action ranking, and `run_improve_replay_actions.py` for policy-improvement relabeling.
 - Added `run_supervised.py --init-checkpoint`, ran `policy_improve_001`, and rejected it because the quick benchmark was slightly worse than `warmstart_search_004_best`.
-- Added confidence/margin-gated relabeling, trained `policy_improve_margin500_001`, and recommend promoting it because it beat the previous champion by 18 games over the same two 100-game greedy validation blocks while reducing fallback use.
+- Added confidence/margin-gated relabeling, trained `policy_improve_margin500_001`, and promoted it because it beat the previous champion by 18 games over the same two 100-game greedy validation blocks while reducing fallback use.
