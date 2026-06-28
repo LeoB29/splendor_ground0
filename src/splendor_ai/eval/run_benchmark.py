@@ -15,6 +15,7 @@ from splendor_ai.bots import (
     LegalActionScorerBot,
     LoopFallbackConfig,
     RandomLegalBot,
+    ShallowSearchBot,
 )
 from splendor_ai.bots.base import Bot
 
@@ -48,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--opponents",
         nargs="+",
-        choices=("random", "greedy"),
+        choices=("random", "greedy", "search"),
         default=("random", "greedy"),
         help="Baseline opponents to benchmark against.",
     )
@@ -105,6 +106,31 @@ def build_parser() -> argparse.ArgumentParser:
         default=8.0,
         help="Maximum legal-top-minus-buy logit gap allowed for fallback buy selection.",
     )
+    parser.add_argument("--search-depth", type=int, default=2, help="Search depth for the search opponent.")
+    parser.add_argument(
+        "--search-max-branching",
+        type=int,
+        default=10,
+        help="Absolute per-node action cap for the search opponent.",
+    )
+    parser.add_argument(
+        "--search-buy-branching",
+        type=int,
+        default=6,
+        help="Per-node combined cap for buy actions in the search opponent.",
+    )
+    parser.add_argument(
+        "--search-reserve-branching",
+        type=int,
+        default=3,
+        help="Per-node combined cap for reserve actions in the search opponent.",
+    )
+    parser.add_argument(
+        "--search-take-branching",
+        type=int,
+        default=3,
+        help="Per-node cap for token-take actions in the search opponent.",
+    )
     return parser
 
 
@@ -121,6 +147,11 @@ def benchmark_checkpoint(
     swap_seats: bool = True,
     log_every: int = 5,
     loop_fallback: LoopFallbackConfig | None = None,
+    search_depth: int = 2,
+    search_max_branching: int = 10,
+    search_buy_branching: int = 6,
+    search_reserve_branching: int = 3,
+    search_take_branching: int = 3,
 ) -> dict[str, object]:
     checkpoint = Path(checkpoint_path)
     fallback_config = loop_fallback or LoopFallbackConfig()
@@ -140,6 +171,13 @@ def benchmark_checkpoint(
             "min_own_non_progress_actions": fallback_config.min_own_non_progress_actions,
             "max_buy_logit_gap": fallback_config.max_buy_logit_gap,
         },
+        "search": {
+            "depth": search_depth,
+            "max_branching": search_max_branching,
+            "buy_branching": search_buy_branching,
+            "reserve_branching": search_reserve_branching,
+            "take_branching": search_take_branching,
+        },
         "opponents": [],
     }
 
@@ -157,6 +195,11 @@ def benchmark_checkpoint(
             swap_seats=swap_seats,
             log_every=log_every,
             loop_fallback=fallback_config,
+            search_depth=search_depth,
+            search_max_branching=search_max_branching,
+            search_buy_branching=search_buy_branching,
+            search_reserve_branching=search_reserve_branching,
+            search_take_branching=search_take_branching,
         )
         payload["opponents"].append(opponent_payload)
 
@@ -437,8 +480,21 @@ def _benchmark_opponent(
     swap_seats: bool,
     log_every: int,
     loop_fallback: LoopFallbackConfig,
+    search_depth: int,
+    search_max_branching: int,
+    search_buy_branching: int,
+    search_reserve_branching: int,
+    search_take_branching: int,
 ) -> dict[str, object]:
-    opponent_factory = _opponent_factory(opponent_name, seed_start)
+    opponent_factory = _opponent_factory(
+        opponent_name,
+        seed_start,
+        search_depth=search_depth,
+        search_max_branching=search_max_branching,
+        search_buy_branching=search_buy_branching,
+        search_reserve_branching=search_reserve_branching,
+        search_take_branching=search_take_branching,
+    )
     played_games: list[GameResult] = []
     model_wins = 0
     opponent_wins = 0
@@ -607,11 +663,28 @@ def _benchmark_head_to_head(
     )
 
 
-def _opponent_factory(opponent_name: str, seed: int) -> Callable[[], Bot]:
+def _opponent_factory(
+    opponent_name: str,
+    seed: int,
+    search_depth: int = 2,
+    search_max_branching: int = 10,
+    search_buy_branching: int = 6,
+    search_reserve_branching: int = 3,
+    search_take_branching: int = 3,
+) -> Callable[[], Bot]:
     if opponent_name == "random":
         return lambda: RandomLegalBot(seed=seed)
     if opponent_name == "greedy":
         return lambda: GreedyHeuristicBot(seed=seed)
+    if opponent_name == "search":
+        return lambda: ShallowSearchBot(
+            depth=search_depth,
+            max_branching=search_max_branching,
+            max_buy_actions=search_buy_branching,
+            max_reserve_actions=search_reserve_branching,
+            max_take_actions=search_take_branching,
+            seed=seed,
+        )
     raise ValueError(f"Unsupported opponent: {opponent_name}")
 
 
@@ -651,6 +724,11 @@ def main() -> None:
             swap_seats=not args.no_swap_seats,
             log_every=args.log_every,
             loop_fallback=loop_fallback,
+            search_depth=args.search_depth,
+            search_max_branching=args.search_max_branching,
+            search_buy_branching=args.search_buy_branching,
+            search_reserve_branching=args.search_reserve_branching,
+            search_take_branching=args.search_take_branching,
         )
     else:
         output_path = (

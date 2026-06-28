@@ -3,8 +3,13 @@ from dataclasses import asdict
 import pytest
 import torch
 
-from splendor_ai.bots import CheckpointPolicyBot
-from splendor_ai.training.model import PolicyValueMLP, PolicyValueModelConfig
+from splendor_ai.bots import CheckpointPolicyBot, LegalActionScorerBot
+from splendor_ai.training.model import (
+    LegalActionScorerConfig,
+    LegalActionScorerModel,
+    PolicyValueMLP,
+    PolicyValueModelConfig,
+)
 from splendor_ai.training.run_replay_corpus import (
     _build_bot_factory,
     _summary_metadata,
@@ -21,6 +26,28 @@ def _write_checkpoint(tmp_path):
         )
     )
     checkpoint_path = tmp_path / "checkpoint.pt"
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "model_config": asdict(model.config),
+        },
+        checkpoint_path,
+    )
+    return checkpoint_path
+
+
+def _write_legal_action_scorer_checkpoint(tmp_path):
+    model = LegalActionScorerModel(
+        LegalActionScorerConfig(
+            state_hidden_size=8,
+            action_hidden_size=8,
+            scorer_hidden_size=8,
+            state_depth=1,
+            action_depth=1,
+            dropout=0.0,
+        )
+    )
+    checkpoint_path = tmp_path / "legal_action_scorer.pt"
     torch.save(
         {
             "model_state_dict": model.state_dict(),
@@ -56,6 +83,32 @@ def test_checkpoint_bot_factory_loads_cached_checkpoint_bot(tmp_path) -> None:
     assert first_bot.loop_fallback_config.enabled is True
 
 
+def test_checkpoint_bot_factory_loads_cached_legal_action_scorer_bot(tmp_path) -> None:
+    checkpoint_path = _write_legal_action_scorer_checkpoint(tmp_path)
+    args = build_parser().parse_args(
+        [
+            "--output-dir",
+            str(tmp_path / "corpus"),
+            "--seat0-bot",
+            "checkpoint",
+            "--checkpoint-path",
+            str(checkpoint_path),
+            "--checkpoint-model-kind",
+            "legal_action_scorer",
+            "--checkpoint-device",
+            "cpu",
+        ]
+    )
+
+    factory = _build_bot_factory("checkpoint", seed=0, args=args)
+    first_bot = factory()
+    second_bot = factory()
+
+    assert isinstance(first_bot, LegalActionScorerBot)
+    assert first_bot is second_bot
+    assert first_bot.checkpoint_path == checkpoint_path
+
+
 def test_checkpoint_bot_factory_requires_checkpoint_path(tmp_path) -> None:
     args = build_parser().parse_args(
         [
@@ -88,5 +141,6 @@ def test_summary_metadata_records_checkpoint_configuration(tmp_path) -> None:
 
     assert metadata["pairings"] == ["checkpoint:greedy"]
     assert metadata["checkpoint"]["path"] == str(checkpoint_path)
+    assert metadata["checkpoint"]["model_kind"] == "flat_policy"
     assert metadata["checkpoint"]["device"] == "cpu"
     assert metadata["checkpoint"]["loop_fallback"]["enabled"] is False

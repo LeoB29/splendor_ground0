@@ -101,6 +101,12 @@ Legal-action scorer pivot status:
 - Added direct checkpoint-vs-checkpoint benchmark support.
   - Use `--baseline-checkpoint` plus `--baseline-model-kind`.
   - Candidate win/loss accounting is seat-based, so it works even if both sides are model-backed.
+- Added `search` as a benchmark opponent.
+  - Use `run_benchmark.py --opponents search`.
+  - Search settings are recorded in benchmark JSON: `--search-depth`, `--search-max-branching`, `--search-buy-branching`, `--search-reserve-branching`, and `--search-take-branching`.
+- Added legal-action scorer checkpoint support to replay corpus generation.
+  - Use `run_replay_corpus.py --seat0-bot checkpoint --seat1-bot checkpoint --checkpoint-model-kind legal_action_scorer`.
+  - Metadata records checkpoint path, model kind, device, and loop-fallback settings.
 - Smoke-trained the first real scorer on `data/corpus_checkpoint_greedy_snapshots_003/improved_search_policy_margin500_no_take.jsonl`.
   - Output: `outputs/legal_action_scorer_smoke_001/`
   - 800 samples, 720 train / 80 validation, 1 epoch, CPU.
@@ -125,6 +131,26 @@ Legal-action scorer pivot status:
   - Confirmation direct 100-game head-to-head on seed block 10000: 63-37-0 for the legal-action scorer, 0 timeouts/stalls/fallback triggers.
   - Confirmation average score margin was +3.14; candidate score average 13.93 vs baseline 10.79.
   - Confirmation seat split: candidate as seat 0 went 35-15-0, candidate as seat 1 went 28-22-0.
+  - Shallow-search benchmark, depth 2 / max branching 10 / buy 6 / reserve 3 / take 3, seed block 11000, 20 games: scorer 4, search 16, draws 0, 0 timeouts/stalls/fallback triggers.
+  - Search benchmark average score margin was -4.25 for the scorer; scorer average score 10.00 vs search 14.25.
+  - Search benchmark seat split: scorer as seat 0 went 4-6, scorer as seat 1 went 0-10. This is the clearest current weakness and confirms search remains a stronger benchmark than old neural/greedy opponents.
+  - Old flat champion `policy_improve_margin500_002` on the same search benchmark/seed block went 2-18, draws 0, 0 timeouts/stalls/fallback triggers.
+  - Old flat champion average search margin was -5.85; model average score 9.20 vs search 15.05. The scorer therefore improved against search, but search remains clearly stronger than both neural checkpoints.
+- First scorer self-play/search-relabel iteration, `legal_action_scorer_002`:
+  - Generated `data/corpus_legal_scorer_selfplay_snapshots_001` from `legal_action_scorer_001` self-play.
+  - 10 games, 626 steps, 0 stalled, 0 timed out, 0 fallback triggers.
+  - Relabeled with shallow search using depth 2 / max branching 10 / buy 6 / reserve 3 / take 3, `--min-search-margin 500`, `--exclude-changed-action-types TAKE_TOKENS`, and `--write-unchanged`.
+  - Relabel output: `data/corpus_legal_scorer_selfplay_snapshots_001/improved_search_policy_margin500_no_take.jsonl`.
+  - 340 rows written: 25 high-confidence changed labels and 315 unchanged anchors.
+  - Filtered 112 low-margin changes, 79 changed rows where the original action was pruned/missing from search candidates, and 95 selected-token-take changes.
+  - Fine-tuned from `outputs/legal_action_scorer_001/legal_action_scorer_best.pt` on the three prior improved corpora plus the new scorer self-play relabel corpus.
+  - Output: `outputs/legal_action_scorer_002/`; best validation checkpoint was epoch 4.
+  - Training dataset: 2,923 total rows, 2,631 train / 292 validation, 4 epochs, CPU, `--value-loss-weight 0.0`.
+  - Final train accuracy 0.7355; validation accuracy 0.6952; validation loss 0.9917.
+  - Direct 100-game head-to-head vs `legal_action_scorer_001`, seed block 13000: `legal_action_scorer_002` went 54-45-1, 0 timeouts/stalls/fallback triggers.
+  - Direct 100-game head-to-head vs old flat champion `policy_improve_margin500_002`, seed block 13000: `legal_action_scorer_002` went 62-38-0, 0 timeouts/stalls/fallback triggers.
+  - Shallow-search benchmark on the same seed block/settings as `legal_action_scorer_001`, 20 games seed 11000: `legal_action_scorer_002` went 6-14, improving over `legal_action_scorer_001` at 4-16 and old flat champion at 2-18.
+  - Search benchmark average score margin improved to -2.90 from `legal_action_scorer_001` at -4.25, but search remains clearly stronger.
 
 Important local artifacts:
 
@@ -385,7 +411,13 @@ Test-Path outputs\policy_improve_margin500_002\supervised_policy_value.pt
 
 Near-term:
 
-1. Treat the current leading candidate as:
+1. Treat the current local neural champion as:
+
+```powershell
+outputs\legal_action_scorer_002\legal_action_scorer_best.pt
+```
+
+The previous legal-action scorer baseline remains:
 
 ```powershell
 outputs\legal_action_scorer_001\legal_action_scorer_best.pt
@@ -397,9 +429,10 @@ The old flat-policy champion baseline remains:
 outputs\policy_improve_margin500_002\supervised_policy_value.pt
 ```
 
-2. The legal-action scorer has now confirmed on a second direct seed block and can be treated as the current local champion.
+2. The legal-action scorer has now confirmed as the preferred neural architecture.
    - First direct 100-game result, seed block 9000: scorer 64, old flat champion 32, draws 4.
    - Second direct 100-game result, seed block 10000: scorer 63, old flat champion 37, draws 0.
+   - First scorer self-play/search-relabel iteration produced `legal_action_scorer_002`, which modestly improved over `legal_action_scorer_001`.
 
 3. Do not promote the mixed-data experiments.
    - Adding `greedy:random` data diluted the stronger search policy target and regressed benchmark strength.
@@ -428,27 +461,33 @@ Strategic next phase after the immediate gated experiment:
    - Splendor actions have natural structure: buy board card, buy reserved card, reserve, take tokens, return tokens, and pass. Action features plus state features should generalize better than a flat index.
    - The first trained scorer already beat the old flat-policy champion head-to-head, so the next work should improve and validate this architecture rather than reverting to flat softmax by default.
 
-6. Move the main learning signal from greedy/search imitation to self-play and league evaluation.
+6. Use the new search benchmark as the next promotion gate.
+   - `legal_action_scorer_002` is the local neural champion, but it is not stronger than the current shallow search bot.
+   - The next scorer candidate should be judged against both `policy_improve_margin500_002` and `--opponents search`.
+   - The first scorer self-play/search-relabel recipe worked directionally but was small: `002` improved over `001` by 54-45-1 directly and 6-14 vs search instead of 4-16.
+   - Next useful recipe is to repeat the same loop with a larger shard or richer opponent mix, then train `legal_action_scorer_003` and require a clearer head-to-head/search improvement before promotion.
+
+7. Move the main learning signal from greedy/search imitation to self-play and league evaluation.
    - Train against a pool of historical checkpoints, the current champion, tuned search bots, and baseline bots.
    - Keep greedy/random as regression tests, not as the main strength target.
    - Compare candidates by benchmark win rate, fallback-trigger count, game length/tempo, and performance against previous neural champions.
 
-7. Use search selectively rather than copying AlphaGo-style MCTS wholesale.
+8. Use search selectively rather than copying AlphaGo-style MCTS wholesale.
    - Shallow/medium search remains useful for relabeling, benchmark opponents, and possibly inference under the 1-second move budget.
    - Be careful with hidden deck/refill information and off-policy value labels when search changes replay actions.
    - The long-term fix for loops should be learned policy quality and stronger self-play targets, not reliance on the inference fallback.
 
 Operational notes:
 
-8. Use the sharded replay pattern if continuing data scaling:
+9. Use the sharded replay pattern if continuing data scaling:
 
 ```powershell
 .venv\Scripts\python.exe run_replay_corpus.py --output-dir data\corpus_search_greedy_004a --games 125 --seed-start 8000 --seat0-bot search --seat1-bot greedy --swap-seats --max-turns 400 --repetition-limit 4 --no-progress-limit 60 --search-depth 2 --search-max-branching 8 --search-buy-branching 5 --search-reserve-branching 2 --search-take-branching 2 --log-every 10
 ```
 
-9. Train with repeated replay paths rather than merging corpora by hand.
+10. Train with repeated replay paths rather than merging corpora by hand.
 
-10. Benchmark the resulting checkpoint with fallback metrics enabled, and choose champions by 100+ game benchmark performance rather than validation loss alone.
+11. Benchmark the resulting checkpoint with fallback metrics enabled, and choose champions by 100+ game benchmark performance rather than validation loss alone.
 
 Checkpoint replay command that was validated:
 

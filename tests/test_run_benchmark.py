@@ -2,7 +2,10 @@ import json
 
 from splendor_ai.eval.match import GameResult
 from splendor_ai.eval.run_benchmark import (
+    _opponent_factory,
     _model_bot_for_checkpoint,
+    benchmark_checkpoint,
+    build_parser,
     default_head_to_head_output_path,
     default_output_path,
     summarize_head_to_head_games,
@@ -175,6 +178,117 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
     assert isinstance(scorer_bot, FakeScorerBot)
     assert captured[0][0] == "flat"
     assert captured[1] == ("scorer", checkpoint_path, "cpu")
+
+
+def test_parser_accepts_search_opponent() -> None:
+    args = build_parser().parse_args(
+        [
+            "--checkpoint",
+            "checkpoint.pt",
+            "--opponents",
+            "search",
+            "--search-depth",
+            "3",
+            "--search-max-branching",
+            "12",
+            "--search-buy-branching",
+            "7",
+            "--search-reserve-branching",
+            "4",
+            "--search-take-branching",
+            "2",
+        ]
+    )
+
+    assert args.opponents == ["search"]
+    assert args.search_depth == 3
+    assert args.search_max_branching == 12
+    assert args.search_buy_branching == 7
+    assert args.search_reserve_branching == 4
+    assert args.search_take_branching == 2
+
+
+def test_opponent_factory_builds_search_bot_with_requested_settings(monkeypatch) -> None:
+    captured = []
+
+    class FakeSearchBot:
+        def __init__(
+            self,
+            depth,
+            max_branching,
+            max_buy_actions,
+            max_reserve_actions,
+            max_take_actions,
+            seed,
+        ):
+            captured.append(
+                {
+                    "depth": depth,
+                    "max_branching": max_branching,
+                    "max_buy_actions": max_buy_actions,
+                    "max_reserve_actions": max_reserve_actions,
+                    "max_take_actions": max_take_actions,
+                    "seed": seed,
+                }
+            )
+
+    monkeypatch.setattr("splendor_ai.eval.run_benchmark.ShallowSearchBot", FakeSearchBot)
+
+    factory = _opponent_factory(
+        "search",
+        seed=123,
+        search_depth=3,
+        search_max_branching=12,
+        search_buy_branching=7,
+        search_reserve_branching=4,
+        search_take_branching=2,
+    )
+    bot = factory()
+
+    assert isinstance(bot, FakeSearchBot)
+    assert captured == [
+        {
+            "depth": 3,
+            "max_branching": 12,
+            "max_buy_actions": 7,
+            "max_reserve_actions": 4,
+            "max_take_actions": 2,
+            "seed": 123,
+        }
+    ]
+
+
+def test_benchmark_checkpoint_records_search_settings(monkeypatch, tmp_path) -> None:
+    def fake_benchmark_opponent(**kwargs):
+        return {
+            "opponent": kwargs["opponent_name"],
+            "games": kwargs["games"],
+            "model_wins": 0,
+            "opponent_wins": 0,
+            "draws": 0,
+            "timed_out_games": 0,
+        }
+
+    monkeypatch.setattr("splendor_ai.eval.run_benchmark._benchmark_opponent", fake_benchmark_opponent)
+
+    payload = benchmark_checkpoint(
+        checkpoint_path=tmp_path / "checkpoint.pt",
+        opponents=("search",),
+        search_depth=3,
+        search_max_branching=12,
+        search_buy_branching=7,
+        search_reserve_branching=4,
+        search_take_branching=2,
+    )
+
+    assert payload["search"] == {
+        "depth": 3,
+        "max_branching": 12,
+        "buy_branching": 7,
+        "reserve_branching": 4,
+        "take_branching": 2,
+    }
+    assert payload["opponents"][0]["opponent"] == "search"
 
 
 def test_default_output_path_includes_parent_and_checkpoint_stem() -> None:

@@ -9,6 +9,7 @@ from pathlib import Path
 from splendor_ai.bots import (
     CheckpointPolicyBot,
     GreedyHeuristicBot,
+    LegalActionScorerBot,
     LoopFallbackConfig,
     RandomLegalBot,
     ShallowSearchBot,
@@ -35,16 +36,24 @@ def _build_bot_factory(bot_name: str, seed: int, args: argparse.Namespace):
     if normalized == "checkpoint":
         checkpoint_path = _resolve_checkpoint_path(args, bot_name)
         fallback_config = _checkpoint_loop_fallback_config(args)
-        cached_bot: CheckpointPolicyBot | None = None
+        cached_bot = None
 
-        def factory() -> CheckpointPolicyBot:
+        def factory():
             nonlocal cached_bot
             if cached_bot is None:
-                cached_bot = CheckpointPolicyBot(
-                    checkpoint_path,
-                    device=args.checkpoint_device,
-                    loop_fallback=fallback_config,
-                )
+                if args.checkpoint_model_kind == "flat_policy":
+                    cached_bot = CheckpointPolicyBot(
+                        checkpoint_path,
+                        device=args.checkpoint_device,
+                        loop_fallback=fallback_config,
+                    )
+                elif args.checkpoint_model_kind == "legal_action_scorer":
+                    cached_bot = LegalActionScorerBot(
+                        checkpoint_path,
+                        device=args.checkpoint_device,
+                    )
+                else:
+                    raise ValueError(f"Unsupported checkpoint model kind: {args.checkpoint_model_kind}")
             return cached_bot
 
         return factory
@@ -107,6 +116,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--checkpoint-device",
         default="cpu",
         help="Device used by checkpoint policy bots during replay generation.",
+    )
+    parser.add_argument(
+        "--checkpoint-model-kind",
+        choices=("flat_policy", "legal_action_scorer"),
+        default="flat_policy",
+        help="Architecture loaded for BOT name 'checkpoint'.",
     )
     parser.add_argument(
         "--disable-checkpoint-loop-fallback",
@@ -181,6 +196,7 @@ def main() -> None:
     if any("checkpoint" in pairing for pairing in pairing_labels):
         print(
             f"[corpus] checkpoint path={args.checkpoint_path}"
+            f" model_kind={args.checkpoint_model_kind}"
             f" device={args.checkpoint_device}"
             f" loop_fallback_enabled={not args.disable_checkpoint_loop_fallback}"
         )
@@ -307,6 +323,7 @@ def _summary_metadata(args: argparse.Namespace, pairing_labels: list[str]) -> di
     if any("checkpoint" in pairing for pairing in pairing_labels):
         metadata["checkpoint"] = {
             "path": args.checkpoint_path,
+            "model_kind": args.checkpoint_model_kind,
             "device": args.checkpoint_device,
             "loop_fallback": {
                 "enabled": not args.disable_checkpoint_loop_fallback,
