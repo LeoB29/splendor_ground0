@@ -11,12 +11,24 @@ from pathlib import Path
 import torch
 from torch.utils.data import Dataset, Subset
 
-from splendor_ai.encoding import ActionCodec
+from splendor_ai.encoding import ActionCodec, encode_legal_action_features
+from splendor_ai.engine.env import SplendorEnv
+from splendor_ai.training.replay import deserialize_state_snapshot
 
 
 @dataclass(frozen=True, slots=True)
 class ReplaySample:
     observation: torch.Tensor
+    action_index: int
+    legal_action_indices: tuple[int, ...]
+    value_target: float
+
+
+@dataclass(frozen=True, slots=True)
+class LegalActionReplaySample:
+    observation: torch.Tensor
+    legal_action_features: torch.Tensor
+    target_action_row: int
     action_index: int
     legal_action_indices: tuple[int, ...]
     value_target: float
@@ -129,6 +141,87 @@ def _normalize_paths(path: str | Path | Sequence[str | Path]) -> tuple[Path, ...
     return paths
 
 
+class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
+    """Replay dataset for variable-length legal-action scorer training.
+
+    This dataset requires replay rows with `state_snapshot`, because it
+    reconstructs the pre-action state, regenerates the legal actions, encodes
+    each legal action as structured features, and maps the replay target to the
+    row in that legal-action list.
+    """
+
+    def __init__(
+        self,
+        path: str | Path | Sequence[str | Path],
+        include_stalled_games: bool = True,
+        include_timed_out_games: bool = True,
+        max_model_loop_fallback_triggers: int | None = None,
+        codec: ActionCodec | None = None,
+    ) -> None:
+        self._paths = _normalize_paths(path)
+        self._include_stalled_games = include_stalled_games
+        self._include_timed_out_games = include_timed_out_games
+        self._max_model_loop_fallback_triggers = max_model_loop_fallback_triggers
+        self._codec = codec or ActionCodec()
+        self._env = SplendorEnv()
+        self._samples = SupervisedReplayDataset._load_samples(
+            self._paths,
+            include_stalled_games=self._include_stalled_games,
+            include_timed_out_games=self._include_timed_out_games,
+            max_model_loop_fallback_triggers=self._max_model_loop_fallback_triggers,
+        )
+
+    @property
+    def paths(self) -> tuple[Path, ...]:
+        return self._paths
+
+    def __len__(self) -> int:
+        return len(self._samples)
+
+    def __getitem__(self, index: int) -> LegalActionReplaySample:
+        payload = self._samples[index]
+        snapshot = payload.get("state_snapshot")
+        if not isinstance(snapshot, dict):
+            raise ValueError(
+                "LegalActionReplayDataset requires replay rows with state_snapshot."
+            )
+
+        state = deserialize_state_snapshot(snapshot)
+        legal_actions = self._env.legal_actions(state)
+        legal_action_indices = tuple(self._codec.legal_action_indices(state, legal_actions))
+        action_index = int(payload["action_index"])
+        try:
+            target_action_row = legal_action_indices.index(action_index)
+        except ValueError as exc:
+            raise ValueError(
+                "Replay target action_index is not legal in the reconstructed state: "
+                f"{action_index}"
+            ) from exc
+
+        action_feature_rows = [
+            torch.tensor(features.vector, dtype=torch.float32)
+            for features in encode_legal_action_features(
+                state=state,
+                legal_actions=legal_actions,
+                player_id=int(payload.get("player_id", state.current_player)),
+            )
+        ]
+        if not action_feature_rows:
+            raise ValueError("Reconstructed state has no legal actions.")
+
+        return LegalActionReplaySample(
+            observation=torch.tensor(payload["observation_vector"], dtype=torch.float32),
+            legal_action_features=torch.stack(action_feature_rows, dim=0),
+            target_action_row=target_action_row,
+            action_index=action_index,
+            legal_action_indices=legal_action_indices,
+            value_target=float(payload["final_value"]),
+        )
+
+    def source_path_for_index(self, index: int) -> Path:
+        return Path(str(self._samples[index]["_source_path"]))
+
+
 def collate_replay_samples(
     samples: list[ReplaySample],
     action_space_size: int | None = None,
@@ -147,6 +240,59 @@ def collate_replay_samples(
 
     return {
         "observation": observations,
+        "action_index": action_indices,
+        "legal_action_mask": legal_action_mask,
+        "value_target": value_targets,
+    }
+
+
+def collate_legal_action_replay_samples(
+    samples: list[LegalActionReplaySample],
+) -> dict[str, torch.Tensor]:
+    """Pad variable-length legal-action feature rows into one batch."""
+
+    if not samples:
+        raise ValueError("Cannot collate an empty batch.")
+
+    observations = torch.stack([sample.observation for sample in samples], dim=0)
+    target_action_rows = torch.tensor(
+        [sample.target_action_row for sample in samples],
+        dtype=torch.long,
+    )
+    action_indices = torch.tensor(
+        [sample.action_index for sample in samples],
+        dtype=torch.long,
+    )
+    value_targets = torch.tensor(
+        [sample.value_target for sample in samples],
+        dtype=torch.float32,
+    )
+
+    max_legal_actions = max(
+        sample.legal_action_features.shape[0]
+        for sample in samples
+    )
+    action_feature_size = samples[0].legal_action_features.shape[1]
+    action_features = torch.zeros(
+        (len(samples), max_legal_actions, action_feature_size),
+        dtype=torch.float32,
+    )
+    legal_action_mask = torch.zeros(
+        (len(samples), max_legal_actions),
+        dtype=torch.bool,
+    )
+
+    for row_index, sample in enumerate(samples):
+        legal_count, sample_feature_size = sample.legal_action_features.shape
+        if sample_feature_size != action_feature_size:
+            raise ValueError("All action feature rows in a batch must have the same width.")
+        action_features[row_index, :legal_count] = sample.legal_action_features
+        legal_action_mask[row_index, :legal_count] = True
+
+    return {
+        "observation": observations,
+        "legal_action_features": action_features,
+        "target_action_row": target_action_rows,
         "action_index": action_indices,
         "legal_action_mask": legal_action_mask,
         "value_target": value_targets,

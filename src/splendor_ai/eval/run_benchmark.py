@@ -14,6 +14,8 @@ from splendor_ai.bots.base import Bot
 
 from .match import GameResult, MatchConfig, play_game
 
+MODEL_BOT_NAMES = ("CheckpointPolicyBot", "LegalActionScorerBot")
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Benchmark a checkpoint policy bot against baseline bots.")
@@ -158,14 +160,14 @@ def summarize_games(
         game_model_loop_fallback_triggers = sum(
             game.loop_fallback_triggers_by_seat[seat]
             for seat, bot_name in enumerate(game.bot_seats)
-            if bot_name == "CheckpointPolicyBot"
+            if bot_name in MODEL_BOT_NAMES
         )
         model_loop_fallback_triggers += game_model_loop_fallback_triggers
         if game.winner is None:
             draws += 1
         else:
             winner_name = game.bot_seats[game.winner]
-            if winner_name == "CheckpointPolicyBot":
+            if winner_name in MODEL_BOT_NAMES:
                 model_wins += 1
             else:
                 opponent_wins += 1
@@ -270,7 +272,7 @@ def _benchmark_opponent(
 
         if game.winner is None:
             draws += 1
-        elif game.bot_seats[game.winner] == "CheckpointPolicyBot":
+        elif game.bot_seats[game.winner] in MODEL_BOT_NAMES:
             model_wins += 1
         else:
             opponent_wins += 1

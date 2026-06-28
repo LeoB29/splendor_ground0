@@ -70,6 +70,40 @@ Infra:
 
 The warm-start pipeline is in a stronger place than the prior handoff. Continued sharded `search:greedy` corpus scaling plus multi-corpus supervised training produced a new local champion checkpoint, and a narrow inference-only loop fallback now mitigates the rare checkpoint repetition failures seen in greedy benchmarks.
 
+Strategic assessment:
+
+- The current path is the right bootstrap path: exact simulator first, legal observation/action masking, baselines, benchmark tooling, heuristic/search warm start, and gated policy improvement.
+- This path should not be mistaken for the final superhuman training recipe. More shallow-search relabeling against `greedy` can improve the current champion, but it risks producing a strong anti-greedy specialist rather than a broadly superhuman Splendor player.
+- Splendor is not Go: it has hidden deck/refill uncertainty, structured economic actions, tactical tempo, and a much more irregular action space. AlphaGo is a useful reference for the overall loop of policy/value learning plus search, but the architecture should be adapted rather than copied.
+- The likely superhuman path is: keep the exact simulator and benchmark discipline, harvest one or two more small gated warm-start improvements if they keep working, then pivot toward a structured legal-action scorer and self-play/league training against historical checkpoints and stronger search baselines.
+- Greedy is no longer a sufficient long-term benchmark. Keep it as a sanity check, but champion promotion should increasingly depend on stronger tuned search opponents, previous neural champions, fallback-trigger counts, and eventually human/expert-style evaluation.
+
+Legal-action scorer pivot status:
+
+- Added `src/splendor_ai/encoding/action_features.py`.
+  - Encodes each candidate legal action into a 64-float structured feature vector.
+  - Includes action type, board/reserved location, target card, chosen noble, token flow, and derived economics.
+- Added `LegalActionReplayDataset`.
+  - Requires snapshot-enabled replay rows.
+  - Reconstructs the pre-action state, regenerates legal actions, encodes legal-action features, and maps the replay `action_index` to `target_action_row`.
+- Added variable-length scorer batching through `collate_legal_action_replay_samples`.
+- Added `LegalActionScorerModel`.
+  - Encodes state observation and each legal action separately.
+  - Produces one score per legal action plus a value estimate.
+- Added legal-action scorer supervised training.
+  - CLI entry point: `run_legal_action_supervised.py`.
+  - Saves `legal_action_scorer.pt`, `legal_action_scorer_best.pt`, and `legal_action_scorer_metrics.json`.
+- Added `LegalActionScorerBot` for checkpoint-backed inference.
+- Smoke-trained the first real scorer on `data/corpus_checkpoint_greedy_snapshots_003/improved_search_policy_margin500_no_take.jsonl`.
+  - Output: `outputs/legal_action_scorer_smoke_001/`
+  - 800 samples, 720 train / 80 validation, 1 epoch, CPU.
+  - Small model config: state hidden 64, action hidden 32, scorer hidden 64.
+  - Result: train loss 4.3837, train accuracy 0.2542, validation loss 4.0197, validation accuracy 0.2125.
+  - This is a functionality smoke test only, not a strength candidate.
+- Verification after scorer scaffolding:
+  - `python -m pytest -q --basetemp .codex_pytest_tmp_all`
+  - 111 tests passed.
+
 Important local artifacts:
 
 - `data/corpus_greedy_random_003/replays.jsonl`
@@ -343,7 +377,7 @@ outputs\policy_improve_margin500_001\supervised_policy_value.pt
    - Even a 3x search-weighted mix only reached 9-11 vs greedy on seed block 7000, while the current champion reached 16-4.
    - The lesson is that broader data needs quality control or weighting by playing strength, not just more rows.
 
-3. Next experiment should continue the gated policy-improvement loop or run a small margin sweep.
+3. Next experiment should continue the gated policy-improvement loop or run a small margin sweep, but treat this as the last part of warm-start bootstrapping rather than the core long-term training plan.
    - `warmstart_search_005` was trained after another clean search-only block but regressed in the quick seed-7000 benchmark, so do not promote it without further study.
    - The first controlled checkpoint-vs-greedy mix also regressed in the quick seed-7000 benchmark, so do not promote it.
    - Do not add more naive imitation data. The useful recipe is:
@@ -356,16 +390,36 @@ outputs\policy_improve_margin500_001\supervised_policy_value.pt
    - Next improvement attempt can either repeat the same gated recipe for one more 25-game shard, or run a small margin sweep before scaling heavily.
    - If repeating directly, use `data/corpus_checkpoint_greedy_snapshots_003`, seed start `9500`, and output `outputs/policy_improve_margin500_003`.
    - If doing a margin sweep, reuse one snapshot corpus and compare at least `--min-search-margin 250`, `500`, and `1000` before training larger candidates.
+   - Stop scaling this recipe aggressively if gains flatten or benchmark strength becomes opponent-specific.
 
-4. Use the sharded replay pattern if continuing data scaling:
+Strategic next phase after the immediate gated experiment:
+
+4. Prioritize replacing the giant flat policy head with a structured legal-action scorer.
+   - Score the legal actions present in a state rather than learning a huge sparse softmax over every possible encoded action.
+   - Splendor actions have natural structure: buy board card, buy reserved card, reserve, take tokens, return tokens, and pass. Action features plus state features should generalize better than a flat index.
+   - This is likely the highest-leverage architecture change before serious self-play scale-up.
+
+5. Move the main learning signal from greedy/search imitation to self-play and league evaluation.
+   - Train against a pool of historical checkpoints, the current champion, tuned search bots, and baseline bots.
+   - Keep greedy/random as regression tests, not as the main strength target.
+   - Compare candidates by benchmark win rate, fallback-trigger count, game length/tempo, and performance against previous neural champions.
+
+6. Use search selectively rather than copying AlphaGo-style MCTS wholesale.
+   - Shallow/medium search remains useful for relabeling, benchmark opponents, and possibly inference under the 1-second move budget.
+   - Be careful with hidden deck/refill information and off-policy value labels when search changes replay actions.
+   - The long-term fix for loops should be learned policy quality and stronger self-play targets, not reliance on the inference fallback.
+
+Operational notes:
+
+7. Use the sharded replay pattern if continuing data scaling:
 
 ```powershell
 .venv\Scripts\python.exe run_replay_corpus.py --output-dir data\corpus_search_greedy_004a --games 125 --seed-start 8000 --seat0-bot search --seat1-bot greedy --swap-seats --max-turns 400 --repetition-limit 4 --no-progress-limit 60 --search-depth 2 --search-max-branching 8 --search-buy-branching 5 --search-reserve-branching 2 --search-take-branching 2 --log-every 10
 ```
 
-5. Train with repeated replay paths rather than merging corpora by hand.
+8. Train with repeated replay paths rather than merging corpora by hand.
 
-6. Benchmark the resulting checkpoint with fallback metrics enabled, and choose champions by 100+ game benchmark performance rather than validation loss alone.
+9. Benchmark the resulting checkpoint with fallback metrics enabled, and choose champions by 100+ game benchmark performance rather than validation loss alone.
 
 Checkpoint replay command that was validated:
 
