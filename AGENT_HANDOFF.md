@@ -94,6 +94,13 @@ Legal-action scorer pivot status:
   - CLI entry point: `run_legal_action_supervised.py`.
   - Saves `legal_action_scorer.pt`, `legal_action_scorer_best.pt`, and `legal_action_scorer_metrics.json`.
 - Added `LegalActionScorerBot` for checkpoint-backed inference.
+- Added benchmark support for scorer checkpoints.
+  - Use `run_benchmark.py --model-kind legal_action_scorer`.
+  - The default remains `--model-kind flat_policy` for old `CheckpointPolicyBot` checkpoints.
+  - Smoke benchmark passed for `outputs/legal_action_scorer_001/legal_action_scorer_best.pt` vs random, 1-0, 0 timeouts.
+- Added direct checkpoint-vs-checkpoint benchmark support.
+  - Use `--baseline-checkpoint` plus `--baseline-model-kind`.
+  - Candidate win/loss accounting is seat-based, so it works even if both sides are model-backed.
 - Smoke-trained the first real scorer on `data/corpus_checkpoint_greedy_snapshots_003/improved_search_policy_margin500_no_take.jsonl`.
   - Output: `outputs/legal_action_scorer_smoke_001/`
   - 800 samples, 720 train / 80 validation, 1 epoch, CPU.
@@ -103,6 +110,21 @@ Legal-action scorer pivot status:
 - Verification after scorer scaffolding:
   - `python -m pytest -q --basetemp .codex_pytest_tmp_all`
   - 111 tests passed.
+- Verification after scorer benchmark support:
+  - `python -m pytest tests/test_run_benchmark.py tests/test_legal_action_supervised.py tests/test_model_bot.py -q --basetemp .codex_pytest_tmp_benchmark`
+  - 13 tests passed.
+- First full legal-action scorer candidate:
+  - Training output: `outputs/legal_action_scorer_001/`
+  - Trained on snapshot/improved corpora `001`, `002`, and `003`, 2,583 total rows, 8 epochs, CPU.
+  - Best validation checkpoint: `outputs/legal_action_scorer_001/legal_action_scorer_best.pt`.
+  - Validation accuracy reached 0.6705 by epoch 7; best validation loss was epoch 4.
+  - 100-game sanity benchmark, seed block 8000: 100-0 vs random, 96-4 vs greedy, 0 timeouts/stalls/fallback triggers.
+  - Direct 100-game head-to-head vs old flat champion `outputs/policy_improve_margin500_002/supervised_policy_value.pt`, seed block 9000: 64-32-4 for the legal-action scorer, 0 timeouts/stalls/fallback triggers.
+  - Direct-match average score margin was +2.25; candidate score average 13.91 vs baseline 11.66.
+  - Seat split: candidate as seat 0 went 36-11-3, candidate as seat 1 went 28-21-1. This shows a first-player effect but still a positive result for the scorer from both seats.
+  - Confirmation direct 100-game head-to-head on seed block 10000: 63-37-0 for the legal-action scorer, 0 timeouts/stalls/fallback triggers.
+  - Confirmation average score margin was +3.14; candidate score average 13.93 vs baseline 10.79.
+  - Confirmation seat split: candidate as seat 0 went 35-15-0, candidate as seat 1 went 28-22-0.
 
 Important local artifacts:
 
@@ -295,10 +317,13 @@ Judgement calls made for replay action improvement:
 
 Current practical recommendation:
 
-- Treat `outputs/policy_improve_margin500_002/supervised_policy_value.pt` as the current champion.
-- Keep `outputs/policy_improve_margin500_001/supervised_policy_value.pt` as the previous champion baseline.
+- Treat `outputs/legal_action_scorer_001/legal_action_scorer_best.pt` as the current leading candidate.
+- Keep `outputs/policy_improve_margin500_002/supervised_policy_value.pt` as the old flat-policy champion baseline.
+- Keep `outputs/policy_improve_margin500_001/supervised_policy_value.pt` as the previous flat-policy champion baseline.
 - Keep `outputs/warmstart_search_004/supervised_policy_value_best.pt` as the older pre-policy-improvement baseline.
 - Use the benchmark CLI for future checkpoint comparisons instead of ad hoc inline Python.
+- Use direct head-to-head benchmark mode for promotion decisions against neural checkpoints:
+  - `--checkpoint <candidate> --model-kind <candidate_kind> --baseline-checkpoint <baseline> --baseline-model-kind <baseline_kind>`
 - Keep the loop fallback enabled for GUI/benchmark play, but continue recording trigger counts so it remains measurable and removable.
 - Important caveat: the fallback is a pragmatic guardrail, not a pure policy improvement. It may slightly affect marginal benchmark strength by overriding the model in rare loop-risk states, so compare future champions using both win rate and fallback trigger counts.
 - Keep using sharded search corpora plus multi-path training instead of single giant replay jobs.
@@ -360,24 +385,28 @@ Test-Path outputs\policy_improve_margin500_002\supervised_policy_value.pt
 
 Near-term:
 
-1. Treat the current champion as:
+1. Treat the current leading candidate as:
+
+```powershell
+outputs\legal_action_scorer_001\legal_action_scorer_best.pt
+```
+
+The old flat-policy champion baseline remains:
 
 ```powershell
 outputs\policy_improve_margin500_002\supervised_policy_value.pt
 ```
 
-The previous champion remains:
+2. The legal-action scorer has now confirmed on a second direct seed block and can be treated as the current local champion.
+   - First direct 100-game result, seed block 9000: scorer 64, old flat champion 32, draws 4.
+   - Second direct 100-game result, seed block 10000: scorer 63, old flat champion 37, draws 0.
 
-```powershell
-outputs\policy_improve_margin500_001\supervised_policy_value.pt
-```
-
-2. Do not promote the mixed-data experiments.
+3. Do not promote the mixed-data experiments.
    - Adding `greedy:random` data diluted the stronger search policy target and regressed benchmark strength.
    - Even a 3x search-weighted mix only reached 9-11 vs greedy on seed block 7000, while the current champion reached 16-4.
    - The lesson is that broader data needs quality control or weighting by playing strength, not just more rows.
 
-3. Next experiment should continue the gated policy-improvement loop or run a small margin sweep, but treat this as the last part of warm-start bootstrapping rather than the core long-term training plan.
+4. Do not spend the next main effort on more flat-policy gated policy-improvement unless the scorer confirmation fails.
    - `warmstart_search_005` was trained after another clean search-only block but regressed in the quick seed-7000 benchmark, so do not promote it without further study.
    - The first controlled checkpoint-vs-greedy mix also regressed in the quick seed-7000 benchmark, so do not promote it.
    - Do not add more naive imitation data. The useful recipe is:
@@ -394,32 +423,32 @@ outputs\policy_improve_margin500_001\supervised_policy_value.pt
 
 Strategic next phase after the immediate gated experiment:
 
-4. Prioritize replacing the giant flat policy head with a structured legal-action scorer.
+5. Continue the structured legal-action scorer path.
    - Score the legal actions present in a state rather than learning a huge sparse softmax over every possible encoded action.
    - Splendor actions have natural structure: buy board card, buy reserved card, reserve, take tokens, return tokens, and pass. Action features plus state features should generalize better than a flat index.
-   - This is likely the highest-leverage architecture change before serious self-play scale-up.
+   - The first trained scorer already beat the old flat-policy champion head-to-head, so the next work should improve and validate this architecture rather than reverting to flat softmax by default.
 
-5. Move the main learning signal from greedy/search imitation to self-play and league evaluation.
+6. Move the main learning signal from greedy/search imitation to self-play and league evaluation.
    - Train against a pool of historical checkpoints, the current champion, tuned search bots, and baseline bots.
    - Keep greedy/random as regression tests, not as the main strength target.
    - Compare candidates by benchmark win rate, fallback-trigger count, game length/tempo, and performance against previous neural champions.
 
-6. Use search selectively rather than copying AlphaGo-style MCTS wholesale.
+7. Use search selectively rather than copying AlphaGo-style MCTS wholesale.
    - Shallow/medium search remains useful for relabeling, benchmark opponents, and possibly inference under the 1-second move budget.
    - Be careful with hidden deck/refill information and off-policy value labels when search changes replay actions.
    - The long-term fix for loops should be learned policy quality and stronger self-play targets, not reliance on the inference fallback.
 
 Operational notes:
 
-7. Use the sharded replay pattern if continuing data scaling:
+8. Use the sharded replay pattern if continuing data scaling:
 
 ```powershell
 .venv\Scripts\python.exe run_replay_corpus.py --output-dir data\corpus_search_greedy_004a --games 125 --seed-start 8000 --seat0-bot search --seat1-bot greedy --swap-seats --max-turns 400 --repetition-limit 4 --no-progress-limit 60 --search-depth 2 --search-max-branching 8 --search-buy-branching 5 --search-reserve-branching 2 --search-take-branching 2 --log-every 10
 ```
 
-8. Train with repeated replay paths rather than merging corpora by hand.
+9. Train with repeated replay paths rather than merging corpora by hand.
 
-9. Benchmark the resulting checkpoint with fallback metrics enabled, and choose champions by 100+ game benchmark performance rather than validation loss alone.
+10. Benchmark the resulting checkpoint with fallback metrics enabled, and choose champions by 100+ game benchmark performance rather than validation loss alone.
 
 Checkpoint replay command that was validated:
 
