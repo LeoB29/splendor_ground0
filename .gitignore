@@ -14,3 +14,7 @@ outputs/*
 tmp_timeout_analysis.json
 tmp_timeout_after_patch.json
 corpus_greedy_random_001.zip
+.vscode/
+docs/autoresearch-master.zip
+docs/splendor_base_cards.csv
+src/splendor_ai/gui_art.py
