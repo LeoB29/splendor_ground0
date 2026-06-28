@@ -148,9 +148,30 @@ Legal-action scorer pivot status:
   - Training dataset: 2,923 total rows, 2,631 train / 292 validation, 4 epochs, CPU, `--value-loss-weight 0.0`.
   - Final train accuracy 0.7355; validation accuracy 0.6952; validation loss 0.9917.
   - Direct 100-game head-to-head vs `legal_action_scorer_001`, seed block 13000: `legal_action_scorer_002` went 54-45-1, 0 timeouts/stalls/fallback triggers.
+  - Confirmation direct 100-game head-to-head vs `legal_action_scorer_001`, seed block 14000: `legal_action_scorer_002` went 49-51-0, 0 timeouts/stalls/fallback triggers.
   - Direct 100-game head-to-head vs old flat champion `policy_improve_margin500_002`, seed block 13000: `legal_action_scorer_002` went 62-38-0, 0 timeouts/stalls/fallback triggers.
   - Shallow-search benchmark on the same seed block/settings as `legal_action_scorer_001`, 20 games seed 11000: `legal_action_scorer_002` went 6-14, improving over `legal_action_scorer_001` at 4-16 and old flat champion at 2-18.
   - Search benchmark average score margin improved to -2.90 from `legal_action_scorer_001` at -4.25, but search remains clearly stronger.
+  - Conclusion: `legal_action_scorer_002` is directionally useful because it improved the search benchmark, but it is not clearly stronger than `legal_action_scorer_001` in direct neural head-to-head yet.
+- Second scorer self-play/search-relabel iteration, `legal_action_scorer_003`:
+  - Generated `data/corpus_legal_scorer_selfplay_snapshots_002` from `legal_action_scorer_002` self-play.
+  - 25 games, 1,528 steps, 0 stalled, 0 timed out, 0 fallback triggers.
+  - Relabeled with shallow search using the same settings and gate as `002`: depth 2 / max branching 10 / buy 6 / reserve 3 / take 3, `--min-search-margin 500`, `--exclude-changed-action-types TAKE_TOKENS`, and `--write-unchanged`.
+  - Relabel output: `data/corpus_legal_scorer_selfplay_snapshots_002/improved_search_policy_margin500_no_take.jsonl`.
+  - 834 rows written: 68 high-confidence changed labels and 766 unchanged anchors.
+  - Filtered 279 low-margin changes, 219 changed rows where the original action was pruned/missing from search candidates, and 196 selected-token-take changes.
+  - Fine-tuned from `outputs/legal_action_scorer_002/legal_action_scorer_best.pt` on the three prior improved corpora plus both scorer self-play relabel corpora.
+  - Output: `outputs/legal_action_scorer_003/`; best validation checkpoint was epoch 1.
+  - Training dataset: 3,757 total rows, 3,382 train / 375 validation, 4 epochs, CPU, `--value-loss-weight 0.0`.
+  - Epoch 1 best validation: train accuracy 0.7732, validation accuracy 0.7840, validation loss 0.9121. Final epoch validation accuracy stayed 0.7840 but validation loss rose to 0.9191.
+  - Direct 100-game head-to-head vs `legal_action_scorer_002`, seed block 16000: `legal_action_scorer_003_best` went 46-54-0, 0 timeouts/stalls/fallback triggers.
+  - Confirmation direct 100-game head-to-head vs `legal_action_scorer_002`, seed block 17000: `legal_action_scorer_003_best` went 60-40-0, 0 timeouts/stalls/fallback triggers.
+  - Final epoch checkpoint also went 60-40-0 vs `legal_action_scorer_002` on seed block 17000.
+  - Direct 100-game head-to-head vs `legal_action_scorer_001`, seed block 16000: `legal_action_scorer_003_best` went 47-53-0, 0 timeouts/stalls/fallback triggers.
+  - Direct 100-game head-to-head vs old flat champion `policy_improve_margin500_002`, seed block 16000: `legal_action_scorer_003_best` went 64-35-1, 0 timeouts/stalls/fallback triggers.
+  - Shallow-search benchmark on the same seed block/settings as `001` and `002`, 20 games seed 11000: `legal_action_scorer_003_best` went 10-10, improving over `002` at 6-14, `001` at 4-16, and old flat champion at 2-18.
+  - Search benchmark average score margin improved to -0.35 from `002` at -2.90 and `001` at -4.25.
+  - Conclusion: `legal_action_scorer_003` is the strongest search-facing scorer so far and is no longer clearly behind shallow search on the 20-game probe, but it is not a clean all-around neural promotion because it is volatile against `002` and lost to `001` on the checked direct block.
 
 Important local artifacts:
 
@@ -411,17 +432,25 @@ Test-Path outputs\policy_improve_margin500_002\supervised_policy_value.pt
 
 Near-term:
 
-1. Treat the current local neural champion as:
+1. Treat the current local neural champion set as unresolved between:
+
+```powershell
+outputs\legal_action_scorer_003\legal_action_scorer_best.pt
+```
+
+and:
 
 ```powershell
 outputs\legal_action_scorer_002\legal_action_scorer_best.pt
 ```
 
-The previous legal-action scorer baseline remains:
+and:
 
 ```powershell
 outputs\legal_action_scorer_001\legal_action_scorer_best.pt
 ```
+
+`legal_action_scorer_003` is the best search-facing checkpoint so far, but direct neural head-to-head is still mixed. Keep `001` and `002` as active baselines rather than discarding them.
 
 The old flat-policy champion baseline remains:
 
@@ -432,7 +461,8 @@ outputs\policy_improve_margin500_002\supervised_policy_value.pt
 2. The legal-action scorer has now confirmed as the preferred neural architecture.
    - First direct 100-game result, seed block 9000: scorer 64, old flat champion 32, draws 4.
    - Second direct 100-game result, seed block 10000: scorer 63, old flat champion 37, draws 0.
-   - First scorer self-play/search-relabel iteration produced `legal_action_scorer_002`, which modestly improved over `legal_action_scorer_001`.
+   - First scorer self-play/search-relabel iteration produced `legal_action_scorer_002`, which improved vs search but remains roughly tied with `legal_action_scorer_001` directly.
+   - Second scorer self-play/search-relabel iteration produced `legal_action_scorer_003`, which improved the 20-game search benchmark to 10-10 but did not clearly dominate `001`/`002` directly.
 
 3. Do not promote the mixed-data experiments.
    - Adding `greedy:random` data diluted the stronger search policy target and regressed benchmark strength.
@@ -461,11 +491,13 @@ Strategic next phase after the immediate gated experiment:
    - Splendor actions have natural structure: buy board card, buy reserved card, reserve, take tokens, return tokens, and pass. Action features plus state features should generalize better than a flat index.
    - The first trained scorer already beat the old flat-policy champion head-to-head, so the next work should improve and validate this architecture rather than reverting to flat softmax by default.
 
-6. Use the new search benchmark as the next promotion gate.
-   - `legal_action_scorer_002` is the local neural champion, but it is not stronger than the current shallow search bot.
+6. Use the new search benchmark as one promotion gate, not the only one.
+   - `legal_action_scorer_003` is useful as the search-improved candidate, but direct neural strength versus `legal_action_scorer_001`/`002` is mixed.
    - The next scorer candidate should be judged against both `policy_improve_margin500_002` and `--opponents search`.
-   - The first scorer self-play/search-relabel recipe worked directionally but was small: `002` improved over `001` by 54-45-1 directly and 6-14 vs search instead of 4-16.
-   - Next useful recipe is to repeat the same loop with a larger shard or richer opponent mix, then train `legal_action_scorer_003` and require a clearer head-to-head/search improvement before promotion.
+   - The first scorer self-play/search-relabel recipe worked directionally but was small: `002` went 54-45-1 then 49-51-0 vs `001`, while improving vs search to 6-14 from 4-16.
+   - The second scorer self-play/search-relabel recipe improved search much more strongly: `003` reached 10-10 vs search, but direct neural results were 46-54 then 60-40 vs `002`, and 47-53 vs `001`.
+   - Next useful recipe should not only add more `002` self-play. Use a richer opponent mix, likely including `001`, `002`, `003`, old flat champion, and possibly search-vs-scorer positions, then train `legal_action_scorer_004`.
+   - Promotion should require a clearer head-to-head result against the neural pool plus at least holding the improved search result.
 
 7. Move the main learning signal from greedy/search imitation to self-play and league evaluation.
    - Train against a pool of historical checkpoints, the current champion, tuned search bots, and baseline bots.
