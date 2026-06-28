@@ -261,7 +261,7 @@ Judgement calls made for replay action improvement:
 
 Current practical recommendation:
 
-- Treat `outputs/policy_improve_margin500_002/supervised_policy_value.pt` as the current champion candidate / recommended promotion.
+- Treat `outputs/policy_improve_margin500_002/supervised_policy_value.pt` as the current champion.
 - Keep `outputs/policy_improve_margin500_001/supervised_policy_value.pt` as the previous champion baseline.
 - Keep `outputs/warmstart_search_004/supervised_policy_value_best.pt` as the older pre-policy-improvement baseline.
 - Use the benchmark CLI for future checkpoint comparisons instead of ad hoc inline Python.
@@ -270,6 +270,28 @@ Current practical recommendation:
 - Keep using sharded search corpora plus multi-path training instead of single giant replay jobs.
 - Continue excluding stalled/timeout games when training.
 - Watch raw checkpoint loop behavior separately from guarded benchmark behavior. The fallback mitigates observed loops, but the long-term fix should come from stronger data/training/self-play targets.
+
+Machine transfer checklist:
+
+- Git contains the code, tests, and handoff, but `data/` and `outputs/` are intentionally ignored. To continue from the same state on another machine, copy at minimum:
+  - `outputs/policy_improve_margin500_002/supervised_policy_value.pt`
+  - `outputs/policy_improve_margin500_002/supervised_metrics.json`
+  - `outputs/policy_improve_margin500_001/supervised_policy_value.pt`
+  - `outputs/warmstart_search_004/supervised_policy_value_best.pt`
+  - `outputs/benchmarks/policy_improve_margin500_002_100g_seed5000.json`
+  - `outputs/benchmarks/policy_improve_margin500_002_100g_seed8000.json`
+  - `outputs/benchmarks/policy_improve_margin500_002_random_100g_seed5000.json`
+- Optional but useful if continuing the exact data lineage without regenerating:
+  - `data/corpus_checkpoint_greedy_snapshots_001/`
+  - `data/corpus_checkpoint_greedy_snapshots_002/`
+- On the new machine, first verify:
+
+```powershell
+Test-Path outputs\policy_improve_margin500_002\supervised_policy_value.pt
+.venv\Scripts\python.exe -m pytest -q --basetemp .codex_pytest_tmp_all
+```
+
+- NVIDIA CUDA remains the validated fast path. CPU can run benchmarks if needed; training and relabel loops are much slower without CUDA.
 
 ## Known Technical Debt
 
@@ -320,17 +342,19 @@ outputs\policy_improve_margin500_001\supervised_policy_value.pt
    - Even a 3x search-weighted mix only reached 9-11 vs greedy on seed block 7000, while the current champion reached 16-4.
    - The lesson is that broader data needs quality control or weighting by playing strength, not just more rows.
 
-3. Next experiment should continue generating stronger search-only data or start designing champion-assisted data.
+3. Next experiment should continue the gated policy-improvement loop or run a small margin sweep.
    - `warmstart_search_005` was trained after another clean search-only block but regressed in the quick seed-7000 benchmark, so do not promote it without further study.
    - The first controlled checkpoint-vs-greedy mix also regressed in the quick seed-7000 benchmark, so do not promote it.
-   - The next useful step is not more naive imitation data. Start a small policy-improvement probe:
-     - generate a snapshot-enabled champion-vs-greedy corpus
-     - run `run_improve_replay_actions.py` over it with shallow search
-     - train a small policy-focused candidate using the improved rows with reduced/zero value loss for that source
-     - benchmark against `warmstart_search_004_best` before scaling
+   - Do not add more naive imitation data. The useful recipe is:
+     - generate a snapshot-enabled champion-vs-greedy corpus from `policy_improve_margin500_002`
+     - run `run_improve_replay_actions.py` with the margin gate
+     - train a small policy-focused candidate from `policy_improve_margin500_002` using `--value-loss-weight 0.0`
+     - benchmark against `policy_improve_margin500_002` before promoting
    - First ungated version of this probe was completed as `policy_improve_001` and rejected. The useful lesson is that shallow-search relabeling changed many champion actions, but directly fine-tuning on all labels slightly hurt benchmark strength and reintroduced one random-game repetition cutoff.
    - The gated version `policy_improve_margin500_001` succeeded, and `policy_improve_margin500_002` improved again on the checked blocks.
    - Next improvement attempt can either repeat the same gated recipe for one more 25-game shard, or run a small margin sweep before scaling heavily.
+   - If repeating directly, use `data/corpus_checkpoint_greedy_snapshots_003`, seed start `9500`, and output `outputs/policy_improve_margin500_003`.
+   - If doing a margin sweep, reuse one snapshot corpus and compare at least `--min-search-margin 250`, `500`, and `1000` before training larger candidates.
 
 4. Use the sharded replay pattern if continuing data scaling:
 
