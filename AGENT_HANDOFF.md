@@ -284,6 +284,7 @@ Machine transfer checklist:
 - Optional but useful if continuing the exact data lineage without regenerating:
   - `data/corpus_checkpoint_greedy_snapshots_001/`
   - `data/corpus_checkpoint_greedy_snapshots_002/`
+- User said they plan to copy the full suggested set above, including the optional corpus lineage directories. On the next machine, assume these artifacts may be present, but still run the `Test-Path` checks before launching training/eval.
 - On the new machine, first verify:
 
 ```powershell
