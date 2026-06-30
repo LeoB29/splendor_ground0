@@ -37,6 +37,8 @@ def test_improve_replay_actions_writes_search_relabels(tmp_path) -> None:
             search_take_branching=1,
             write_unchanged=True,
             max_rows=5,
+            changed_action_weight=2.0,
+            unchanged_action_weight=0.5,
         )
     )
 
@@ -50,8 +52,14 @@ def test_improve_replay_actions_writes_search_relabels(tmp_path) -> None:
     ]
     assert rows
     assert "original_action_index" in rows[0]
+    assert "search_action_scores" in rows[0]
+    assert rows[0]["search_action_scores"]
+    assert rows[0]["search_action_scores"][0]["rank"] == 1
+    assert "action_index" in rows[0]["search_action_scores"][0]
+    assert "value" in rows[0]["search_action_scores"][0]
     assert "improvement_metadata" in rows[0]
     assert rows[0]["improvement_metadata"]["source"] == "shallow_search"
+    assert rows[0]["training_weight"] in (0.5, 2.0)
     assert summary_path.exists()
 
 
@@ -136,6 +144,7 @@ def test_improve_replay_actions_applies_search_margin_gate(tmp_path, monkeypatch
             summary_path=accepted_summary_path,
             min_search_margin=1.0,
             max_rows=1,
+            changed_action_weight=2.5,
         )
     )
 
@@ -146,6 +155,7 @@ def test_improve_replay_actions_applies_search_margin_gate(tmp_path, monkeypatch
     assert accepted.rows_changed_written == 1
     row = json.loads(accepted_output_path.read_text(encoding="utf-8").strip())
     assert row["improvement_metadata"]["search_margin"] == 2.0
+    assert row["training_weight"] == 2.5
 
 
 def test_improve_replay_actions_can_filter_changed_action_types(tmp_path, monkeypatch) -> None:

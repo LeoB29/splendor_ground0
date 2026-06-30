@@ -5,11 +5,17 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol
 
+import torch
+
+from splendor_ai.encoding import encode_public_observation_tensor
 from splendor_ai.engine.actions import Action, ActionType
 from splendor_ai.engine.constants import ALL_TOKEN_TYPES, TOKEN_COLORS
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import SplendorState
+from splendor_ai.training.model import ValueMLP, ValueModelConfig
 
 from .heuristic_bot import GreedyHeuristicBot
 
@@ -29,6 +35,41 @@ class SearchActionScore:
     value: float
     heuristic_score: float
     loop_penalty: float
+
+
+class StateValueEvaluator(Protocol):
+    def evaluate_state(self, state: SplendorState, player_id: int) -> float:
+        """Return a heuristic-scale value from player_id's perspective."""
+
+
+class CheckpointValueEvaluator:
+    """Loads a value checkpoint and converts normalized predictions to heuristic scale."""
+
+    def __init__(
+        self,
+        checkpoint_path: str | Path,
+        device: str = "cpu",
+        value_scale: float = 15_000.0,
+    ) -> None:
+        self.checkpoint_path = Path(checkpoint_path)
+        self._device = device
+        self._value_scale = value_scale
+        checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
+        self._model = ValueMLP(ValueModelConfig(**checkpoint.get("model_config", {})))
+        self._model.load_state_dict(checkpoint["model_state_dict"])
+        self._model.to(device)
+        self._model.eval()
+
+    def evaluate_state(self, state: SplendorState, player_id: int) -> float:
+        observation = encode_public_observation_tensor(state, player_id)
+        observation_tensor = torch.tensor(
+            [observation.vector],
+            dtype=torch.float32,
+            device=self._device,
+        )
+        with torch.no_grad():
+            value = float(self._model(observation_tensor).detach().cpu().item())
+        return value * self._value_scale
 
 
 class ShallowSearchBot:
@@ -54,6 +95,8 @@ class ShallowSearchBot:
         return_token_penalty: float = 120.0,
         repeated_color_return_penalty: float = 250.0,
         seed: int | None = None,
+        value_evaluator: StateValueEvaluator | None = None,
+        value_weight: float = 0.0,
     ) -> None:
         if depth < 1:
             raise ValueError("Search depth must be at least 1.")
@@ -61,6 +104,8 @@ class ShallowSearchBot:
             raise ValueError("max_branching must be at least 1.")
         if min(max_buy_actions, max_reserve_actions, max_take_actions, max_pass_actions) < 0:
             raise ValueError("Per-action-type branching caps must be non-negative.")
+        if not 0.0 <= value_weight <= 1.0:
+            raise ValueError("value_weight must be in the range [0.0, 1.0].")
         self._depth = depth
         self._max_branching = max_branching
         self._max_buy_actions = max_buy_actions
@@ -74,6 +119,8 @@ class ShallowSearchBot:
         self._repeated_color_return_penalty = repeated_color_return_penalty
         self._rng = random.Random(seed)
         self._heuristic = GreedyHeuristicBot(seed=seed)
+        self._value_evaluator = value_evaluator
+        self._value_weight = value_weight
         self._transposition_cache: dict[tuple[int, int, tuple[object, ...]], float] = {}
         self._observed_state_counts: dict[tuple[object, ...], int] = {}
         self._post_action_state_counts: dict[tuple[object, ...], int] = {}
@@ -196,10 +243,10 @@ class ShallowSearchBot:
     ) -> float:
         state_signature = self._heuristic.state_signature(state)
         if state_signature in path_signatures:
-            return self._heuristic.evaluate_state(state, root_player) - self._repetition_penalty
+            return self._evaluate_leaf(state, root_player) - self._repetition_penalty
 
         if depth <= 0 or state.terminal:
-            return self._heuristic.evaluate_state(state, root_player)
+            return self._evaluate_leaf(state, root_player)
 
         cache_key = (depth, root_player, state_signature)
         cached = self._transposition_cache.get(cache_key)
@@ -208,7 +255,7 @@ class ShallowSearchBot:
 
         legal_actions = env.legal_actions(state)
         if not legal_actions:
-            return self._heuristic.evaluate_state(state, root_player)
+            return self._evaluate_leaf(state, root_player)
 
         maximizing = state.current_player == root_player
         candidates = self._ordered_candidates(
@@ -261,6 +308,13 @@ class ShallowSearchBot:
         path_signatures.remove(state_signature)
         self._transposition_cache[cache_key] = value
         return value
+
+    def _evaluate_leaf(self, state: SplendorState, root_player: int) -> float:
+        heuristic_value = self._heuristic.evaluate_state(state, root_player)
+        if self._value_evaluator is None or self._value_weight == 0.0 or state.terminal:
+            return heuristic_value
+        neural_value = self._value_evaluator.evaluate_state(state, root_player)
+        return (1.0 - self._value_weight) * heuristic_value + self._value_weight * neural_value
 
     def _ordered_candidates(
         self,

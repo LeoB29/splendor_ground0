@@ -11,8 +11,10 @@ from splendor_ai.training import (
     LegalActionScorerConfig,
     LegalActionScorerModel,
     SupervisedTrainConfig,
+    collate_legal_action_replay_samples,
     collect_game_replay,
     compute_legal_action_supervised_losses,
+    compute_search_score_distillation_loss,
     export_replay_games_jsonl,
     fit_legal_action_scorer,
     masked_legal_action_scores,
@@ -52,12 +54,69 @@ def test_compute_legal_action_supervised_losses_returns_finite_values() -> None:
         legal_action_mask=legal_action_mask,
         value_target=value_target,
         value_loss_weight=2.0,
+        sample_weight=torch.tensor([2.0, 0.5], dtype=torch.float32),
     )
 
     assert float(policy_loss) > 0.0
     assert float(value_loss) > 0.0
     assert float(total_loss) > float(policy_loss)
     assert masked_legal_action_scores(action_scores, legal_action_mask)[1, 2] < -1e30
+
+
+def test_search_score_distillation_loss_prefers_search_ranking() -> None:
+    legal_action_mask = torch.tensor([[True, True, True]], dtype=torch.bool)
+    search_value_target = torch.tensor([[100.0, 0.0, -100.0]], dtype=torch.float32)
+    search_value_mask = torch.tensor([[True, True, True]], dtype=torch.bool)
+
+    aligned_loss = compute_search_score_distillation_loss(
+        action_scores=torch.tensor([[2.0, 0.0, -2.0]], dtype=torch.float32),
+        legal_action_mask=legal_action_mask,
+        search_value_target=search_value_target,
+        search_value_mask=search_value_mask,
+        temperature=100.0,
+    )
+    reversed_loss = compute_search_score_distillation_loss(
+        action_scores=torch.tensor([[-2.0, 0.0, 2.0]], dtype=torch.float32),
+        legal_action_mask=legal_action_mask,
+        search_value_target=search_value_target,
+        search_value_mask=search_value_mask,
+        temperature=100.0,
+    )
+
+    assert torch.isfinite(aligned_loss)
+    assert torch.isfinite(reversed_loss)
+    assert float(aligned_loss) < float(reversed_loss)
+
+
+def test_legal_action_replay_dataset_reads_search_score_targets(tmp_path) -> None:
+    replay_path = _write_snapshot_replay(tmp_path)
+    rows = [
+        json.loads(line)
+        for line in replay_path.read_text(encoding="utf-8").splitlines()
+    ]
+    first_legal_indices = rows[0]["legal_action_indices"]
+    rows[0]["search_action_scores"] = [
+        {"action_index": first_legal_indices[0], "value": 100.0},
+        {"action_index": first_legal_indices[1], "value": 50.0},
+    ]
+    rows[0]["training_weight"] = 2.5
+    scored_path = tmp_path / "scored_replay.jsonl"
+    scored_path.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    dataset = LegalActionReplayDataset(scored_path)
+    sample = dataset[0]
+    batch = collate_legal_action_replay_samples([sample])
+
+    assert sample.search_value_mask.sum().item() == 2
+    assert sample.search_value_target[0].item() == 100.0
+    assert sample.search_value_target[1].item() == 50.0
+    assert sample.sample_weight == 2.5
+    assert batch["search_value_mask"].shape == batch["legal_action_mask"].shape
+    assert batch["search_value_target"][0, 0].item() == 100.0
+    assert batch["sample_weight"][0].item() == 2.5
 
 
 def test_fit_legal_action_scorer_runs_on_snapshot_replay(tmp_path) -> None:
@@ -151,6 +210,10 @@ def test_run_legal_action_supervised_cli_writes_checkpoint_and_metrics(tmp_path)
             "1",
             "--validation-fraction",
             "0",
+            "--search-distill-loss-weight",
+            "0.1",
+            "--search-distill-temperature",
+            "1000",
             "--log-every-batches",
             "0",
         ],
@@ -164,4 +227,6 @@ def test_run_legal_action_supervised_cli_writes_checkpoint_and_metrics(tmp_path)
     assert (output_dir / "legal_action_scorer.pt").exists()
     metrics = json.loads((output_dir / "legal_action_scorer_metrics.json").read_text(encoding="utf-8"))
     assert metrics["dataset"]["total_samples"] == len(LegalActionReplayDataset(replay_path))
+    assert metrics["dataset"]["search_distill_loss_weight"] == 0.1
+    assert metrics["dataset"]["search_distill_temperature"] == 1000
     assert metrics["checkpoints"]["final_checkpoint_path"] == "legal_action_scorer.pt"

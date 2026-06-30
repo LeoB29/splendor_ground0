@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -32,6 +33,18 @@ class LegalActionReplaySample:
     action_index: int
     legal_action_indices: tuple[int, ...]
     value_target: float
+    search_value_target: torch.Tensor
+    search_value_mask: torch.Tensor
+    sample_weight: float
+
+
+@dataclass(frozen=True, slots=True)
+class ValueReplaySample:
+    observation: torch.Tensor
+    value_target: float
+    outcome_target: float
+    score_margin_target: float
+    turn_index: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,6 +222,23 @@ class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
         if not action_feature_rows:
             raise ValueError("Reconstructed state has no legal actions.")
 
+        search_value_target = torch.zeros(len(legal_action_indices), dtype=torch.float32)
+        search_value_mask = torch.zeros(len(legal_action_indices), dtype=torch.bool)
+        for search_score in payload.get("search_action_scores", []):
+            if not isinstance(search_score, dict):
+                continue
+            try:
+                search_action_index = int(search_score["action_index"])
+                search_action_row = legal_action_indices.index(search_action_index)
+                search_value = float(search_score["value"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            search_value_target[search_action_row] = search_value
+            search_value_mask[search_action_row] = True
+        sample_weight = float(payload.get("training_weight", 1.0))
+        if not math.isfinite(sample_weight) or sample_weight <= 0.0:
+            raise ValueError(f"Replay row has invalid training_weight: {sample_weight}")
+
         return LegalActionReplaySample(
             observation=torch.tensor(payload["observation_vector"], dtype=torch.float32),
             legal_action_features=torch.stack(action_feature_rows, dim=0),
@@ -216,10 +246,70 @@ class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
             action_index=action_index,
             legal_action_indices=legal_action_indices,
             value_target=float(payload["final_value"]),
+            search_value_target=search_value_target,
+            search_value_mask=search_value_mask,
+            sample_weight=sample_weight,
         )
 
     def source_path_for_index(self, index: int) -> Path:
         return Path(str(self._samples[index]["_source_path"]))
+
+class ValueReplayDataset(Dataset[ValueReplaySample]):
+    """Loads replay rows for state-value prediction."""
+
+    def __init__(
+        self,
+        path: str | Path | Sequence[str | Path],
+        include_stalled_games: bool = True,
+        include_timed_out_games: bool = True,
+        max_model_loop_fallback_triggers: int | None = None,
+        margin_scale: float = 15.0,
+    ) -> None:
+        if margin_scale <= 0.0:
+            raise ValueError("margin_scale must be positive.")
+        self._paths = _normalize_paths(path)
+        self._margin_scale = margin_scale
+        self._samples = SupervisedReplayDataset._load_samples(
+            self._paths,
+            include_stalled_games=include_stalled_games,
+            include_timed_out_games=include_timed_out_games,
+            max_model_loop_fallback_triggers=max_model_loop_fallback_triggers,
+        )
+
+    @property
+    def paths(self) -> tuple[Path, ...]:
+        return self._paths
+
+    def __len__(self) -> int:
+        return len(self._samples)
+
+    def __getitem__(self, index: int) -> ValueReplaySample:
+        payload = self._samples[index]
+        player_id = int(payload["player_id"])
+        scores = payload.get("game_final_scores")
+        if not isinstance(scores, list | tuple) or len(scores) != 2:
+            raise ValueError("ValueReplayDataset requires game_final_scores with two entries.")
+        score_margin = float(scores[player_id]) - float(scores[1 - player_id])
+        value_target = max(min(score_margin / self._margin_scale, 1.0), -1.0)
+        return ValueReplaySample(
+            observation=torch.tensor(payload["observation_vector"], dtype=torch.float32),
+            value_target=value_target,
+            outcome_target=float(payload.get("final_value", 0.0)),
+            score_margin_target=score_margin,
+            turn_index=int(payload.get("turn_index", 0)),
+        )
+
+    def source_path_for_index(self, index: int) -> Path:
+        return Path(str(self._samples[index]["_source_path"]))
+
+    def validation_group_key_for_index(self, index: int, split_unit: str) -> tuple[object, ...]:
+        payload = self._samples[index]
+        source_path = str(payload["_source_path"])
+        if split_unit == "source":
+            return (source_path,)
+        if split_unit == "game":
+            return (source_path, int(payload["game_seed"]))
+        raise ValueError("split_unit must be 'game' or 'source'.")
 
 
 def collate_replay_samples(
@@ -246,6 +336,23 @@ def collate_replay_samples(
     }
 
 
+def collate_value_replay_samples(
+    samples: list[ValueReplaySample],
+) -> dict[str, torch.Tensor]:
+    if not samples:
+        raise ValueError("Cannot collate an empty batch.")
+    return {
+        "observation": torch.stack([sample.observation for sample in samples], dim=0),
+        "value_target": torch.tensor([sample.value_target for sample in samples], dtype=torch.float32),
+        "outcome_target": torch.tensor([sample.outcome_target for sample in samples], dtype=torch.float32),
+        "score_margin_target": torch.tensor(
+            [sample.score_margin_target for sample in samples],
+            dtype=torch.float32,
+        ),
+        "turn_index": torch.tensor([sample.turn_index for sample in samples], dtype=torch.long),
+    }
+
+
 def collate_legal_action_replay_samples(
     samples: list[LegalActionReplaySample],
 ) -> dict[str, torch.Tensor]:
@@ -267,6 +374,10 @@ def collate_legal_action_replay_samples(
         [sample.value_target for sample in samples],
         dtype=torch.float32,
     )
+    sample_weights = torch.tensor(
+        [sample.sample_weight for sample in samples],
+        dtype=torch.float32,
+    )
 
     max_legal_actions = max(
         sample.legal_action_features.shape[0]
@@ -281,6 +392,14 @@ def collate_legal_action_replay_samples(
         (len(samples), max_legal_actions),
         dtype=torch.bool,
     )
+    search_value_targets = torch.zeros(
+        (len(samples), max_legal_actions),
+        dtype=torch.float32,
+    )
+    search_value_mask = torch.zeros(
+        (len(samples), max_legal_actions),
+        dtype=torch.bool,
+    )
 
     for row_index, sample in enumerate(samples):
         legal_count, sample_feature_size = sample.legal_action_features.shape
@@ -288,6 +407,8 @@ def collate_legal_action_replay_samples(
             raise ValueError("All action feature rows in a batch must have the same width.")
         action_features[row_index, :legal_count] = sample.legal_action_features
         legal_action_mask[row_index, :legal_count] = True
+        search_value_targets[row_index, :legal_count] = sample.search_value_target
+        search_value_mask[row_index, :legal_count] = sample.search_value_mask
 
     return {
         "observation": observations,
@@ -296,4 +417,7 @@ def collate_legal_action_replay_samples(
         "action_index": action_indices,
         "legal_action_mask": legal_action_mask,
         "value_target": value_targets,
+        "search_value_target": search_value_targets,
+        "search_value_mask": search_value_mask,
+        "sample_weight": sample_weights,
     }

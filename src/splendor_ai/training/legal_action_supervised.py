@@ -70,12 +70,78 @@ def compute_legal_action_supervised_losses(
     legal_action_mask: torch.Tensor,
     value_target: torch.Tensor,
     value_loss_weight: float = 1.0,
+    search_value_target: torch.Tensor | None = None,
+    search_value_mask: torch.Tensor | None = None,
+    search_distill_loss_weight: float = 0.0,
+    search_distill_temperature: float = 1_000.0,
+    sample_weight: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     masked_scores = masked_legal_action_scores(action_scores, legal_action_mask)
-    policy_loss = nn.functional.cross_entropy(masked_scores, target_action_row)
-    value_loss = nn.functional.mse_loss(value_pred, value_target)
-    total_loss = policy_loss + value_loss_weight * value_loss
+    policy_loss = _weighted_mean(
+        nn.functional.cross_entropy(masked_scores, target_action_row, reduction="none"),
+        sample_weight,
+    )
+    value_loss = _weighted_mean(
+        nn.functional.mse_loss(value_pred, value_target, reduction="none"),
+        sample_weight,
+    )
+    distill_loss = compute_search_score_distillation_loss(
+        action_scores=action_scores,
+        legal_action_mask=legal_action_mask,
+        search_value_target=search_value_target,
+        search_value_mask=search_value_mask,
+        temperature=search_distill_temperature,
+        sample_weight=sample_weight,
+    )
+    total_loss = policy_loss + value_loss_weight * value_loss + search_distill_loss_weight * distill_loss
     return policy_loss, value_loss, total_loss
+
+
+def compute_search_score_distillation_loss(
+    action_scores: torch.Tensor,
+    legal_action_mask: torch.Tensor,
+    search_value_target: torch.Tensor | None,
+    search_value_mask: torch.Tensor | None,
+    temperature: float = 1_000.0,
+    sample_weight: torch.Tensor | None = None,
+) -> torch.Tensor:
+    if search_value_target is None or search_value_mask is None:
+        return action_scores.sum() * 0.0
+    if temperature <= 0.0:
+        raise ValueError("search distillation temperature must be positive.")
+
+    effective_mask = legal_action_mask & search_value_mask
+    valid_rows = effective_mask.sum(dim=1) >= 2
+    if not bool(valid_rows.any().item()):
+        return action_scores.sum() * 0.0
+
+    row_scores = action_scores[valid_rows]
+    row_targets = search_value_target[valid_rows]
+    row_mask = effective_mask[valid_rows]
+
+    model_logits = row_scores.masked_fill(~row_mask, -torch.inf)
+    target_logits = (row_targets / temperature).masked_fill(~row_mask, -torch.inf)
+    model_log_probs = nn.functional.log_softmax(model_logits, dim=1)
+    target_probs = nn.functional.softmax(target_logits, dim=1)
+    model_log_probs = model_log_probs.masked_fill(~row_mask, 0.0)
+    target_probs = target_probs.masked_fill(~row_mask, 0.0)
+    per_sample_loss = -(target_probs.detach() * model_log_probs).sum(dim=1)
+    valid_weights = None if sample_weight is None else sample_weight[valid_rows]
+    return _weighted_mean(per_sample_loss, valid_weights)
+
+
+def _weighted_mean(loss: torch.Tensor, sample_weight: torch.Tensor | None) -> torch.Tensor:
+    if sample_weight is None:
+        return loss.mean()
+    weights = sample_weight.to(device=loss.device, dtype=loss.dtype)
+    if weights.shape != loss.shape:
+        raise ValueError(
+            f"sample_weight shape must match per-sample loss shape: {weights.shape} != {loss.shape}"
+        )
+    weight_sum = weights.sum()
+    if float(weight_sum.detach().cpu()) <= 0.0:
+        raise ValueError("sample_weight sum must be positive.")
+    return (loss * weights).sum() / weight_sum
 
 
 def train_legal_action_scorer_epoch(
@@ -88,6 +154,8 @@ def train_legal_action_scorer_epoch(
     total_epochs: int = 1,
     log_every_batches: int = 0,
     progress_callback: Callable[[BatchProgress], None] | None = None,
+    search_distill_loss_weight: float = 0.0,
+    search_distill_temperature: float = 1_000.0,
 ) -> TrainMetrics:
     model.train()
     total_policy = 0.0
@@ -105,6 +173,9 @@ def train_legal_action_scorer_epoch(
         target_action_row = batch["target_action_row"].to(device)
         legal_action_mask = batch["legal_action_mask"].to(device)
         value_target = batch["value_target"].to(device)
+        search_value_target = batch["search_value_target"].to(device)
+        search_value_mask = batch["search_value_mask"].to(device)
+        sample_weight = batch["sample_weight"].to(device)
 
         optimizer.zero_grad(set_to_none=True)
         action_scores, value_pred = model(observation, legal_action_features)
@@ -115,6 +186,11 @@ def train_legal_action_scorer_epoch(
             legal_action_mask=legal_action_mask,
             value_target=value_target,
             value_loss_weight=value_loss_weight,
+            search_value_target=search_value_target,
+            search_value_mask=search_value_mask,
+            search_distill_loss_weight=search_distill_loss_weight,
+            search_distill_temperature=search_distill_temperature,
+            sample_weight=sample_weight,
         )
         predictions = torch.argmax(
             masked_legal_action_scores(action_scores, legal_action_mask),
@@ -168,6 +244,8 @@ def evaluate_legal_action_scorer_epoch(
     dataloader: DataLoader,
     device: str = "cpu",
     value_loss_weight: float = 1.0,
+    search_distill_loss_weight: float = 0.0,
+    search_distill_temperature: float = 1_000.0,
 ) -> TrainMetrics:
     model.eval()
     total_policy = 0.0
@@ -184,6 +262,9 @@ def evaluate_legal_action_scorer_epoch(
             target_action_row = batch["target_action_row"].to(device)
             legal_action_mask = batch["legal_action_mask"].to(device)
             value_target = batch["value_target"].to(device)
+            search_value_target = batch["search_value_target"].to(device)
+            search_value_mask = batch["search_value_mask"].to(device)
+            sample_weight = batch["sample_weight"].to(device)
 
             action_scores, value_pred = model(observation, legal_action_features)
             policy_loss, value_loss, loss = compute_legal_action_supervised_losses(
@@ -193,6 +274,11 @@ def evaluate_legal_action_scorer_epoch(
                 legal_action_mask=legal_action_mask,
                 value_target=value_target,
                 value_loss_weight=value_loss_weight,
+                search_value_target=search_value_target,
+                search_value_mask=search_value_mask,
+                search_distill_loss_weight=search_distill_loss_weight,
+                search_distill_temperature=search_distill_temperature,
+                sample_weight=sample_weight,
             )
             predictions = torch.argmax(
                 masked_legal_action_scores(action_scores, legal_action_mask),
@@ -226,6 +312,8 @@ def fit_legal_action_scorer_dataloaders_with_artifacts(
     model: LegalActionScorerModel | None = None,
     log_every_batches: int = 0,
     batch_progress_callback: Callable[[BatchProgress], None] | None = None,
+    search_distill_loss_weight: float = 0.0,
+    search_distill_temperature: float = 1_000.0,
 ) -> FitLegalActionScorerArtifacts:
     cfg = config or SupervisedTrainConfig()
     model_instance = model or LegalActionScorerModel()
@@ -251,6 +339,8 @@ def fit_legal_action_scorer_dataloaders_with_artifacts(
             total_epochs=cfg.epochs,
             log_every_batches=log_every_batches,
             progress_callback=batch_progress_callback,
+            search_distill_loss_weight=search_distill_loss_weight,
+            search_distill_temperature=search_distill_temperature,
         )
         validation_metrics = None
         if validation_dataloader is not None:
@@ -259,6 +349,8 @@ def fit_legal_action_scorer_dataloaders_with_artifacts(
                 dataloader=validation_dataloader,
                 device=cfg.device,
                 value_loss_weight=cfg.value_loss_weight,
+                search_distill_loss_weight=search_distill_loss_weight,
+                search_distill_temperature=search_distill_temperature,
             )
             if best_validation_loss is None or validation_metrics.total_loss < best_validation_loss:
                 best_validation_loss = validation_metrics.total_loss

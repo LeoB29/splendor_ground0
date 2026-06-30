@@ -31,6 +31,14 @@ class LegalActionScorerConfig:
     dropout: float = 0.0
 
 
+@dataclass(frozen=True, slots=True)
+class ValueModelConfig:
+    observation_size: int = 256
+    hidden_size: int = 256
+    depth: int = 3
+    dropout: float = 0.0
+
+
 class PolicyValueMLP(nn.Module):
     """First supervised baseline network for policy/value prediction."""
 
@@ -141,6 +149,36 @@ class LegalActionScorerModel(nn.Module):
         action_scores = self.score_head(score_input).squeeze(-1)
         value = self.value_head(state_hidden).squeeze(-1)
         return action_scores, value
+
+
+class ValueMLP(nn.Module):
+    """State-value model for evaluating a position from the acting player's view."""
+
+    def __init__(self, config: ValueModelConfig | None = None) -> None:
+        super().__init__()
+        self.config = config or ValueModelConfig()
+        self.trunk = _make_mlp(
+            input_size=self.config.observation_size,
+            hidden_size=self.config.hidden_size,
+            output_size=self.config.hidden_size,
+            depth=self.config.depth,
+            dropout=self.config.dropout,
+            final_activation=True,
+            final_layer_norm=True,
+        )
+        self.value_head = nn.Sequential(
+            nn.Linear(self.config.hidden_size, self.config.hidden_size // 2),
+            nn.GELU(),
+            nn.Linear(self.config.hidden_size // 2, 1),
+            nn.Tanh(),
+        )
+
+    def forward(self, observation: torch.Tensor) -> torch.Tensor:
+        if observation.ndim != 2:
+            raise ValueError("observation must have shape [batch, observation_size].")
+        if observation.shape[1] != self.config.observation_size:
+            raise ValueError("Unexpected observation feature size.")
+        return self.value_head(self.trunk(observation)).squeeze(-1)
 
 
 def masked_policy_logits(policy_logits: torch.Tensor, legal_action_mask: torch.Tensor) -> torch.Tensor:

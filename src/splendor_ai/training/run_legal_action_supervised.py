@@ -36,6 +36,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--value-loss-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--search-distill-loss-weight",
+        type=float,
+        default=0.0,
+        help="Optional loss weight for soft legal-action targets derived from stored search scores.",
+    )
+    parser.add_argument(
+        "--search-distill-temperature",
+        type=float,
+        default=1_000.0,
+        help="Temperature used to convert stored search values into soft action targets.",
+    )
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--init-checkpoint", default=None)
     parser.add_argument("--state-hidden-size", type=int, default=256)
@@ -121,6 +133,8 @@ def _train_config_payload(args: argparse.Namespace) -> dict[str, object]:
         "learning_rate": args.learning_rate,
         "weight_decay": args.weight_decay,
         "value_loss_weight": args.value_loss_weight,
+        "search_distill_loss_weight": args.search_distill_loss_weight,
+        "search_distill_temperature": args.search_distill_temperature,
         "epochs": args.epochs,
         "device": args.device,
         "init_checkpoint": args.init_checkpoint,
@@ -145,6 +159,7 @@ def main() -> None:
         f" device={args.device}"
         f" epochs={args.epochs}"
         f" batch_size={args.batch_size}"
+        f" search_distill_loss_weight={args.search_distill_loss_weight}"
     )
     model = _build_model(args)
     train_config = SupervisedTrainConfig(
@@ -200,6 +215,8 @@ def main() -> None:
         model=model,
         log_every_batches=args.log_every_batches,
         batch_progress_callback=_print_batch_progress,
+        search_distill_loss_weight=args.search_distill_loss_weight,
+        search_distill_temperature=args.search_distill_temperature,
     )
     elapsed = time.perf_counter() - start_time
 
@@ -233,6 +250,8 @@ def main() -> None:
             "excluded_stalled_games": args.exclude_stalled_games,
             "excluded_timeout_games": args.exclude_timeout_games,
             "max_game_model_loop_fallback_triggers": args.max_game_model_loop_fallback_triggers,
+            "search_distill_loss_weight": args.search_distill_loss_weight,
+            "search_distill_temperature": args.search_distill_temperature,
         },
         "checkpoints": {
             "final_checkpoint_path": checkpoint_path.name,

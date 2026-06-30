@@ -33,6 +33,8 @@ class ImproveReplayConfig:
     stateful_search_history: bool = False
     max_rows: int | None = None
     log_every: int = 1_000
+    changed_action_weight: float = 1.0
+    unchanged_action_weight: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,11 +137,26 @@ def improve_replay_actions(config: ImproveReplayConfig) -> ImproveReplaySummary:
 
                     legal_action_indices = codec.legal_action_indices(state, legal_actions)
                     improved_payload = dict(payload)
+                    search_action_scores = [
+                        {
+                            "rank": rank,
+                            "action_index": codec.encode(state, score.action),
+                            "action_payload": serialize_action(score.action),
+                            "value": score.value,
+                            "heuristic_score": score.heuristic_score,
+                            "loop_penalty": score.loop_penalty,
+                        }
+                        for rank, score in enumerate(ranked_actions, start=1)
+                    ]
                     improved_payload["original_action_index"] = original_index
                     improved_payload["original_action_payload"] = payload.get("action_payload")
                     improved_payload["action_index"] = selected_index
                     improved_payload["action_payload"] = serialize_action(selected.action)
                     improved_payload["legal_action_indices"] = legal_action_indices
+                    improved_payload["search_action_scores"] = search_action_scores
+                    improved_payload["training_weight"] = (
+                        config.changed_action_weight if changed else config.unchanged_action_weight
+                    )
                     improved_payload["improvement_metadata"] = {
                         "source": "shallow_search",
                         "target_semantics": "policy_relabel_only_original_final_value_retained",
@@ -205,6 +222,8 @@ def improve_replay_actions(config: ImproveReplayConfig) -> ImproveReplaySummary:
             "exclude_changed_action_types": config.exclude_changed_action_types,
             "stateful_search_history": config.stateful_search_history,
             "max_rows": config.max_rows,
+            "changed_action_weight": config.changed_action_weight,
+            "unchanged_action_weight": config.unchanged_action_weight,
         },
     )
     config.summary_path.write_text(json.dumps(asdict(summary), indent=2), encoding="utf-8")
@@ -262,6 +281,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-rows", type=int, default=None)
     parser.add_argument("--log-every", type=int, default=1_000)
+    parser.add_argument(
+        "--changed-action-weight",
+        type=float,
+        default=1.0,
+        help="Training weight written on rows where search changes the action.",
+    )
+    parser.add_argument(
+        "--unchanged-action-weight",
+        type=float,
+        default=1.0,
+        help="Training weight written on unchanged anchor rows.",
+    )
     return parser
 
 
@@ -290,6 +321,8 @@ def main() -> None:
             stateful_search_history=args.stateful_search_history,
             max_rows=args.max_rows,
             log_every=args.log_every,
+            changed_action_weight=args.changed_action_weight,
+            unchanged_action_weight=args.unchanged_action_weight,
         )
     )
     print(

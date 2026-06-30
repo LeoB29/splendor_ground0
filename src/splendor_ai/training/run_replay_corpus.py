@@ -18,7 +18,12 @@ from splendor_ai.bots import (
 from .corpus import generate_replay_corpus, write_replay_corpus
 
 
-def _build_bot_factory(bot_name: str, seed: int, args: argparse.Namespace):
+def _build_bot_factory(
+    bot_name: str,
+    seed: int,
+    args: argparse.Namespace,
+    seat_index: int | None = None,
+):
     normalized = bot_name.lower()
     if normalized == "random":
         return lambda: RandomLegalBot(seed=seed)
@@ -34,26 +39,27 @@ def _build_bot_factory(bot_name: str, seed: int, args: argparse.Namespace):
             seed=seed,
         )
     if normalized == "checkpoint":
-        checkpoint_path = _resolve_checkpoint_path(args, bot_name)
+        checkpoint_path = _resolve_checkpoint_path(args, bot_name, seat_index=seat_index)
+        checkpoint_model_kind = _resolve_checkpoint_model_kind(args, seat_index=seat_index)
         fallback_config = _checkpoint_loop_fallback_config(args)
         cached_bot = None
 
         def factory():
             nonlocal cached_bot
             if cached_bot is None:
-                if args.checkpoint_model_kind == "flat_policy":
+                if checkpoint_model_kind == "flat_policy":
                     cached_bot = CheckpointPolicyBot(
                         checkpoint_path,
                         device=args.checkpoint_device,
                         loop_fallback=fallback_config,
                     )
-                elif args.checkpoint_model_kind == "legal_action_scorer":
+                elif checkpoint_model_kind == "legal_action_scorer":
                     cached_bot = LegalActionScorerBot(
                         checkpoint_path,
                         device=args.checkpoint_device,
                     )
                 else:
-                    raise ValueError(f"Unsupported checkpoint model kind: {args.checkpoint_model_kind}")
+                    raise ValueError(f"Unsupported checkpoint model kind: {checkpoint_model_kind}")
             return cached_bot
 
         return factory
@@ -113,6 +119,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Checkpoint used by any BOT name set to 'checkpoint'.",
     )
     parser.add_argument(
+        "--seat0-checkpoint-path",
+        default=None,
+        help="Optional checkpoint override when seat 0 uses BOT name 'checkpoint'.",
+    )
+    parser.add_argument(
+        "--seat1-checkpoint-path",
+        default=None,
+        help="Optional checkpoint override when seat 1 uses BOT name 'checkpoint'.",
+    )
+    parser.add_argument(
         "--checkpoint-device",
         default="cpu",
         help="Device used by checkpoint policy bots during replay generation.",
@@ -122,6 +138,18 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("flat_policy", "legal_action_scorer"),
         default="flat_policy",
         help="Architecture loaded for BOT name 'checkpoint'.",
+    )
+    parser.add_argument(
+        "--seat0-checkpoint-model-kind",
+        choices=("flat_policy", "legal_action_scorer"),
+        default=None,
+        help="Optional architecture override when seat 0 uses BOT name 'checkpoint'.",
+    )
+    parser.add_argument(
+        "--seat1-checkpoint-model-kind",
+        choices=("flat_policy", "legal_action_scorer"),
+        default=None,
+        help="Optional architecture override when seat 1 uses BOT name 'checkpoint'.",
     )
     parser.add_argument(
         "--disable-checkpoint-loop-fallback",
@@ -197,6 +225,10 @@ def main() -> None:
         print(
             f"[corpus] checkpoint path={args.checkpoint_path}"
             f" model_kind={args.checkpoint_model_kind}"
+            f" seat0_path={args.seat0_checkpoint_path}"
+            f" seat0_kind={args.seat0_checkpoint_model_kind}"
+            f" seat1_path={args.seat1_checkpoint_path}"
+            f" seat1_kind={args.seat1_checkpoint_model_kind}"
             f" device={args.checkpoint_device}"
             f" loop_fallback_enabled={not args.disable_checkpoint_loop_fallback}"
         )
@@ -264,8 +296,8 @@ def _resolve_pairings(args: argparse.Namespace):
     if not args.pairing:
         return (
             (
-                _build_bot_factory(args.seat0_bot, args.seat0_seed, args),
-                _build_bot_factory(args.seat1_bot, args.seat1_seed, args),
+                _build_bot_factory(args.seat0_bot, args.seat0_seed, args, seat_index=0),
+                _build_bot_factory(args.seat1_bot, args.seat1_seed, args, seat_index=1),
             ),
         )
 
@@ -279,19 +311,40 @@ def _resolve_pairings(args: argparse.Namespace):
             ) from exc
         pairings.append(
             (
-                _build_bot_factory(left_name, args.seat0_seed, args),
-                _build_bot_factory(right_name, args.seat1_seed, args),
+                _build_bot_factory(left_name, args.seat0_seed, args, seat_index=0),
+                _build_bot_factory(right_name, args.seat1_seed, args, seat_index=1),
             )
         )
     return tuple(pairings)
 
 
-def _resolve_checkpoint_path(args: argparse.Namespace, bot_name: str) -> Path:
-    if args.checkpoint_path is None:
+def _resolve_checkpoint_path(
+    args: argparse.Namespace,
+    bot_name: str,
+    seat_index: int | None = None,
+) -> Path:
+    seat_path = None
+    if seat_index == 0:
+        seat_path = args.seat0_checkpoint_path
+    elif seat_index == 1:
+        seat_path = args.seat1_checkpoint_path
+    checkpoint_path = seat_path or args.checkpoint_path
+    if checkpoint_path is None:
         raise ValueError(
             f"Bot '{bot_name}' requires --checkpoint-path to be set."
         )
-    return Path(args.checkpoint_path)
+    return Path(checkpoint_path)
+
+
+def _resolve_checkpoint_model_kind(
+    args: argparse.Namespace,
+    seat_index: int | None = None,
+) -> str:
+    if seat_index == 0 and args.seat0_checkpoint_model_kind is not None:
+        return args.seat0_checkpoint_model_kind
+    if seat_index == 1 and args.seat1_checkpoint_model_kind is not None:
+        return args.seat1_checkpoint_model_kind
+    return args.checkpoint_model_kind
 
 
 def _checkpoint_loop_fallback_config(args: argparse.Namespace) -> LoopFallbackConfig:
@@ -324,6 +377,14 @@ def _summary_metadata(args: argparse.Namespace, pairing_labels: list[str]) -> di
         metadata["checkpoint"] = {
             "path": args.checkpoint_path,
             "model_kind": args.checkpoint_model_kind,
+            "seat0": {
+                "path": args.seat0_checkpoint_path or args.checkpoint_path,
+                "model_kind": args.seat0_checkpoint_model_kind or args.checkpoint_model_kind,
+            },
+            "seat1": {
+                "path": args.seat1_checkpoint_path or args.checkpoint_path,
+                "model_kind": args.seat1_checkpoint_model_kind or args.checkpoint_model_kind,
+            },
             "device": args.checkpoint_device,
             "loop_fallback": {
                 "enabled": not args.disable_checkpoint_loop_fallback,

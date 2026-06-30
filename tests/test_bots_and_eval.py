@@ -236,6 +236,27 @@ def test_search_bot_resets_loop_history_on_new_game() -> None:
     assert ("stale-next",) not in search_bot._post_action_state_counts
 
 
+def test_search_bot_can_blend_value_evaluator_at_leaf() -> None:
+    env = SplendorEnv(seed=0)
+    state = env.initial_state()
+
+    class ConstantValueEvaluator:
+        def evaluate_state(self, state, player_id):
+            return 100.0
+
+    heuristic_bot = ShallowSearchBot(seed=0)
+    value_bot = ShallowSearchBot(
+        seed=0,
+        value_evaluator=ConstantValueEvaluator(),
+        value_weight=0.25,
+    )
+
+    heuristic_value = heuristic_bot._heuristic.evaluate_state(state, state.current_player)
+    blended_value = value_bot._evaluate_leaf(state, state.current_player)
+
+    assert blended_value == 0.75 * heuristic_value + 25.0
+
+
 def test_play_match_swaps_seats_and_collects_results() -> None:
     result = play_match(
         bot_a_factory=lambda: GreedyHeuristicBot(seed=1),

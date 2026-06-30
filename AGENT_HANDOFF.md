@@ -93,6 +93,11 @@ Legal-action scorer pivot status:
 - Added legal-action scorer supervised training.
   - CLI entry point: `run_legal_action_supervised.py`.
   - Saves `legal_action_scorer.pt`, `legal_action_scorer_best.pt`, and `legal_action_scorer_metrics.json`.
+  - Supports optional search-ranking distillation:
+    - `run_improve_replay_actions.py` now stores `search_action_scores` for ranked searched candidate actions.
+    - `LegalActionReplayDataset` loads those stored search values into padded per-legal-action targets.
+    - `run_legal_action_supervised.py` accepts `--search-distill-loss-weight` and `--search-distill-temperature`.
+    - This lets the scorer learn from the search ranking over legal actions, not only the single top-1 relabeled action.
 - Added `LegalActionScorerBot` for checkpoint-backed inference.
 - Added benchmark support for scorer checkpoints.
   - Use `run_benchmark.py --model-kind legal_action_scorer`.
@@ -107,6 +112,13 @@ Legal-action scorer pivot status:
 - Added legal-action scorer checkpoint support to replay corpus generation.
   - Use `run_replay_corpus.py --seat0-bot checkpoint --seat1-bot checkpoint --checkpoint-model-kind legal_action_scorer`.
   - Metadata records checkpoint path, model kind, device, and loop-fallback settings.
+  - Added per-seat checkpoint overrides for league corpora:
+    - `--seat0-checkpoint-path`
+    - `--seat0-checkpoint-model-kind`
+    - `--seat1-checkpoint-path`
+    - `--seat1-checkpoint-model-kind`
+  - Shared `--checkpoint-path` / `--checkpoint-model-kind` remain backward-compatible defaults.
+  - Smoke corpus `data/corpus_league_smoke_001` verified `legal_action_scorer_003` vs `legal_action_scorer_002` with 2 completed games, 130 steps, 0 stalls/timeouts/fallback triggers.
 - Smoke-trained the first real scorer on `data/corpus_checkpoint_greedy_snapshots_003/improved_search_policy_margin500_no_take.jsonl`.
   - Output: `outputs/legal_action_scorer_smoke_001/`
   - 800 samples, 720 train / 80 validation, 1 epoch, CPU.
@@ -171,7 +183,169 @@ Legal-action scorer pivot status:
   - Direct 100-game head-to-head vs old flat champion `policy_improve_margin500_002`, seed block 16000: `legal_action_scorer_003_best` went 64-35-1, 0 timeouts/stalls/fallback triggers.
   - Shallow-search benchmark on the same seed block/settings as `001` and `002`, 20 games seed 11000: `legal_action_scorer_003_best` went 10-10, improving over `002` at 6-14, `001` at 4-16, and old flat champion at 2-18.
   - Search benchmark average score margin improved to -0.35 from `002` at -2.90 and `001` at -4.25.
-  - Conclusion: `legal_action_scorer_003` is the strongest search-facing scorer so far and is no longer clearly behind shallow search on the 20-game probe, but it is not a clean all-around neural promotion because it is volatile against `002` and lost to `001` on the checked direct block.
+  - Confirmation shallow-search benchmark, 20 games seed 12000: `legal_action_scorer_003_best` went 3-17, average score margin -5.25, 0 timeouts/stalls/fallback triggers.
+  - Combined shallow-search result across seed blocks 11000 and 12000: `legal_action_scorer_003_best` went 13-27, average score margin -2.80.
+  - Standardized 100-game shallow-search benchmark, seed block 20000:
+    - `legal_action_scorer_001`: 30-70-0, average margin -3.92.
+    - `legal_action_scorer_002`: 25-75-0, average margin -3.99.
+    - `legal_action_scorer_003`: 29-71-0, average margin -3.86.
+  - Conclusion: the larger search benchmark says `001` and `003` are effectively tied against search, while `002` is slightly worse. The earlier `003` 10-10 result was noise. `003` is not a clean promotion because it is volatile against `002`, lost to `001` on the checked direct block, and does not clearly beat `001` on the standardized 100-game search block.
+- First mixed league/search-relabel iteration, `legal_action_scorer_004`:
+  - Generated four 5-game league corpora with per-seat checkpoint pairings:
+    - `data/corpus_league_004_003_vs_001`
+    - `data/corpus_league_004_003_vs_002`
+    - `data/corpus_league_004_003_vs_flat`
+    - `data/corpus_league_004_001_vs_002`
+  - Combined corpus size: 20 games, 1,258 steps, 0 stalled, 0 timed out, 0 fallback triggers.
+  - Relabeled all four corpora together with shallow search using depth 2 / max branching 10 / buy 6 / reserve 3 / take 3, `--min-search-margin 500`, `--exclude-changed-action-types TAKE_TOKENS`, and `--write-unchanged`.
+  - Relabel output: `data/corpus_league_004_improved/improved_search_policy_margin500_no_take.jsonl`.
+  - 699 rows written: 68 high-confidence changed labels and 631 unchanged anchors.
+  - Filtered 211 low-margin changes, 180 changed rows where the original action was pruned/missing from search candidates, and 168 selected-token-take changes.
+  - Fine-tuned from stable parent `outputs/legal_action_scorer_001/legal_action_scorer_best.pt` on the three prior improved corpora, both scorer self-play relabel corpora, and the new league relabel corpus.
+  - Output: `outputs/legal_action_scorer_004/`; best validation checkpoint was epoch 3.
+  - Training dataset: 4,456 total rows, 4,011 train / 445 validation, 4 epochs, CPU, `--value-loss-weight 0.0`.
+  - Best validation epoch 3: train accuracy 0.7886, validation accuracy 0.7753, validation loss 0.9639.
+  - Direct 100-game head-to-head vs `legal_action_scorer_001`, seed block 25000: `legal_action_scorer_004_best` went 48-52-0, average margin -0.12, 0 timeouts/stalls/fallback triggers.
+  - Direct 100-game head-to-head vs `legal_action_scorer_003`, seed block 25000: `legal_action_scorer_004_best` went 51-49-0, average margin +0.07, 0 timeouts/stalls/fallback triggers.
+  - Direct 100-game head-to-head vs old flat champion `policy_improve_margin500_002`, seed block 25000: `legal_action_scorer_004_best` went 63-37-0, average margin +1.69, 0 timeouts/stalls/fallback triggers.
+  - Standardized 100-game shallow-search benchmark, seed block 20000: `legal_action_scorer_004_best` went 21-79-0, average margin -4.54, 0 timeouts/stalls/fallback triggers.
+  - Conclusion: do not promote `legal_action_scorer_004`. The mixed league corpus did not improve strength; `004` is tied-ish with `001`/`003`, still beats the old flat champion, but regressed versus search compared with `001` at 30-70 and `003` at 29-71 on the same 100-game search block.
+- Search-ranking distillation support, ready for the next candidate:
+  - Implemented after rejecting `004`.
+  - Future relabeled corpora include `search_action_scores` for the searched candidate list.
+  - Training can add a soft cross-entropy term from those search values using `--search-distill-loss-weight`.
+  - Tiny smoke run succeeded:
+    - relabel: `data/distill_smoke_001/improved_search_scores.jsonl`, 12 rows
+    - train: `outputs/legal_action_scorer_distill_smoke_001/`, 1 CPU epoch from `legal_action_scorer_001`
+  - This smoke checkpoint is only a functionality check, not a strength candidate.
+- First search-ranking distillation candidate, `legal_action_scorer_005`:
+  - Attempted to regenerate one full combined depth-2 search-relabeled corpus with `search_action_scores` from the existing snapshot sources.
+  - CPU relabeling was too slow for a full pass in-session. The combined relabel job was stopped after 502 valid written rows.
+  - Distillation slice:
+    - `data/corpus_search_distill_005/improved_search_policy_margin500_no_take.jsonl`
+    - 502 rows, all with `search_action_scores`
+    - 216 changed labels, 286 unchanged anchors
+    - no normal summary JSON, because the long relabel was intentionally stopped before completion
+  - Trained from `outputs/legal_action_scorer_001/legal_action_scorer_best.pt`.
+  - Training used the prior top-1 improved corpora plus the 502-row scored distillation slice:
+    - `corpus_checkpoint_greedy_snapshots_001`
+    - `corpus_checkpoint_greedy_snapshots_002`
+    - `corpus_checkpoint_greedy_snapshots_003`
+    - `corpus_legal_scorer_selfplay_snapshots_001`
+    - `corpus_legal_scorer_selfplay_snapshots_002`
+    - `corpus_league_004_improved`
+    - `corpus_search_distill_005`
+  - Training command used `--search-distill-loss-weight 0.1`, `--search-distill-temperature 1000`, `--value-loss-weight 0.0`, 4 epochs, CPU.
+  - Output: `outputs/legal_action_scorer_005/`; best validation checkpoint was epoch 4.
+  - Dataset: 4,958 rows, 4,463 train / 495 validation.
+  - Best validation: loss 1.2618, accuracy 0.7515.
+  - Direct 100-game head-to-head vs `legal_action_scorer_001`, seed block 26000: `005` went 48-52-0, average margin -0.57, 0 fallback triggers.
+  - Direct 100-game head-to-head vs `legal_action_scorer_003`, seed block 26000: `005` went 47-53-0, average margin -0.72, 0 fallback triggers.
+  - Standardized 100-game shallow-search benchmark, seed block 20000: `005` went 25-75-0, average margin -4.38, 0 fallback triggers.
+  - Conclusion: do not promote `legal_action_scorer_005`. The small scored distillation slice did not improve over `001`/`003`; it is below `001` at 30-70 and `003` at 29-71 on the same search block.
+- Full search-ranking distillation candidate, `legal_action_scorer_006`:
+  - Completed the full overnight depth-2 scored relabel pass:
+    - `data/corpus_search_distill_full_001/improved_search_policy_margin500_no_take.jsonl`
+    - summary: `data/corpus_search_distill_full_001/improved_search_policy_margin500_no_take_summary.json`
+    - 8,326 rows read
+    - 4,454 rows written
+    - 1,223 high-confidence changed labels
+    - 3,231 unchanged anchors
+    - 1,113 low-margin changes filtered
+    - 1,787 changed rows filtered because original action was pruned/missing
+    - 972 selected-token-take changes filtered
+    - 0 missing snapshots, 0 rows without search candidate
+    - all 4,454 written rows have `search_action_scores`
+  - Trained from `outputs/legal_action_scorer_001/legal_action_scorer_best.pt`.
+  - Training used only the new full scored relabel corpus, with `--search-distill-loss-weight 0.1`, `--search-distill-temperature 1000`, `--value-loss-weight 0.0`, 4 epochs, CPU.
+  - Output: `outputs/legal_action_scorer_006/`; best validation checkpoint was epoch 3.
+  - Dataset: 4,454 rows, 4,009 train / 445 validation.
+  - Best validation: loss 1.1412, accuracy 0.8022.
+  - Direct 100-game head-to-head vs `legal_action_scorer_001`, seed block 27000: `006` went 49-50-1, average margin -0.03, 0 fallback triggers.
+  - Direct 100-game head-to-head vs `legal_action_scorer_003`, seed block 27000: `006` went 53-47-0, average margin -0.20, 0 fallback triggers.
+  - Standardized 100-game shallow-search benchmark, seed block 20000: `006` went 28-72-0, average margin -4.13, 0 fallback triggers.
+  - Conclusion: do not promote `legal_action_scorer_006`. Full search-score distillation with this recipe is not clearly better than `001` or `003`; it remains slightly below `001` at 30-70 and `003` at 29-71 on the same standardized search block.
+- Distillation ablation candidates, `legal_action_scorer_007` and `legal_action_scorer_008`:
+  - Both used the same full scored corpus:
+    - `data/corpus_search_distill_full_001/improved_search_policy_margin500_no_take.jsonl`
+  - Both trained from `outputs/legal_action_scorer_001/legal_action_scorer_best.pt`, 4 epochs, CPU, `--value-loss-weight 0.0`.
+  - `legal_action_scorer_007`:
+    - `--search-distill-loss-weight 0.03`, `--search-distill-temperature 1000`
+    - output: `outputs/legal_action_scorer_007/`; best validation checkpoint was epoch 4
+    - best validation: loss 0.9200, accuracy 0.7865
+    - standardized 100-game shallow-search benchmark, seed block 20000: 22-78-0, average margin -4.80, 0 fallback triggers
+    - conclusion: reject
+  - `legal_action_scorer_008`:
+    - top-1 only on the same corpus, `--search-distill-loss-weight 0.0`
+    - output: `outputs/legal_action_scorer_008/`; best validation checkpoint was epoch 4
+    - best validation: loss 0.8038, accuracy 0.8022
+    - standardized 100-game shallow-search benchmark, seed block 20000: 28-72-0, average margin -4.41, 0 fallback triggers
+    - conclusion: reject
+  - Overall conclusion from `006`/`007`/`008`: this full scored relabel corpus improves supervised validation metrics but does not improve playing strength versus the shallow-search benchmark. Do not keep tuning this exact supervised/distillation recipe as the main path.
+- Weighted gated-relabel candidates, `legal_action_scorer_009` and `legal_action_scorer_010`:
+  - Added `training_weight` support for legal-action scorer training.
+    - `run_improve_replay_actions.py` can write `training_weight`.
+    - `LegalActionReplayDataset` loads it as `sample_weight`.
+    - legal-action scorer policy/value/distillation losses use weighted means.
+    - Old corpora remain backward-compatible with default weight 1.0.
+  - Built weighted copy of the full scored corpus:
+    - `data/corpus_search_distill_weighted_001/improved_search_policy_margin500_no_take_weighted.jsonl`
+    - source: `data/corpus_search_distill_full_001/improved_search_policy_margin500_no_take.jsonl`
+    - 4,454 rows total
+    - 1,223 changed rows weighted 2.0
+    - 3,231 unchanged anchors weighted 0.5
+  - `legal_action_scorer_009`:
+    - parent: `outputs/legal_action_scorer_001/legal_action_scorer_best.pt`
+    - top-1 only, no soft distillation, 4 epochs, CPU
+    - output: `outputs/legal_action_scorer_009/`; best validation checkpoint was epoch 3
+    - best validation: loss 1.0685, accuracy 0.7955
+    - standardized 100-game shallow-search benchmark, seed block 20000: 27-73-0, average margin -4.04, 0 fallback triggers
+    - conclusion: reject
+  - `legal_action_scorer_010`:
+    - parent: `outputs/legal_action_scorer_003/legal_action_scorer_best.pt`
+    - same weighted corpus and training setup
+    - output: `outputs/legal_action_scorer_010/`; best validation checkpoint was epoch 2
+    - best validation: loss 1.0450, accuracy 0.8090
+    - standardized 100-game shallow-search benchmark, seed block 20000: 20-80-0, average margin -5.26, 0 fallback triggers
+    - conclusion: reject
+  - Overall conclusion from `009`/`010`: weighting confident search corrections more heavily did not improve strength. It may overfit to the shallow-search correction style or overweight noisy teacher corrections.
+- Value-model branch:
+  - Added a dedicated state-value model path.
+    - `ValueMLP` / `ValueModelConfig` in `src/splendor_ai/training/model.py`
+    - `ValueReplayDataset` derives targets from final score margin from the acting player's perspective.
+    - `run_value_supervised.py` trains value checkpoints.
+    - `run_value_evaluate.py` evaluates value checkpoints on arbitrary replay corpora.
+    - `CheckpointValueEvaluator` can load a value checkpoint and feed a heuristic-scale value into `ShallowSearchBot`.
+  - `outputs/value_model_001/`:
+    - trained on the stronger snapshot/league set only, 8,326 rows, margin target scaled by 15, 12 epochs.
+    - random row-split validation looked strong: MSE 0.0606, MAE 0.1308, sign accuracy 0.9167, Pearson 0.9239.
+    - held-out `data/corpus_search_greedy_001/replays.jsonl` exposed poor generalization: MSE 0.2171, MAE 0.3669, sign accuracy 0.6789, Pearson 0.4074.
+    - conclusion: not suitable for search integration.
+  - `outputs/value_model_002/`:
+    - trained on broader mixed data, 66,701 rows, holding out `data/corpus_search_greedy_001/replays.jsonl` for external evaluation.
+    - random validation: MSE 0.0387, MAE 0.1132, sign accuracy 0.9551, Pearson 0.9543.
+    - external eval on `corpus_search_greedy_001`: MSE 0.1556, MAE 0.3070, sign accuracy 0.7071, Pearson 0.5704.
+    - external eval on `corpus_search_greedy_cutoff_001`: MSE 0.0775, MAE 0.1842, sign accuracy 0.8481, Pearson 0.8350.
+    - external eval on `corpus_pass_smoke_001`: MSE 0.1244, MAE 0.2673, sign accuracy 0.7472, Pearson 0.8193.
+  - Added game/source-level validation splitting for value training:
+    - `run_value_supervised.py` now accepts `--validation-split-unit row|game|source`.
+    - `game` groups by `(source replay path, game_seed)`, so positions from the same game cannot leak across train and validation.
+    - Use `--validation-split-unit game` for normal value experiments; `source` is stricter and useful when testing whole-corpus generalization.
+  - `outputs/value_model_003/`:
+    - same broad mixed data as `value_model_002`, but trained with `--validation-split-unit game`.
+    - dataset split: 66,701 total rows, 60,132 train / 6,569 validation, 12 epochs, CPU.
+    - game-heldout validation selected epoch 1 as best; final epoch overfit the training games.
+    - final epoch train: MSE 0.0205, MAE 0.0839, sign accuracy 0.9719, Pearson 0.9750.
+    - final epoch game-heldout validation: MSE 0.2405, MAE 0.3557, sign accuracy 0.8159, Pearson 0.6994.
+    - best-checkpoint external eval on `corpus_search_greedy_001`: MSE 0.1910, MAE 0.3441, sign accuracy 0.6999, Pearson 0.5063.
+    - best-checkpoint external eval on `corpus_search_greedy_cutoff_001`: MSE 0.1723, MAE 0.3146, sign accuracy 0.6994, Pearson 0.6573.
+    - best-checkpoint external eval on `corpus_pass_smoke_001`: MSE 0.1437, MAE 0.3013, sign accuracy 0.7415, Pearson 0.7858.
+    - conclusion: do not promote `value_model_003`; it validates the split fix and shows the previous row-level validation was too optimistic, but `value_model_002` remains the stronger external-eval value checkpoint.
+  - Value-assisted search probes using `value_model_002`:
+    - value blend: `leaf = 0.9 * heuristic + 0.1 * neural_value * 15000`
+    - 100-game direct search-vs-value-search benchmark, seed block 30000: value-search went 48-52-0 vs normal search, average margin -0.72.
+    - stronger value blend 0.25, 20-game probe seed block 30100: 10-10-0, average margin +0.35.
+    - conclusion: do not promote value-assisted search yet. The learned value is helpful enough to experiment with, but it does not clearly improve depth-2 search.
 
 Important local artifacts:
 
@@ -450,7 +624,7 @@ and:
 outputs\legal_action_scorer_001\legal_action_scorer_best.pt
 ```
 
-`legal_action_scorer_003` is the best search-facing checkpoint so far, but direct neural head-to-head is still mixed. Keep `001` and `002` as active baselines rather than discarding them.
+`legal_action_scorer_001` and `legal_action_scorer_003` are the best current neural baselines. `legal_action_scorer_004` should not be promoted because it regressed versus search on the standardized 100-game block. Keep `001`, `002`, and `003` as active baselines rather than discarding them.
 
 The old flat-policy champion baseline remains:
 
@@ -462,7 +636,8 @@ outputs\policy_improve_margin500_002\supervised_policy_value.pt
    - First direct 100-game result, seed block 9000: scorer 64, old flat champion 32, draws 4.
    - Second direct 100-game result, seed block 10000: scorer 63, old flat champion 37, draws 0.
    - First scorer self-play/search-relabel iteration produced `legal_action_scorer_002`, which improved vs search but remains roughly tied with `legal_action_scorer_001` directly.
-   - Second scorer self-play/search-relabel iteration produced `legal_action_scorer_003`, which improved the 20-game search benchmark to 10-10 but did not clearly dominate `001`/`002` directly.
+   - Second scorer self-play/search-relabel iteration produced `legal_action_scorer_003`, which improved the first 20-game search benchmark to 10-10 but fell to 3-17 on the confirmation block; on the standardized 100-game search block it was effectively tied with `001`.
+   - First mixed league/search-relabel iteration produced `legal_action_scorer_004`, which did not improve over the `001`/`003` baseline set and regressed against search.
 
 3. Do not promote the mixed-data experiments.
    - Adding `greedy:random` data diluted the stronger search policy target and regressed benchmark strength.
@@ -495,31 +670,47 @@ Strategic next phase after the immediate gated experiment:
    - `legal_action_scorer_003` is useful as the search-improved candidate, but direct neural strength versus `legal_action_scorer_001`/`002` is mixed.
    - The next scorer candidate should be judged against both `policy_improve_margin500_002` and `--opponents search`.
    - The first scorer self-play/search-relabel recipe worked directionally but was small: `002` went 54-45-1 then 49-51-0 vs `001`, while improving vs search to 6-14 from 4-16.
-   - The second scorer self-play/search-relabel recipe improved search much more strongly: `003` reached 10-10 vs search, but direct neural results were 46-54 then 60-40 vs `002`, and 47-53 vs `001`.
-   - Next useful recipe should not only add more `002` self-play. Use a richer opponent mix, likely including `001`, `002`, `003`, old flat champion, and possibly search-vs-scorer positions, then train `legal_action_scorer_004`.
-   - Promotion should require a clearer head-to-head result against the neural pool plus at least holding the improved search result.
+   - The second scorer self-play/search-relabel recipe improved search on one block but was unstable: `003` reached 10-10 then 3-17 vs search, and on the 100-game search block scored 29-71 vs `001` at 30-70. Direct neural results were 46-54 then 60-40 vs `002`, and 47-53 vs `001`.
+   - The first mixed league recipe `004` did not work: it scored 21-79 vs search on the standardized 100-game block.
+   - Promotion should require a clearer head-to-head result against the neural pool plus at least matching `001`/`003` on the standardized search block.
 
-7. Move the main learning signal from greedy/search imitation to self-play and league evaluation.
+7. Search distillation with the current recipe should not be the next main path.
+   - `005` showed that a 502-row scored slice is not enough.
+   - `006` showed that even the full depth-2 scored corpus, trained with `--search-distill-loss-weight 0.1`, does not clearly beat `001`/`003`.
+   - `007` with lower distillation weight `0.03` got worse versus search.
+   - `008` top-1-only on the same full corpus matched `006` but still failed the promotion bar.
+   - `009`/`010` tested explicit example weighting, with changed rows weighted 2.0 and unchanged anchors 0.5; this also failed.
+   - Keep the full scored corpus because it is reusable for ablations.
+   - Do not spend the next main effort on more single-corpus supervised tuning from this data.
+   - Do not use `004`, `005`, `006`, `007`, `008`, `009`, or `010` as parents unless a later benchmark promotes them. The stable parents remain `001` and maybe `003`.
+
+8. Value learning is implemented but not yet a stronger search evaluator.
+   - `value_model_002` is the best current value checkpoint, but it did not improve search in the 100-game probe.
+   - Value training now supports game/source-level heldout validation. Prefer `--validation-split-unit game` for value experiments because random row validation leaks positions from the same games.
+   - `value_model_003` confirmed the leak concern but did not beat `value_model_002` on external corpora.
+   - The next value-model work should focus on target quality and game-outcome/value usage in the league loop, not simply plugging this value into search again.
+
+8. Move the main learning signal from greedy/search imitation to self-play and league evaluation.
    - Train against a pool of historical checkpoints, the current champion, tuned search bots, and baseline bots.
    - Keep greedy/random as regression tests, not as the main strength target.
    - Compare candidates by benchmark win rate, fallback-trigger count, game length/tempo, and performance against previous neural champions.
 
-8. Use search selectively rather than copying AlphaGo-style MCTS wholesale.
+9. Use search selectively rather than copying AlphaGo-style MCTS wholesale.
    - Shallow/medium search remains useful for relabeling, benchmark opponents, and possibly inference under the 1-second move budget.
    - Be careful with hidden deck/refill information and off-policy value labels when search changes replay actions.
    - The long-term fix for loops should be learned policy quality and stronger self-play targets, not reliance on the inference fallback.
 
 Operational notes:
 
-9. Use the sharded replay pattern if continuing data scaling:
+10. Use the sharded replay pattern if continuing data scaling:
 
 ```powershell
 .venv\Scripts\python.exe run_replay_corpus.py --output-dir data\corpus_search_greedy_004a --games 125 --seed-start 8000 --seat0-bot search --seat1-bot greedy --swap-seats --max-turns 400 --repetition-limit 4 --no-progress-limit 60 --search-depth 2 --search-max-branching 8 --search-buy-branching 5 --search-reserve-branching 2 --search-take-branching 2 --log-every 10
 ```
 
-10. Train with repeated replay paths rather than merging corpora by hand.
+11. Train with repeated replay paths rather than merging corpora by hand.
 
-11. Benchmark the resulting checkpoint with fallback metrics enabled, and choose champions by 100+ game benchmark performance rather than validation loss alone.
+12. Benchmark the resulting checkpoint with fallback metrics enabled, and choose champions by 100+ game benchmark performance rather than validation loss alone.
 
 Checkpoint replay command that was validated:
 
