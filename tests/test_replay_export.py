@@ -1,7 +1,7 @@
 import json
 
 from splendor_ai.bots import GreedyHeuristicBot, RandomLegalBot
-from splendor_ai.encoding import ActionCodec
+from splendor_ai.encoding import OBSERVATION_SIZE, ActionCodec
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.training import (
     collect_game_replay,
@@ -37,7 +37,7 @@ def test_collect_game_replay_records_legal_training_examples() -> None:
     assert replay.loop_fallback_triggers_by_seat == (0, 0)
     assert replay.bot_metadata[0]["bot_class"] == "GreedyHeuristicBot"
     for step in replay.steps:
-        assert len(step.observation_vector) == 256
+        assert len(step.observation_vector) == OBSERVATION_SIZE
         assert step.action_index in step.legal_action_indices
         assert step.action_payload["action_type"]
         assert step.final_value in (-1.0, 0.0, 1.0)
@@ -68,7 +68,7 @@ def test_export_replay_games_jsonl_writes_one_line_per_step(tmp_path) -> None:
     assert first_payload["game_model_loop_fallback_triggers"] == 0
     assert first_payload["game_timed_out"] is False
     assert first_payload["game_termination_reason"] == "completed"
-    assert len(first_payload["observation_vector"]) == 256
+    assert len(first_payload["observation_vector"]) == OBSERVATION_SIZE
     assert first_payload["action_index"] in first_payload["legal_action_indices"]
     assert "action_payload" in first_payload
     assert "state_snapshot" not in first_payload

@@ -181,3 +181,119 @@ def write_replay_corpus(
         summary_payload["metadata"] = metadata
     summary_path.write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
     return replay_path, summary_path
+
+
+def build_replay_corpus_manifest(
+    games: tuple[ReplayGame, ...],
+    summary: CorpusSummary,
+    metadata: dict[str, object] | None = None,
+    source_type: str = "generated_replay",
+    replay_filename: str = "replays.jsonl",
+    summary_filename: str = "summary.json",
+) -> dict[str, object]:
+    """Build a compact manifest for league/training corpus selection."""
+
+    seed_values = [game.seed for game in games]
+    matchups: dict[tuple[str, str], dict[str, object]] = {}
+    for game in games:
+        seat0_label = _actor_manifest_label(game, 0)
+        seat1_label = _actor_manifest_label(game, 1)
+        matchup_key = (seat0_label, seat1_label)
+        if matchup_key not in matchups:
+            matchups[matchup_key] = {
+                "seat0": _actor_manifest_payload(game, 0),
+                "seat1": _actor_manifest_payload(game, 1),
+                "games": 0,
+                "seat0_wins": 0,
+                "seat1_wins": 0,
+                "draws": 0,
+                "stalled_games": 0,
+                "timed_out_games": 0,
+                "loop_fallback_triggers": 0,
+                "seed_start": game.seed,
+                "seed_end_inclusive": game.seed,
+            }
+        matchup = matchups[matchup_key]
+        matchup["games"] = int(matchup["games"]) + 1
+        matchup["seat0_wins"] = int(matchup["seat0_wins"]) + (1 if game.winner == 0 else 0)
+        matchup["seat1_wins"] = int(matchup["seat1_wins"]) + (1 if game.winner == 1 else 0)
+        matchup["draws"] = int(matchup["draws"]) + (1 if game.winner is None else 0)
+        matchup["stalled_games"] = int(matchup["stalled_games"]) + (1 if game.stalled else 0)
+        matchup["timed_out_games"] = int(matchup["timed_out_games"]) + (1 if game.timed_out else 0)
+        matchup["loop_fallback_triggers"] = int(matchup["loop_fallback_triggers"]) + sum(
+            game.loop_fallback_triggers_by_seat
+        )
+        matchup["seed_start"] = min(int(matchup["seed_start"]), game.seed)
+        matchup["seed_end_inclusive"] = max(int(matchup["seed_end_inclusive"]), game.seed)
+
+    return {
+        "manifest_version": 1,
+        "source_type": source_type,
+        "files": {
+            "replays": replay_filename,
+            "summary": summary_filename,
+        },
+        "seed_block": {
+            "seed_start": min(seed_values) if seed_values else None,
+            "seed_end_inclusive": max(seed_values) if seed_values else None,
+            "games": len(seed_values),
+        },
+        "results": {
+            "games": summary.games,
+            "total_steps": summary.total_steps,
+            "seat0_wins": summary.seat0_wins,
+            "seat1_wins": summary.seat1_wins,
+            "draws": summary.draws,
+            "stalled_games": summary.stalled_games,
+            "timed_out_games": summary.timed_out_games,
+            "loop_fallback_triggers": summary.loop_fallback_triggers,
+            "loop_fallback_games": summary.loop_fallback_games,
+            "average_turns": summary.average_turns,
+            "average_final_score_seat0": summary.average_final_score_seat0,
+            "average_final_score_seat1": summary.average_final_score_seat1,
+        },
+        "matchups": list(matchups.values()),
+        "metadata": metadata or {},
+    }
+
+
+def write_replay_corpus_manifest(
+    output_dir: str | Path,
+    games: tuple[ReplayGame, ...],
+    summary: CorpusSummary,
+    metadata: dict[str, object] | None = None,
+    source_type: str = "generated_replay",
+) -> Path:
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_path / "manifest.json"
+    manifest = build_replay_corpus_manifest(
+        games=games,
+        summary=summary,
+        metadata=metadata,
+        source_type=source_type,
+    )
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    return manifest_path
+
+
+def _actor_manifest_label(game: ReplayGame, seat: int) -> str:
+    metadata = game.bot_metadata[seat] if seat < len(game.bot_metadata) else {}
+    checkpoint_path = metadata.get("checkpoint_path")
+    model_kind = metadata.get("model_kind")
+    bot_class = str(metadata.get("bot_class", game.bot_seats[seat]))
+    if checkpoint_path is not None and model_kind is not None:
+        return f"{bot_class}:{model_kind}:{checkpoint_path}"
+    if checkpoint_path is not None:
+        return f"{bot_class}:{checkpoint_path}"
+    return bot_class
+
+
+def _actor_manifest_payload(game: ReplayGame, seat: int) -> dict[str, object]:
+    metadata = dict(game.bot_metadata[seat]) if seat < len(game.bot_metadata) else {}
+    return {
+        "seat": seat,
+        "bot_class": game.bot_seats[seat],
+        "label": _actor_manifest_label(game, seat),
+        "metadata": metadata,
+    }

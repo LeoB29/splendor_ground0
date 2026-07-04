@@ -22,7 +22,7 @@ def test_action_features_have_stable_length_and_sections() -> None:
     features = encode_action_features(state, action)
 
     assert len(features.vector) == ACTION_FEATURE_SIZE
-    assert ACTION_FEATURE_SIZE == 64
+    assert ACTION_FEATURE_SIZE == 79
     assert features.sections == {
         "action_type": (0, 6),
         "location": (6, 16),
@@ -30,6 +30,7 @@ def test_action_features_have_stable_length_and_sections() -> None:
         "chosen_noble": (29, 36),
         "token_flow": (36, 60),
         "derived": (60, 64),
+        "opponent_context": (64, 79),
     }
 
 

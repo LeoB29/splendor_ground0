@@ -11,11 +11,12 @@ from splendor_ai.bots import (
     GreedyHeuristicBot,
     LegalActionScorerBot,
     LoopFallbackConfig,
+    PolicyGuidedSearchBot,
     RandomLegalBot,
     ShallowSearchBot,
 )
 
-from .corpus import generate_replay_corpus, write_replay_corpus
+from .corpus import generate_replay_corpus, write_replay_corpus, write_replay_corpus_manifest
 
 
 def _build_bot_factory(
@@ -58,6 +59,18 @@ def _build_bot_factory(
                         checkpoint_path,
                         device=args.checkpoint_device,
                     )
+                elif checkpoint_model_kind == "policy_guided_search":
+                    cached_bot = PolicyGuidedSearchBot(
+                        checkpoint_path,
+                        device=args.checkpoint_device,
+                        policy_prior_weight=args.policy_prior_weight,
+                        depth=args.search_depth,
+                        max_branching=args.search_max_branching,
+                        max_buy_actions=args.search_buy_branching,
+                        max_reserve_actions=args.search_reserve_branching,
+                        max_take_actions=args.search_take_branching,
+                        seed=seed,
+                    )
                 else:
                     raise ValueError(f"Unsupported checkpoint model kind: {checkpoint_model_kind}")
             return cached_bot
@@ -69,6 +82,11 @@ def _build_bot_factory(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate replay JSONL corpora for supervised warm-start training.")
     parser.add_argument("--output-dir", required=True, help="Directory where replay files should be written.")
+    parser.add_argument(
+        "--source-type",
+        default="generated_replay",
+        help="Structured corpus source label written to manifest.json, e.g. league, self_play, search_vs_greedy.",
+    )
     parser.add_argument("--games", type=int, default=100, help="Number of games to generate.")
     parser.add_argument("--seed-start", type=int, default=0, help="Starting seed for generated games.")
     parser.add_argument("--max-turns", type=int, default=400, help="Per-game turn cap.")
@@ -135,19 +153,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--checkpoint-model-kind",
-        choices=("flat_policy", "legal_action_scorer"),
+        choices=("flat_policy", "legal_action_scorer", "policy_guided_search"),
         default="flat_policy",
         help="Architecture loaded for BOT name 'checkpoint'.",
     )
     parser.add_argument(
         "--seat0-checkpoint-model-kind",
-        choices=("flat_policy", "legal_action_scorer"),
+        choices=("flat_policy", "legal_action_scorer", "policy_guided_search"),
         default=None,
         help="Optional architecture override when seat 0 uses BOT name 'checkpoint'.",
     )
     parser.add_argument(
         "--seat1-checkpoint-model-kind",
-        choices=("flat_policy", "legal_action_scorer"),
+        choices=("flat_policy", "legal_action_scorer", "policy_guided_search"),
         default=None,
         help="Optional architecture override when seat 1 uses BOT name 'checkpoint'.",
     )
@@ -173,6 +191,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=8.0,
         help="Maximum legal-top-minus-buy logit gap allowed for checkpoint fallback buy selection.",
+    )
+    parser.add_argument(
+        "--policy-prior-weight",
+        type=float,
+        default=2_000.0,
+        help="Heuristic-scale rank-prior weight for checkpoint policy-guided search bots.",
     )
     parser.add_argument(
         "--pairing",
@@ -231,6 +255,7 @@ def main() -> None:
             f" seat1_kind={args.seat1_checkpoint_model_kind}"
             f" device={args.checkpoint_device}"
             f" loop_fallback_enabled={not args.disable_checkpoint_loop_fallback}"
+            f" policy_prior_weight={args.policy_prior_weight}"
         )
 
     stalled_games = 0
@@ -268,16 +293,25 @@ def main() -> None:
         include_state_snapshots=args.include_state_snapshots,
     )
     print("[corpus] generation complete, writing replay files...")
+    metadata = _summary_metadata(args, pairing_labels)
     replay_path, summary_path = write_replay_corpus(
         output_dir=args.output_dir,
         games=games,
         summary=summary,
-        metadata=_summary_metadata(args, pairing_labels),
+        metadata=metadata,
+    )
+    manifest_path = write_replay_corpus_manifest(
+        output_dir=args.output_dir,
+        games=games,
+        summary=summary,
+        metadata=metadata,
+        source_type=args.source_type,
     )
     stalled_trace_path = replay_path.parent / "stalled_traces.jsonl"
     timed_out_trace_path = replay_path.parent / "timed_out_traces.jsonl"
     print(f"wrote replay corpus: {replay_path}")
     print(f"wrote summary: {summary_path}")
+    print(f"wrote manifest: {manifest_path}")
     if stalled_trace_path.exists():
         print(f"wrote stalled traces: {stalled_trace_path}")
     if timed_out_trace_path.exists():
@@ -359,6 +393,7 @@ def _checkpoint_loop_fallback_config(args: argparse.Namespace) -> LoopFallbackCo
 def _summary_metadata(args: argparse.Namespace, pairing_labels: list[str]) -> dict[str, object]:
     metadata: dict[str, object] = {
         "pairings": pairing_labels,
+        "source_type": args.source_type,
         "swap_seats": args.swap_seats,
         "include_state_snapshots": args.include_state_snapshots,
         "seed_start": args.seed_start,
@@ -386,6 +421,7 @@ def _summary_metadata(args: argparse.Namespace, pairing_labels: list[str]) -> di
                 "model_kind": args.seat1_checkpoint_model_kind or args.checkpoint_model_kind,
             },
             "device": args.checkpoint_device,
+            "policy_prior_weight": args.policy_prior_weight,
             "loop_fallback": {
                 "enabled": not args.disable_checkpoint_loop_fallback,
                 "min_state_visits": args.checkpoint_loop_fallback_min_state_visits,

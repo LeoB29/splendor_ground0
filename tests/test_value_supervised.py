@@ -5,6 +5,7 @@ import sys
 import torch
 
 from splendor_ai.bots import RandomLegalBot
+from splendor_ai.encoding import OBSERVATION_SIZE
 from splendor_ai.training import (
     SupervisedTrainConfig,
     ValueMLP,
@@ -57,7 +58,7 @@ def test_value_replay_dataset_uses_current_player_score_margin(tmp_path) -> None
     scores = first_row["game_final_scores"]
     expected_margin = float(scores[player_id]) - float(scores[1 - player_id])
 
-    assert sample.observation.shape == (256,)
+    assert sample.observation.shape == (OBSERVATION_SIZE,)
     assert sample.score_margin_target == expected_margin
     assert sample.value_target == max(min(expected_margin / 15.0, 1.0), -1.0)
     assert sample.outcome_target in (-1.0, 0.0, 1.0)
@@ -65,7 +66,7 @@ def test_value_replay_dataset_uses_current_player_score_margin(tmp_path) -> None
 
 def test_value_model_and_loss_return_finite_values() -> None:
     model = ValueMLP(ValueModelConfig(hidden_size=16, depth=1))
-    observation = torch.zeros((3, 256), dtype=torch.float32)
+    observation = torch.zeros((3, OBSERVATION_SIZE), dtype=torch.float32)
     target = torch.tensor([1.0, 0.0, -1.0], dtype=torch.float32)
 
     prediction = model(observation)

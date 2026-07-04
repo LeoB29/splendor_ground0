@@ -1,9 +1,12 @@
 from dataclasses import asdict
+import json
+import subprocess
+import sys
 
 import pytest
 import torch
 
-from splendor_ai.bots import CheckpointPolicyBot, LegalActionScorerBot
+from splendor_ai.bots import CheckpointPolicyBot, LegalActionScorerBot, PolicyGuidedSearchBot
 from splendor_ai.training.model import (
     LegalActionScorerConfig,
     LegalActionScorerModel,
@@ -110,6 +113,39 @@ def test_checkpoint_bot_factory_loads_cached_legal_action_scorer_bot(tmp_path) -
     assert first_bot.checkpoint_path == checkpoint_path
 
 
+def test_checkpoint_bot_factory_loads_cached_policy_guided_search_bot(tmp_path) -> None:
+    checkpoint_path = _write_legal_action_scorer_checkpoint(tmp_path)
+    args = build_parser().parse_args(
+        [
+            "--output-dir",
+            str(tmp_path / "corpus"),
+            "--seat0-bot",
+            "checkpoint",
+            "--checkpoint-path",
+            str(checkpoint_path),
+            "--checkpoint-model-kind",
+            "policy_guided_search",
+            "--checkpoint-device",
+            "cpu",
+            "--search-depth",
+            "1",
+            "--search-max-branching",
+            "5",
+            "--policy-prior-weight",
+            "1500",
+        ]
+    )
+
+    factory = _build_bot_factory("checkpoint", seed=0, args=args)
+    first_bot = factory()
+    second_bot = factory()
+
+    assert isinstance(first_bot, PolicyGuidedSearchBot)
+    assert first_bot is second_bot
+    assert first_bot.checkpoint_path == checkpoint_path
+    assert first_bot.policy_prior_weight == 1500
+
+
 def test_checkpoint_bot_factory_uses_seat_specific_checkpoint_settings(tmp_path) -> None:
     flat_checkpoint_path = _write_checkpoint(tmp_path)
     scorer_checkpoint_path = _write_legal_action_scorer_checkpoint(tmp_path)
@@ -166,6 +202,8 @@ def test_summary_metadata_records_checkpoint_configuration(tmp_path) -> None:
             str(checkpoint_path),
             "--checkpoint-device",
             "cpu",
+            "--source-type",
+            "league",
             "--disable-checkpoint-loop-fallback",
         ]
     )
@@ -173,6 +211,7 @@ def test_summary_metadata_records_checkpoint_configuration(tmp_path) -> None:
     metadata = _summary_metadata(args, ["checkpoint:greedy"])
 
     assert metadata["pairings"] == ["checkpoint:greedy"]
+    assert metadata["source_type"] == "league"
     assert metadata["checkpoint"]["path"] == str(checkpoint_path)
     assert metadata["checkpoint"]["model_kind"] == "flat_policy"
     assert metadata["checkpoint"]["seat0"] == {
@@ -184,6 +223,7 @@ def test_summary_metadata_records_checkpoint_configuration(tmp_path) -> None:
         "model_kind": "flat_policy",
     }
     assert metadata["checkpoint"]["device"] == "cpu"
+    assert metadata["checkpoint"]["policy_prior_weight"] == 2000.0
     assert metadata["checkpoint"]["loop_fallback"]["enabled"] is False
 
 
@@ -217,3 +257,43 @@ def test_summary_metadata_records_seat_specific_checkpoint_configuration(tmp_pat
         "path": str(scorer_checkpoint_path),
         "model_kind": "legal_action_scorer",
     }
+
+
+def test_run_replay_corpus_cli_writes_manifest(tmp_path) -> None:
+    output_dir = tmp_path / "corpus"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "run_replay_corpus.py",
+            "--output-dir",
+            str(output_dir),
+            "--games",
+            "1",
+            "--seed-start",
+            "50",
+            "--max-turns",
+            "30",
+            "--seat0-bot",
+            "random",
+            "--seat1-bot",
+            "random",
+            "--source-type",
+            "league_smoke",
+            "--log-every",
+            "0",
+        ],
+        cwd=".",
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    assert "wrote manifest" in result.stdout
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["source_type"] == "league_smoke"
+    assert manifest["seed_block"] == {
+        "seed_start": 50,
+        "seed_end_inclusive": 50,
+        "games": 1,
+    }
+    assert manifest["metadata"]["pairings"] == ["random:random"]

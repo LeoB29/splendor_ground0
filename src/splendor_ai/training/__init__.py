@@ -13,7 +13,14 @@ from .dataset import (
     collate_value_replay_samples,
     summarize_replay_dataset_sources,
 )
-from .corpus import CorpusSummary, generate_replay_corpus, summarize_replay_games, write_replay_corpus
+from .corpus import (
+    CorpusSummary,
+    build_replay_corpus_manifest,
+    generate_replay_corpus,
+    summarize_replay_games,
+    write_replay_corpus,
+    write_replay_corpus_manifest,
+)
 from .device import TrainingBackend, resolve_training_backend
 from .model import (
     LegalActionScorerConfig,
@@ -33,6 +40,7 @@ from .legal_action_supervised import (
     evaluate_legal_action_scorer_epoch,
     fit_legal_action_scorer,
     fit_legal_action_scorer_dataloaders_with_artifacts,
+    split_legal_action_replay_dataset,
     train_legal_action_scorer_epoch,
 )
 from .value_supervised import (
@@ -108,6 +116,7 @@ __all__ = [
     "compute_search_score_distillation_loss",
     "compute_supervised_losses",
     "compute_value_loss",
+    "build_replay_corpus_manifest",
     "collect_game_replay",
     "create_legal_action_replay_dataloader",
     "create_replay_dataloader",
@@ -133,6 +142,7 @@ __all__ = [
     "serialize_action",
     "serialize_state_snapshot",
     "split_replay_dataset",
+    "split_legal_action_replay_dataset",
     "split_value_replay_dataset",
     "summarize_replay_games",
     "train_legal_action_scorer_epoch",
@@ -140,4 +150,5 @@ __all__ = [
     "train_value_epoch",
     "summarize_replay_dataset_sources",
     "write_replay_corpus",
+    "write_replay_corpus_manifest",
 ]

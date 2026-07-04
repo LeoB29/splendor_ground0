@@ -7,12 +7,12 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from splendor_ai.encoding import ACTION_FEATURE_SIZE, ActionCodec
+from splendor_ai.encoding import ACTION_FEATURE_SIZE, OBSERVATION_SIZE, ActionCodec
 
 
 @dataclass(frozen=True, slots=True)
 class PolicyValueModelConfig:
-    observation_size: int = 256
+    observation_size: int = OBSERVATION_SIZE
     action_space_size: int = ActionCodec().action_space_size
     trunk_hidden_size: int = 256
     trunk_depth: int = 3
@@ -21,7 +21,7 @@ class PolicyValueModelConfig:
 
 @dataclass(frozen=True, slots=True)
 class LegalActionScorerConfig:
-    observation_size: int = 256
+    observation_size: int = OBSERVATION_SIZE
     action_feature_size: int = ACTION_FEATURE_SIZE
     state_hidden_size: int = 256
     action_hidden_size: int = 128
@@ -33,7 +33,7 @@ class LegalActionScorerConfig:
 
 @dataclass(frozen=True, slots=True)
 class ValueModelConfig:
-    observation_size: int = 256
+    observation_size: int = OBSERVATION_SIZE
     hidden_size: int = 256
     depth: int = 3
     dropout: float = 0.0

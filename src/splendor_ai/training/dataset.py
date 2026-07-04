@@ -12,7 +12,12 @@ from pathlib import Path
 import torch
 from torch.utils.data import Dataset, Subset
 
-from splendor_ai.encoding import ActionCodec, encode_legal_action_features
+from splendor_ai.encoding import (
+    ActionCodec,
+    encode_legal_action_features,
+    encode_public_observation_tensor,
+    fit_feature_vector,
+)
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.training.replay import deserialize_state_snapshot
 
@@ -170,19 +175,46 @@ class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
         include_timed_out_games: bool = True,
         max_model_loop_fallback_triggers: int | None = None,
         codec: ActionCodec | None = None,
+        policy_target_filter: str = "all",
+        winner_action_weight: float = 1.0,
+        loser_action_weight: float = 1.0,
+        draw_action_weight: float = 1.0,
+        observation_size: int | None = None,
+        action_feature_size: int | None = None,
     ) -> None:
+        if policy_target_filter not in {"all", "winner"}:
+            raise ValueError("policy_target_filter must be 'all' or 'winner'.")
+        for name, weight in (
+            ("winner_action_weight", winner_action_weight),
+            ("loser_action_weight", loser_action_weight),
+            ("draw_action_weight", draw_action_weight),
+        ):
+            if not math.isfinite(weight) or weight <= 0.0:
+                raise ValueError(f"{name} must be a positive finite value.")
         self._paths = _normalize_paths(path)
         self._include_stalled_games = include_stalled_games
         self._include_timed_out_games = include_timed_out_games
         self._max_model_loop_fallback_triggers = max_model_loop_fallback_triggers
         self._codec = codec or ActionCodec()
         self._env = SplendorEnv()
+        self._policy_target_filter = policy_target_filter
+        self._winner_action_weight = winner_action_weight
+        self._loser_action_weight = loser_action_weight
+        self._draw_action_weight = draw_action_weight
+        self._observation_size = observation_size
+        self._action_feature_size = action_feature_size
         self._samples = SupervisedReplayDataset._load_samples(
             self._paths,
             include_stalled_games=self._include_stalled_games,
             include_timed_out_games=self._include_timed_out_games,
             max_model_loop_fallback_triggers=self._max_model_loop_fallback_triggers,
         )
+        if self._policy_target_filter == "winner":
+            self._samples = [
+                payload
+                for payload in self._samples
+                if float(payload.get("final_value", 0.0)) > 0.0
+            ]
 
     @property
     def paths(self) -> tuple[Path, ...]:
@@ -211,12 +243,24 @@ class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
                 f"{action_index}"
             ) from exc
 
+        player_id = int(payload.get("player_id", state.current_player))
+        observation = encode_public_observation_tensor(state, player_id)
+        observation_vector = fit_feature_vector(
+            observation.vector,
+            self._observation_size or len(observation.vector),
+        )
         action_feature_rows = [
-            torch.tensor(features.vector, dtype=torch.float32)
+            torch.tensor(
+                fit_feature_vector(
+                    features.vector,
+                    self._action_feature_size or len(features.vector),
+                ),
+                dtype=torch.float32,
+            )
             for features in encode_legal_action_features(
                 state=state,
                 legal_actions=legal_actions,
-                player_id=int(payload.get("player_id", state.current_player)),
+                player_id=player_id,
             )
         ]
         if not action_feature_rows:
@@ -235,12 +279,12 @@ class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
                 continue
             search_value_target[search_action_row] = search_value
             search_value_mask[search_action_row] = True
-        sample_weight = float(payload.get("training_weight", 1.0))
+        sample_weight = float(payload.get("training_weight", 1.0)) * self._outcome_sample_weight(payload)
         if not math.isfinite(sample_weight) or sample_weight <= 0.0:
             raise ValueError(f"Replay row has invalid training_weight: {sample_weight}")
 
         return LegalActionReplaySample(
-            observation=torch.tensor(payload["observation_vector"], dtype=torch.float32),
+            observation=torch.tensor(observation_vector, dtype=torch.float32),
             legal_action_features=torch.stack(action_feature_rows, dim=0),
             target_action_row=target_action_row,
             action_index=action_index,
@@ -253,6 +297,24 @@ class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
 
     def source_path_for_index(self, index: int) -> Path:
         return Path(str(self._samples[index]["_source_path"]))
+
+    def validation_group_key_for_index(self, index: int, split_unit: str) -> tuple[object, ...]:
+        payload = self._samples[index]
+        source_path = str(payload["_source_path"])
+        if split_unit == "source":
+            return (source_path,)
+        if split_unit == "game":
+            return (source_path, int(payload["game_seed"]))
+        raise ValueError("split_unit must be 'game' or 'source'.")
+
+    def _outcome_sample_weight(self, payload: dict[str, object]) -> float:
+        final_value = float(payload.get("final_value", 0.0))
+        if final_value > 0.0:
+            return self._winner_action_weight
+        if final_value < 0.0:
+            return self._loser_action_weight
+        return self._draw_action_weight
+
 
 class ValueReplayDataset(Dataset[ValueReplaySample]):
     """Loads replay rows for state-value prediction."""

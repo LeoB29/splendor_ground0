@@ -15,9 +15,10 @@ from .dataset import LegalActionReplayDataset
 from .legal_action_supervised import (
     create_legal_action_replay_dataloader,
     fit_legal_action_scorer_dataloaders_with_artifacts,
+    split_legal_action_replay_dataset,
 )
 from .model import LegalActionScorerConfig, LegalActionScorerModel
-from .supervised import BatchProgress, SupervisedTrainConfig, split_replay_dataset
+from .supervised import BatchProgress, SupervisedTrainConfig
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,6 +60,36 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-every-batches", type=int, default=100)
     parser.add_argument("--validation-fraction", type=float, default=0.1)
     parser.add_argument("--validation-seed", type=int, default=0)
+    parser.add_argument(
+        "--validation-split-unit",
+        choices=("row", "game", "source"),
+        default="game",
+        help="Validation split granularity. Use 'game' to avoid positions from the same game leaking across splits.",
+    )
+    parser.add_argument(
+        "--policy-target-filter",
+        choices=("all", "winner"),
+        default="all",
+        help="Which replay actions to imitate. 'winner' keeps only actions by the eventual game winner.",
+    )
+    parser.add_argument(
+        "--winner-action-weight",
+        type=float,
+        default=1.0,
+        help="Multiplicative sample weight for actions by the eventual winner.",
+    )
+    parser.add_argument(
+        "--loser-action-weight",
+        type=float,
+        default=1.0,
+        help="Multiplicative sample weight for actions by the eventual loser.",
+    )
+    parser.add_argument(
+        "--draw-action-weight",
+        type=float,
+        default=1.0,
+        help="Multiplicative sample weight for drawn-game actions.",
+    )
     parser.add_argument("--exclude-stalled-games", action="store_true")
     parser.add_argument("--exclude-timeout-games", action="store_true")
     parser.add_argument("--max-game-model-loop-fallback-triggers", type=int, default=None)
@@ -143,6 +174,11 @@ def _train_config_payload(args: argparse.Namespace) -> dict[str, object]:
         "max_model_loop_fallback_triggers": args.max_game_model_loop_fallback_triggers,
         "validation_fraction": args.validation_fraction,
         "validation_seed": args.validation_seed,
+        "validation_split_unit": args.validation_split_unit,
+        "policy_target_filter": args.policy_target_filter,
+        "winner_action_weight": args.winner_action_weight,
+        "loser_action_weight": args.loser_action_weight,
+        "draw_action_weight": args.draw_action_weight,
         "log_every_batches": args.log_every_batches,
     }
 
@@ -160,6 +196,8 @@ def main() -> None:
         f" epochs={args.epochs}"
         f" batch_size={args.batch_size}"
         f" search_distill_loss_weight={args.search_distill_loss_weight}"
+        f" policy_target_filter={args.policy_target_filter}"
+        f" validation_split_unit={args.validation_split_unit}"
     )
     model = _build_model(args)
     train_config = SupervisedTrainConfig(
@@ -182,11 +220,18 @@ def main() -> None:
         include_stalled_games=train_config.include_stalled_games,
         include_timed_out_games=train_config.include_timed_out_games,
         max_model_loop_fallback_triggers=train_config.max_model_loop_fallback_triggers,
+        policy_target_filter=args.policy_target_filter,
+        winner_action_weight=args.winner_action_weight,
+        loser_action_weight=args.loser_action_weight,
+        draw_action_weight=args.draw_action_weight,
+        observation_size=model.config.observation_size,
+        action_feature_size=model.config.action_feature_size,
     )
-    train_dataset, validation_dataset = split_replay_dataset(
+    train_dataset, validation_dataset = split_legal_action_replay_dataset(
         dataset,
         validation_fraction=train_config.validation_fraction,
         seed=train_config.validation_seed,
+        validation_split_unit=args.validation_split_unit,
     )
     print(
         f"[legal-train] dataset_samples={len(dataset)}"
@@ -247,6 +292,11 @@ def main() -> None:
             "validation_samples": len(validation_dataset) if validation_dataset is not None else 0,
             "validation_fraction": args.validation_fraction,
             "validation_seed": args.validation_seed,
+            "validation_split_unit": args.validation_split_unit,
+            "policy_target_filter": args.policy_target_filter,
+            "winner_action_weight": args.winner_action_weight,
+            "loser_action_weight": args.loser_action_weight,
+            "draw_action_weight": args.draw_action_weight,
             "excluded_stalled_games": args.exclude_stalled_games,
             "excluded_timeout_games": args.exclude_timeout_games,
             "max_game_model_loop_fallback_triggers": args.max_game_model_loop_fallback_triggers,

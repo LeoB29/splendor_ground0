@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 from torch import nn
 from torch.optim import AdamW
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 
 from .dataset import (
     LegalActionReplayDataset,
@@ -38,6 +38,67 @@ class FitLegalActionScorerArtifacts:
     best_model_state_dict: dict[str, torch.Tensor] | None = None
 
 
+def split_legal_action_replay_dataset(
+    dataset: LegalActionReplayDataset,
+    validation_fraction: float = 0.0,
+    seed: int = 0,
+    validation_split_unit: str = "row",
+) -> tuple[Dataset[LegalActionReplaySample], Dataset[LegalActionReplaySample] | None]:
+    """Split legal-action data by row, whole game, or whole source corpus."""
+
+    if validation_split_unit == "row":
+        return split_replay_dataset(
+            dataset,
+            validation_fraction=validation_fraction,
+            seed=seed,
+        )
+    if validation_split_unit not in {"game", "source"}:
+        raise ValueError("validation_split_unit must be 'row', 'game', or 'source'.")
+    if not 0.0 <= validation_fraction < 1.0:
+        raise ValueError("validation_fraction must be in the range [0.0, 1.0).")
+
+    dataset_size = len(dataset)
+    if dataset_size == 0:
+        raise ValueError("Cannot split an empty legal-action replay dataset.")
+    if validation_fraction == 0.0 or dataset_size == 1:
+        return dataset, None
+
+    group_to_indices: dict[tuple[object, ...], list[int]] = {}
+    for sample_index in range(dataset_size):
+        group_key = dataset.validation_group_key_for_index(sample_index, validation_split_unit)
+        group_to_indices.setdefault(group_key, []).append(sample_index)
+
+    group_keys = list(group_to_indices)
+    if len(group_keys) == 1:
+        return dataset, None
+
+    validation_group_count = int(len(group_keys) * validation_fraction)
+    if validation_group_count == 0:
+        validation_group_count = 1
+    if validation_group_count >= len(group_keys):
+        validation_group_count = len(group_keys) - 1
+
+    generator = torch.Generator().manual_seed(seed)
+    shuffled_group_indices = torch.randperm(len(group_keys), generator=generator).tolist()
+    validation_groups = {
+        group_keys[index]
+        for index in shuffled_group_indices[:validation_group_count]
+    }
+
+    train_indices: list[int] = []
+    validation_indices: list[int] = []
+    for group_key, sample_indices in group_to_indices.items():
+        if group_key in validation_groups:
+            validation_indices.extend(sample_indices)
+        else:
+            train_indices.extend(sample_indices)
+
+    if not train_indices or not validation_indices:
+        raise ValueError("Legal-action replay split must produce at least one train and one validation sample.")
+
+    return Subset(dataset, train_indices), Subset(dataset, validation_indices)
+
+
 def create_legal_action_replay_dataloader(
     path: str | Path | tuple[str | Path, ...] | list[str | Path] | Dataset[LegalActionReplaySample],
     batch_size: int,
@@ -45,6 +106,8 @@ def create_legal_action_replay_dataloader(
     include_stalled_games: bool = True,
     include_timed_out_games: bool = True,
     max_model_loop_fallback_triggers: int | None = None,
+    observation_size: int | None = None,
+    action_feature_size: int | None = None,
 ) -> DataLoader:
     if isinstance(path, Dataset):
         dataset = path
@@ -54,6 +117,8 @@ def create_legal_action_replay_dataloader(
             include_stalled_games=include_stalled_games,
             include_timed_out_games=include_timed_out_games,
             max_model_loop_fallback_triggers=max_model_loop_fallback_triggers,
+            observation_size=observation_size,
+            action_feature_size=action_feature_size,
         )
     return DataLoader(
         dataset,
@@ -370,6 +435,7 @@ def fit_legal_action_scorer(
     replay_path: str | Path | tuple[str | Path, ...] | list[str | Path],
     config: SupervisedTrainConfig | None = None,
     model: LegalActionScorerModel | None = None,
+    validation_split_unit: str = "row",
 ) -> tuple[LegalActionScorerModel, tuple[EpochMetrics, ...]]:
     cfg = config or SupervisedTrainConfig()
     model_instance = model or LegalActionScorerModel()
@@ -378,11 +444,14 @@ def fit_legal_action_scorer(
         include_stalled_games=cfg.include_stalled_games,
         include_timed_out_games=cfg.include_timed_out_games,
         max_model_loop_fallback_triggers=cfg.max_model_loop_fallback_triggers,
+        observation_size=model_instance.config.observation_size,
+        action_feature_size=model_instance.config.action_feature_size,
     )
-    train_dataset, validation_dataset = split_replay_dataset(
+    train_dataset, validation_dataset = split_legal_action_replay_dataset(
         dataset,
         validation_fraction=cfg.validation_fraction,
         seed=cfg.validation_seed,
+        validation_split_unit=validation_split_unit,
     )
     train_dataloader = create_legal_action_replay_dataloader(
         train_dataset,

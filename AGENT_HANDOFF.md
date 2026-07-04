@@ -38,7 +38,7 @@ Core engine:
 Model/training stack:
 
 - fixed flat action codec and legal-action masks
-- 256-float public observation tensor
+- 295-float public observation tensor
 - replay export to JSONL
 - supervised policy/value MLP
 - supervised training CLI with train/validation metrics, progress logs, final-vs-best-validation checkpoint benchmarking, and saved metrics JSON
@@ -81,8 +81,12 @@ Strategic assessment:
 Legal-action scorer pivot status:
 
 - Added `src/splendor_ai/encoding/action_features.py`.
-  - Encodes each candidate legal action into a 64-float structured feature vector.
+  - Encodes each candidate legal action into a 79-float structured feature vector.
   - Includes action type, board/reserved location, target card, chosen noble, token flow, and derived economics.
+  - Latest version also includes opponent-relative context features for score margin, threat state, reserve denial, token overflow, affordability shift, and opponent proximity to the target card.
+- Public observation tensors now include opponent reserved-card identities.
+  - This is legal public information in Splendor and matters for reserve denial / opponent-threat modeling.
+  - Old checkpoints remain loadable because inference and dataset loading truncate/pad encoded vectors to the checkpoint's saved config size.
 - Added `LegalActionReplayDataset`.
   - Requires snapshot-enabled replay rows.
   - Reconstructs the pre-action state, regenerates legal actions, encodes legal-action features, and maps the replay `action_index` to `target_action_row`.
@@ -119,6 +123,183 @@ Legal-action scorer pivot status:
     - `--seat1-checkpoint-model-kind`
   - Shared `--checkpoint-path` / `--checkpoint-model-kind` remain backward-compatible defaults.
   - Smoke corpus `data/corpus_league_smoke_001` verified `legal_action_scorer_003` vs `legal_action_scorer_002` with 2 completed games, 130 steps, 0 stalls/timeouts/fallback triggers.
+- Added structured replay corpus manifests for league/evaluation hygiene.
+  - `run_replay_corpus.py` now writes `manifest.json` next to `replays.jsonl` and `summary.json`.
+  - CLI flag: `--source-type`, default `generated_replay`; use labels like `league`, `self_play`, or `search_vs_greedy`.
+  - Manifest records source type, replay/summary filenames, seed block, aggregate results, matchup-level results, bot classes, checkpoint paths, checkpoint model kinds, and CLI provenance metadata.
+  - This is intended to make future league training filters explicit instead of relying on filenames and handoff notes.
+- Added manifest reporting utility:
+  - `run_manifest_report.py <corpus_dir_or_manifest> [...]`
+  - Prints source type, seed block, games, steps, seat W-L-D, stalls/timeouts, fallback triggers, and per-matchup rows.
+  - Use the per-matchup rows for actor-vs-actor interpretation when `--swap-seats` is enabled; the top-level W-L-D is seat-based.
+- Generated first structured league probe with manifests:
+  - All shards used `--source-type league`, `--include-state-snapshots`, `--swap-seats`, 8 games each, 40 games total.
+  - `data/corpus_league_manifest_001_001_vs_003`: 8 games, 518 steps, 0 stalls/timeouts/fallback triggers.
+    - `001` as seat0 vs `003`: 4-0-0.
+    - `003` as seat0 vs `001`: 2-2-0, so actor-level `001` result is 6-2 over this tiny block.
+  - `data/corpus_league_manifest_001_001_vs_flat`: 8 games, 484 steps, 0 stalls/timeouts/fallback triggers.
+    - Actor-level `001` result vs old flat champion: 6-2.
+  - `data/corpus_league_manifest_001_003_vs_flat`: 8 games, 476 steps, 0 stalls/timeouts/fallback triggers.
+    - Actor-level `003` result vs old flat champion: 5-3.
+  - `data/corpus_league_manifest_001_001_vs_search`: 8 games, 508 steps, 0 stalls/timeouts/fallback triggers.
+    - Actor-level `001` result vs shallow search: 3-5.
+  - `data/corpus_league_manifest_001_003_vs_search`: 8 games, 508 steps, 0 stalls/timeouts/fallback triggers.
+    - Actor-level `003` result vs shallow search: 1-7.
+  - These are data-quality probe shards, not promotion benchmarks. They are small but clean and suitable as structured league input for the next training-loop experiment.
+- Generated scaled structured league corpus block `corpus_league_manifest_002_*`:
+  - 5 shards x 50 games = 250 games total.
+  - All shards used `--source-type league`, `--include-state-snapshots`, `--swap-seats`, fresh seed blocks 42000-42449.
+  - All shards were clean: 0 stalls, 0 timeouts, 0 fallback triggers.
+  - `data/corpus_league_manifest_002_001_vs_003`: 50 games, 3,064 steps.
+    - Actor-level `001` vs `003`: 18-32-0. This block favors `003`.
+  - `data/corpus_league_manifest_002_001_vs_flat`: 50 games, 3,082 steps.
+    - Actor-level `001` vs old flat champion: 27-23-0.
+  - `data/corpus_league_manifest_002_003_vs_flat`: 50 games, 3,178 steps.
+    - Actor-level `003` vs old flat champion: 29-21-0.
+  - `data/corpus_league_manifest_002_001_vs_search`: 50 games, 3,142 steps.
+    - Actor-level `001` vs shallow search: 9-39-2.
+  - `data/corpus_league_manifest_002_003_vs_search`: 50 games, 3,128 steps.
+    - Actor-level `003` vs shallow search: 12-38-0.
+  - This is now a usable manifest-audited league data block for the next conservative training experiment. It still should not be treated as a promotion benchmark because each matchup has only 50 games.
+- First conservative manifest-league training candidate, `legal_action_scorer_011`:
+  - Added legal-action scorer training support for:
+    - `--policy-target-filter winner`, which trains only on actions by the eventual game winner.
+    - outcome sample weights: `--winner-action-weight`, `--loser-action-weight`, `--draw-action-weight`.
+    - `--validation-split-unit row|game|source`; use `game` by default for league training.
+  - Trained from `outputs/legal_action_scorer_003/legal_action_scorer_best.pt`.
+  - Training data: all five `corpus_league_manifest_002_*` replay files, winner-action rows only.
+  - Training setup: 7,735 total rows, 6,987 train / 748 game-heldout validation, 6 epochs, CPU, `--value-loss-weight 0.0`, learning rate `0.0001`.
+  - Output: `outputs/legal_action_scorer_011/`; best validation checkpoint was epoch 3.
+  - Final train: loss 0.6773, accuracy 0.7736. Final validation: loss 0.7938, accuracy 0.7714.
+  - Benchmarks:
+    - vs `legal_action_scorer_003`, 100 games seed block 43000: 52-48-0, average margin -0.13, 0 fallback triggers.
+    - vs `legal_action_scorer_001`, 100 games seed block 43100: 46-54-0, average margin -0.25, 0 fallback triggers.
+    - vs old flat champion `policy_improve_margin500_002`, 100 games seed block 43200: 69-31-0, average margin +2.75, candidate fallback triggers 0, baseline fallback triggers 1.
+    - standardized shallow-search block seed 20000: 24-76-0, average margin -4.46, 0 fallback triggers.
+  - Conclusion: reject `011`. Winner-only league imitation from this small league block did not improve the stable neural/search gates. It still beats the old flat model, but it is worse than `001`/`003` versus search and not clearly stronger head-to-head.
+- Added policy-vs-search disagreement analysis:
+  - CLI: `run_policy_search_disagreement.py`
+  - Supports `--model-kind legal_action_scorer` and `--model-kind flat_policy`.
+  - Reconstructs snapshot replay states, ranks the checkpoint's legal actions, ranks shallow-search actions, and writes:
+    - overall agreement rate
+    - agreement by model action type
+    - agreement by search action type
+    - agreement by early/mid/late phase
+    - model-action-type vs search-action-type matrix
+    - top high-search-margin disagreement examples
+  - Analysis outputs:
+    - `outputs/analysis/003_search_disagreement.json`
+    - `outputs/analysis/001_search_disagreement.json`
+  - Both used 1,000 rows from the corresponding `corpus_league_manifest_002_*_vs_search/replays.jsonl` shard and the standard depth-2 search settings.
+  - `legal_action_scorer_003` vs search:
+    - agreement rate: 0.506
+    - disagreements: 494 / 1,000
+    - model action missing from searched candidate set: 256 disagreements
+    - phase agreement: early 0.325, mid 0.588, late 0.600
+    - by model action type:
+      - `BUY_VISIBLE`: 520 rows, agreement 0.690
+      - `BUY_RESERVED`: 130 rows, agreement 0.785
+      - `TAKE_TOKENS`: 180 rows, agreement 0.078
+      - `RESERVE_DECK`: 102 rows, agreement 0.157
+      - `RESERVE_VISIBLE`: 68 rows, agreement 0.221
+  - `legal_action_scorer_001` vs search:
+    - agreement rate: 0.526
+    - disagreements: 474 / 1,000
+    - model action missing from searched candidate set: 252 disagreements
+    - phase agreement: early 0.330, mid 0.629, late 0.605
+    - by model action type:
+      - `BUY_VISIBLE`: 495 rows, agreement 0.711
+      - `BUY_RESERVED`: 145 rows, agreement 0.869
+      - `TAKE_TOKENS`: 167 rows, agreement 0.084
+      - `RESERVE_DECK`: 128 rows, agreement 0.164
+      - `RESERVE_VISIBLE`: 65 rows, agreement 0.200
+  - Main diagnosis:
+    - The neural scorer is reasonably aligned with search when it chooses buy actions.
+    - The large mismatch is early-game token-taking and reserve behavior. Agreement is only about one-third in early positions.
+    - Many token/reserve disagreements are missing from the pruned search candidate set, which means the model often likes actions that search's heuristic ordering does not even keep.
+    - The biggest high-margin examples are late-game tactical misses: buying the wrong visible card or missing a decisive reserve/buy.
+  - Implication: the next work should be targeted, not another broad imitation pass. Focus on action feature/label quality for token-taking, reserve decisions, and late-game tactical buy selection.
+- Added targeted search-correction corpus generation:
+  - CLI: `run_targeted_search_corpus.py`
+  - Compares a model's top legal action with shallow search on snapshot replay states.
+  - Writes only targeted disagreement rows, with the replay target replaced by the search action.
+  - Stores original action, model top action, search margin, full searched action scores, source replay path, and `target_source="targeted_search_disagreement"`.
+  - Intended targets are early token/reserve disagreements and late tactical buy/reserve misses, not broad imitation.
+- First targeted-corpus smoke results:
+  - Completed smoke command on 100 rows from `data/corpus_league_manifest_002_001_vs_search/replays.jsonl`.
+  - Output: `data/corpus_targeted_search_smoke_001/`.
+  - Summary: 100 rows analyzed, 54 model/search disagreements, 29 rows written.
+  - Written target types: `RESERVE_VISIBLE` 13, `TAKE_TOKENS` 11, `RESERVE_DECK` 4, `BUY_RESERVED` 1.
+  - Phase split: early 20, mid 8, late 1.
+  - A larger CPU attempt capped at 1,000 rows was interrupted after the command timeout; it left a usable partial file with 153 targeted rows at `data/corpus_targeted_search_001/targeted_search_disagreements.jsonl`, but no summary because the command did not finish.
+- Smoke fine-tune using the partial targeted file:
+  - Output: `outputs/legal_action_scorer_012_targeted_smoke/`.
+  - Parent: `outputs/legal_action_scorer_001/legal_action_scorer_best.pt`.
+  - Training data: the three original improved checkpoint/greedy corpora plus the 153-row partial targeted file.
+  - Total rows: 2,752; game-heldout validation; 2 epochs; CPU.
+  - Best checkpoint: epoch 2, validation accuracy 0.7387, validation loss 0.9203.
+  - Quick 20-game head-to-head vs `legal_action_scorer_001`, seed 52000: 9-11, 0 stalls/timeouts/fallback triggers.
+  - Quick 20-game benchmark vs shallow search, seed 52100: 4-16, 0 stalls/timeouts/fallback triggers.
+  - Conclusion: workflow is functional, but this is not a promotion candidate. The targeted file is too small and old-checkpoint fine-tuning cannot use the new 295/79 feature widths.
+- Full targeted-corpus fine-tune from `legal_action_scorer_001`, `legal_action_scorer_013_targeted_full_from001`:
+  - Full targeted corpus: `data/corpus_targeted_search_full_001/targeted_search_disagreements.jsonl`.
+  - Corpus summary: 6,270 rows analyzed, 3,058 disagreements, 1,842 targeted rows written, 0 missing snapshots.
+  - Written target types: `TAKE_TOKENS` 803, `RESERVE_VISIBLE` 720, `RESERVE_DECK` 184, `BUY_VISIBLE` 118, `BUY_RESERVED` 17.
+  - Phase split: early 939, mid 628, late 275.
+  - Training output: `outputs/legal_action_scorer_013_targeted_full_from001/`.
+  - Parent: `outputs/legal_action_scorer_001/legal_action_scorer_best.pt`; because of this, the model still uses the old 256/64 feature widths.
+  - Training data: three original improved checkpoint/greedy corpora plus the full targeted corpus.
+  - Total rows: 4,425; 4 epochs; game-heldout validation; best epoch 4; training time about 184 seconds on CPU.
+  - Validation accuracy is low, around 0.366 at best epoch, but this is expected because targeted rows intentionally contradict the old policy distribution.
+  - Benchmarks:
+    - vs `legal_action_scorer_001`, 100 games seed 53000: 50-50-0, 1 timed-out game.
+    - vs shallow search, 20 games seed 53100: 8-12-0, 0 stalls/timeouts/fallback triggers.
+    - `legal_action_scorer_001` on the same search seed block 53100: 3-17-0.
+    - vs `legal_action_scorer_003`, 100 games seed 53200: 55-45-0, 0 stalls/timeouts/fallback triggers.
+  - Current read: promising but not yet promoted. It improves the same-seed 20-game search probe versus `001`, ties `001` directly, and beats `003` directly, but needs a 100-game standardized search benchmark before being treated as a new champion.
+- Wide-feature from-scratch targeted model, `legal_action_scorer_014_wide_targeted_fromscratch`:
+  - Trained without `--init-checkpoint`, so this is the first candidate that actually uses the new 295-float observation and 79-float legal-action feature vectors.
+  - Training data: three original improved checkpoint/greedy corpora plus `data/corpus_targeted_search_full_001/targeted_search_disagreements.jsonl`.
+  - Output: `outputs/legal_action_scorer_014_wide_targeted_fromscratch/`.
+  - Total rows: 4,425; game-heldout validation; 8 epochs; CPU; best validation epoch 7.
+  - Best validation accuracy: 0.5208; final train accuracy: 0.5982; training time about 320 seconds.
+  - Quick neural benchmarks:
+    - vs `legal_action_scorer_001`, 100 games seed 54000: 57-43-0.
+    - vs `legal_action_scorer_003`, 100 games seed 54100: 60-40-0.
+  - Quick search probe seed 54200:
+    - `014` vs search, 20 games: 11-9-0.
+    - `001` same seed block: 7-13-0.
+    - `003` same seed block: 6-14-0.
+  - Standardized search gate seed 20000:
+    - `014`: 28-71-1, avg margin -2.79, avg model score 11.37, 0 timeouts.
+    - `013`: 29-70-1, avg margin -3.06.
+    - `001`: 30-70-0, avg margin -3.92.
+    - `003`: 29-71-0, avg margin -3.86.
+  - Current read: `014` is not a clean promotion because it did not improve standardized search win rate, but it is the best model so far by search score margin and clearly beats `001`/`003` head-to-head. It is a useful parent for the next branch, not a final champion.
+- Policy-guided search branch:
+  - Added `PolicyGuidedSearchBot`.
+  - It reuses the existing `ShallowSearchBot` minimax/leaf evaluation but adds a legal-action scorer prior to action ordering/pruning.
+  - The policy prior is rank-normalized per state, then blended into the heuristic ordering score with `--policy-prior-weight` / `policy_prior_weight`.
+  - Added `CheckpointLegalActionPriorScorer` for loading legal-action scorer checkpoints as search priors.
+  - Benchmark support:
+    - `run_benchmark.py --model-kind policy_guided_search`
+    - Uses the existing `--search-depth`, `--search-max-branching`, `--search-buy-branching`, `--search-reserve-branching`, `--search-take-branching` settings for the guided search.
+    - New flag: `--policy-prior-weight`, default `2000`.
+  - Replay-corpus support:
+    - `run_replay_corpus.py --checkpoint-model-kind policy_guided_search`
+    - Metadata records `model_kind="policy_guided_search"` and `policy_prior_weight`.
+  - Verification:
+    - Full suite passed after implementation: `python -m pytest -q --basetemp .codex_pytest_tmp_all` -> 143 passed.
+  - Initial smoke benchmarks with `014` as the prior:
+    - `outputs/benchmarks/policy_guided_search_014_vs_search_20g_seed55000.json`
+      - Policy-guided search `014` vs plain shallow search: 15-5-0, avg margin +3.25, 0 timeouts.
+    - `outputs/benchmarks/policy_guided_search_014_vs_greedy014_20g_seed55100.json`
+      - Policy-guided search `014` vs greedy `014`: 14-6-0, avg margin +1.40, 0 timeouts.
+  - 100-game confirmation:
+    - `outputs/benchmarks/policy_guided_search_014_vs_search_100g_seed56000.json`
+      - Policy-guided search `014` vs plain shallow search: 44-55-1, avg margin -0.58, avg model score 12.58 vs 13.16, 0 timeouts.
+      - Seat split was asymmetric: model as seat 0 went 26-24-0 with avg margin +0.58; model as seat 1 went 18-31-1 with avg margin -1.74.
+  - Current read: the 15-5 smoke was likely variance. Policy-guided search is close to plain shallow search but not a confirmed improvement at `policy_prior_weight=2000`; tune/ablate it before using it as the next teacher.
 - Smoke-trained the first real scorer on `data/corpus_checkpoint_greedy_snapshots_003/improved_search_policy_margin500_no_take.jsonl`.
   - Output: `outputs/legal_action_scorer_smoke_001/`
   - 800 samples, 720 train / 80 validation, 1 epoch, CPU.
@@ -606,6 +787,13 @@ Test-Path outputs\policy_improve_margin500_002\supervised_policy_value.pt
 
 Near-term:
 
+0. Current immediate recommendation after the targeted-corpus smoke:
+   - Do not promote `outputs/legal_action_scorer_012_targeted_smoke`.
+   - Do not promote `outputs/legal_action_scorer_013_targeted_full_from001` as a champion; it did not improve the standardized search gate.
+   - `outputs/legal_action_scorer_014_wide_targeted_fromscratch` is the most interesting current neural parent: it beats `001`/`003` directly and improves search score margin, but not search win rate as a greedy policy.
+   - `PolicyGuidedSearchBot` using `014` as the prior looked strong in a 20-game probe, but the 100-game confirmation went 44-55-1 vs plain shallow search with avg margin -0.58.
+   - Next do a small prior-weight ablation before using policy-guided search as a teacher/player: compare weights such as 0, 250, 500, 1000, and 2000 on the same seed block.
+
 1. Treat the current local neural champion set as unresolved between:
 
 ```powershell
@@ -700,6 +888,14 @@ Strategic next phase after the immediate gated experiment:
    - Be careful with hidden deck/refill information and off-policy value labels when search changes replay actions.
    - The long-term fix for loops should be learned policy quality and stronger self-play targets, not reliance on the inference fallback.
 
+Future directions worth keeping from the external expert feedback:
+
+- Expert iteration may become useful later: periodically review high-margin model/search disagreements and encode the missing Splendor concepts explicitly, especially token-taking plans, denial reserves, and race-to-15 tactical buys.
+- Consider policy-guided search ordering once the scorer is stronger. The current shallow search is a strong opponent/teacher, but a scorer-guided move ordering could make deeper or broader search fit the 1-second inference budget.
+- Revisit value learning only when target quality improves. Game-level validation is now available; the next useful value work is better outcome/tempo targets from league/self-play, not just plugging the current value model into search.
+- Keep league data structured by source, matchup, seed block, and checkpoint identity. This is important for avoiding leakage and for diagnosing whether a candidate is a general improvement or only an anti-teacher specialist.
+- Do not over-scale one supervised relabel recipe. If targeted corrections do not improve strength after a properly sized run, move toward league/self-play policy improvement or policy-guided search rather than more variants of the same corpus.
+
 Operational notes:
 
 10. Use the sharded replay pattern if continuing data scaling:
@@ -753,6 +949,7 @@ Action-improvement command template:
 
 Direct verification completed in this session:
 
+- `python -m pytest -q --basetemp .codex_pytest_tmp_all` passed: 141 passed after the observation/action feature update and targeted-corpus tooling.
 - `.venv\Scripts\python.exe -m pytest -q --basetemp .codex_pytest_tmp_all` passed: 85 passed
 - `.venv\Scripts\python.exe -m py_compile` over modified source files succeeded
 - Focused tests cover normal masked argmax behavior, fallback activation after loop evidence, and fallback logit-gap refusal.

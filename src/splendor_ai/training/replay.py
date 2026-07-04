@@ -305,10 +305,17 @@ def _model_loop_fallback_triggers(game: ReplayGame) -> int:
 
 
 def _bot_metadata(bot: Bot) -> dict[str, Any]:
-    metadata: dict[str, Any] = {"bot_class": type(bot).__name__}
+    bot_class = type(bot).__name__
+    metadata: dict[str, Any] = {"bot_class": bot_class}
     checkpoint_path = getattr(bot, "checkpoint_path", None)
     if checkpoint_path is not None:
         metadata["checkpoint_path"] = str(checkpoint_path)
+        if bot_class == "CheckpointPolicyBot":
+            metadata["model_kind"] = "flat_policy"
+        elif bot_class == "LegalActionScorerBot":
+            metadata["model_kind"] = "legal_action_scorer"
+        elif bot_class == "PolicyGuidedSearchBot":
+            metadata["model_kind"] = "policy_guided_search"
     fallback_config = getattr(bot, "loop_fallback_config", None)
     if fallback_config is not None:
         metadata["loop_fallback"] = asdict(fallback_config)

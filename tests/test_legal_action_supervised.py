@@ -18,6 +18,7 @@ from splendor_ai.training import (
     export_replay_games_jsonl,
     fit_legal_action_scorer,
     masked_legal_action_scores,
+    split_legal_action_replay_dataset,
 )
 
 
@@ -31,6 +32,22 @@ def _write_snapshot_replay(tmp_path, max_turns: int = 8):
     )
     replay_path = tmp_path / "snapshot_replay.jsonl"
     export_replay_games_jsonl(replay_path, [replay])
+    return replay_path
+
+
+def _write_snapshot_replays(tmp_path, max_turns: int = 8, count: int = 4):
+    replays = [
+        collect_game_replay(
+            bot_seat_0=RandomLegalBot(seed=10 + index),
+            bot_seat_1=RandomLegalBot(seed=20 + index),
+            seed=30 + index,
+            max_turns=max_turns,
+            include_state_snapshots=True,
+        )
+        for index in range(count)
+    ]
+    replay_path = tmp_path / "snapshot_replays.jsonl"
+    export_replay_games_jsonl(replay_path, replays)
     return replay_path
 
 
@@ -119,6 +136,83 @@ def test_legal_action_replay_dataset_reads_search_score_targets(tmp_path) -> Non
     assert batch["sample_weight"][0].item() == 2.5
 
 
+def test_legal_action_replay_dataset_can_filter_winner_actions(tmp_path) -> None:
+    replay_path = _write_snapshot_replays(tmp_path)
+    rows = [
+        json.loads(line)
+        for line in replay_path.read_text(encoding="utf-8").splitlines()
+    ]
+    winner_rows = sum(1 for row in rows if float(row["final_value"]) > 0.0)
+
+    dataset = LegalActionReplayDataset(
+        replay_path,
+        policy_target_filter="winner",
+    )
+
+    assert len(dataset) == winner_rows
+    assert len(dataset) > 0
+
+
+def test_legal_action_replay_dataset_applies_outcome_weights(tmp_path) -> None:
+    replay_path = _write_snapshot_replays(tmp_path)
+    rows = [
+        json.loads(line)
+        for line in replay_path.read_text(encoding="utf-8").splitlines()
+    ]
+    for row in rows:
+        row["training_weight"] = 2.0
+    weighted_path = tmp_path / "weighted_snapshot_replays.jsonl"
+    weighted_path.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+    dataset = LegalActionReplayDataset(
+        weighted_path,
+        winner_action_weight=3.0,
+        loser_action_weight=0.5,
+        draw_action_weight=1.0,
+    )
+
+    for row_index, row in enumerate(rows):
+        if float(row["final_value"]) > 0.0:
+            assert dataset[row_index].sample_weight == 6.0
+            break
+    else:
+        raise AssertionError("Expected at least one winner row.")
+
+    for row_index, row in enumerate(rows):
+        if float(row["final_value"]) < 0.0:
+            assert dataset[row_index].sample_weight == 1.0
+            break
+    else:
+        raise AssertionError("Expected at least one loser row.")
+
+
+def test_split_legal_action_replay_dataset_by_game_keeps_games_disjoint(tmp_path) -> None:
+    replay_path = _write_snapshot_replays(tmp_path, count=4)
+    dataset = LegalActionReplayDataset(replay_path)
+
+    train_dataset, validation_dataset = split_legal_action_replay_dataset(
+        dataset,
+        validation_fraction=0.5,
+        seed=0,
+        validation_split_unit="game",
+    )
+
+    assert validation_dataset is not None
+    train_keys = {
+        dataset.validation_group_key_for_index(int(index), "game")
+        for index in train_dataset.indices
+    }
+    validation_keys = {
+        dataset.validation_group_key_for_index(int(index), "game")
+        for index in validation_dataset.indices
+    }
+    assert train_keys
+    assert validation_keys
+    assert train_keys.isdisjoint(validation_keys)
+
+
 def test_fit_legal_action_scorer_runs_on_snapshot_replay(tmp_path) -> None:
     replay_path = _write_snapshot_replay(tmp_path)
     model = LegalActionScorerModel(
@@ -184,7 +278,7 @@ def test_legal_action_scorer_bot_loads_checkpoint_and_chooses_legal_action(tmp_p
 
 
 def test_run_legal_action_supervised_cli_writes_checkpoint_and_metrics(tmp_path) -> None:
-    replay_path = _write_snapshot_replay(tmp_path)
+    replay_path = _write_snapshot_replays(tmp_path)
     output_dir = tmp_path / "legal_output"
     result = subprocess.run(
         [
@@ -209,7 +303,13 @@ def test_run_legal_action_supervised_cli_writes_checkpoint_and_metrics(tmp_path)
             "--action-depth",
             "1",
             "--validation-fraction",
-            "0",
+            "0.5",
+            "--validation-split-unit",
+            "game",
+            "--policy-target-filter",
+            "winner",
+            "--winner-action-weight",
+            "2.0",
             "--search-distill-loss-weight",
             "0.1",
             "--search-distill-temperature",
@@ -226,7 +326,12 @@ def test_run_legal_action_supervised_cli_writes_checkpoint_and_metrics(tmp_path)
     assert "Legal-action scorer training complete" in result.stdout
     assert (output_dir / "legal_action_scorer.pt").exists()
     metrics = json.loads((output_dir / "legal_action_scorer_metrics.json").read_text(encoding="utf-8"))
-    assert metrics["dataset"]["total_samples"] == len(LegalActionReplayDataset(replay_path))
+    assert metrics["dataset"]["total_samples"] == len(
+        LegalActionReplayDataset(replay_path, policy_target_filter="winner")
+    )
+    assert metrics["dataset"]["validation_split_unit"] == "game"
+    assert metrics["dataset"]["policy_target_filter"] == "winner"
+    assert metrics["dataset"]["winner_action_weight"] == 2.0
     assert metrics["dataset"]["search_distill_loss_weight"] == 0.1
     assert metrics["dataset"]["search_distill_temperature"] == 1000
     assert metrics["checkpoints"]["final_checkpoint_path"] == "legal_action_scorer.pt"

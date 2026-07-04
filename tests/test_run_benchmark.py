@@ -157,8 +157,37 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
         def __init__(self, checkpoint_path, device):
             captured.append(("scorer", checkpoint_path, device))
 
+    class FakePolicyGuidedSearchBot:
+        def __init__(
+            self,
+            checkpoint_path,
+            device,
+            policy_prior_weight,
+            depth,
+            max_branching,
+            max_buy_actions,
+            max_reserve_actions,
+            max_take_actions,
+            seed,
+        ):
+            captured.append(
+                (
+                    "policy_guided_search",
+                    checkpoint_path,
+                    device,
+                    policy_prior_weight,
+                    depth,
+                    max_branching,
+                    max_buy_actions,
+                    max_reserve_actions,
+                    max_take_actions,
+                    seed,
+                )
+            )
+
     monkeypatch.setattr("splendor_ai.eval.run_benchmark.CheckpointPolicyBot", FakeFlatBot)
     monkeypatch.setattr("splendor_ai.eval.run_benchmark.LegalActionScorerBot", FakeScorerBot)
+    monkeypatch.setattr("splendor_ai.eval.run_benchmark.PolicyGuidedSearchBot", FakePolicyGuidedSearchBot)
 
     checkpoint_path = tmp_path / "checkpoint.pt"
     flat_bot = _model_bot_for_checkpoint(
@@ -173,11 +202,36 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
         device="cpu",
         loop_fallback=object(),
     )
+    guided_bot = _model_bot_for_checkpoint(
+        checkpoint_path=checkpoint_path,
+        model_kind="policy_guided_search",
+        device="cpu",
+        loop_fallback=object(),
+        search_depth=3,
+        search_max_branching=12,
+        search_buy_branching=7,
+        search_reserve_branching=4,
+        search_take_branching=2,
+        policy_prior_weight=1500.0,
+    )
 
     assert isinstance(flat_bot, FakeFlatBot)
     assert isinstance(scorer_bot, FakeScorerBot)
+    assert isinstance(guided_bot, FakePolicyGuidedSearchBot)
     assert captured[0][0] == "flat"
     assert captured[1] == ("scorer", checkpoint_path, "cpu")
+    assert captured[2] == (
+        "policy_guided_search",
+        checkpoint_path,
+        "cpu",
+        1500.0,
+        3,
+        12,
+        7,
+        4,
+        2,
+        0,
+    )
 
 
 def test_parser_accepts_search_opponent() -> None:
@@ -197,15 +251,21 @@ def test_parser_accepts_search_opponent() -> None:
             "4",
             "--search-take-branching",
             "2",
+            "--model-kind",
+            "policy_guided_search",
+            "--policy-prior-weight",
+            "1500",
         ]
     )
 
+    assert args.model_kind == "policy_guided_search"
     assert args.opponents == ["search"]
     assert args.search_depth == 3
     assert args.search_max_branching == 12
     assert args.search_buy_branching == 7
     assert args.search_reserve_branching == 4
     assert args.search_take_branching == 2
+    assert args.policy_prior_weight == 1500
 
 
 def test_opponent_factory_builds_search_bot_with_requested_settings(monkeypatch) -> None:
@@ -288,6 +348,7 @@ def test_benchmark_checkpoint_records_search_settings(monkeypatch, tmp_path) -> 
         "reserve_branching": 4,
         "take_branching": 2,
     }
+    assert payload["policy_guided_search"] == {"prior_weight": 2000.0}
     assert payload["opponents"][0]["opponent"] == "search"
 
 

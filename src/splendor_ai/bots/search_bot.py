@@ -10,12 +10,22 @@ from typing import Protocol
 
 import torch
 
-from splendor_ai.encoding import encode_public_observation_tensor
+from splendor_ai.encoding import (
+    encode_legal_action_features,
+    encode_public_observation_tensor,
+    fit_feature_vector,
+)
 from splendor_ai.engine.actions import Action, ActionType
 from splendor_ai.engine.constants import ALL_TOKEN_TYPES, TOKEN_COLORS
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import SplendorState
-from splendor_ai.training.model import ValueMLP, ValueModelConfig
+from splendor_ai.training.model import (
+    LegalActionScorerConfig,
+    LegalActionScorerModel,
+    ValueMLP,
+    ValueModelConfig,
+    masked_legal_action_scores,
+)
 
 from .heuristic_bot import GreedyHeuristicBot
 
@@ -27,6 +37,8 @@ class _RankedCandidate:
     heuristic_score: float
     loop_penalty: float
     strategic_signature: tuple[object, ...]
+    policy_score: float = 0.0
+    ordering_score: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,11 +47,21 @@ class SearchActionScore:
     value: float
     heuristic_score: float
     loop_penalty: float
+    policy_score: float = 0.0
 
 
 class StateValueEvaluator(Protocol):
     def evaluate_state(self, state: SplendorState, player_id: int) -> float:
         """Return a heuristic-scale value from player_id's perspective."""
+
+
+class ActionPriorScorer(Protocol):
+    def score_actions(
+        self,
+        state: SplendorState,
+        legal_actions: list[Action],
+    ) -> dict[Action, float]:
+        """Return model-side preference scores for legal actions."""
 
 
 class CheckpointValueEvaluator:
@@ -62,14 +84,77 @@ class CheckpointValueEvaluator:
 
     def evaluate_state(self, state: SplendorState, player_id: int) -> float:
         observation = encode_public_observation_tensor(state, player_id)
+        observation_vector = fit_feature_vector(
+            observation.vector,
+            self._model.config.observation_size,
+        )
         observation_tensor = torch.tensor(
-            [observation.vector],
+            [observation_vector],
             dtype=torch.float32,
             device=self._device,
         )
         with torch.no_grad():
             value = float(self._model(observation_tensor).detach().cpu().item())
         return value * self._value_scale
+
+
+class CheckpointLegalActionPriorScorer:
+    """Loads a legal-action scorer checkpoint for action-ordering priors."""
+
+    def __init__(self, checkpoint_path: str | Path, device: str = "cpu") -> None:
+        self.checkpoint_path = Path(checkpoint_path)
+        self._device = device
+        checkpoint = torch.load(self.checkpoint_path, map_location=device, weights_only=True)
+        self._model = LegalActionScorerModel(
+            LegalActionScorerConfig(**checkpoint.get("model_config", {}))
+        )
+        self._model.load_state_dict(checkpoint["model_state_dict"])
+        self._model.to(device)
+        self._model.eval()
+
+    def score_actions(
+        self,
+        state: SplendorState,
+        legal_actions: list[Action],
+    ) -> dict[Action, float]:
+        if not legal_actions:
+            return {}
+        observation = encode_public_observation_tensor(state, state.current_player)
+        observation_vector = fit_feature_vector(
+            observation.vector,
+            self._model.config.observation_size,
+        )
+        action_features = encode_legal_action_features(
+            state=state,
+            legal_actions=legal_actions,
+            player_id=state.current_player,
+        )
+        action_feature_vectors = [
+            fit_feature_vector(features.vector, self._model.config.action_feature_size)
+            for features in action_features
+        ]
+        observation_tensor = torch.tensor(
+            [observation_vector],
+            dtype=torch.float32,
+            device=self._device,
+        )
+        action_feature_tensor = torch.tensor(
+            [action_feature_vectors],
+            dtype=torch.float32,
+            device=self._device,
+        )
+        legal_action_mask = torch.ones(
+            (1, len(legal_actions)),
+            dtype=torch.bool,
+            device=self._device,
+        )
+        with torch.no_grad():
+            action_scores, _value = self._model(observation_tensor, action_feature_tensor)
+            masked_scores = masked_legal_action_scores(action_scores, legal_action_mask)[0].detach().cpu()
+        return {
+            action: float(masked_scores[row_index].item())
+            for row_index, action in enumerate(legal_actions)
+        }
 
 
 class ShallowSearchBot:
@@ -97,6 +182,8 @@ class ShallowSearchBot:
         seed: int | None = None,
         value_evaluator: StateValueEvaluator | None = None,
         value_weight: float = 0.0,
+        action_prior: ActionPriorScorer | None = None,
+        action_prior_weight: float = 0.0,
     ) -> None:
         if depth < 1:
             raise ValueError("Search depth must be at least 1.")
@@ -106,6 +193,8 @@ class ShallowSearchBot:
             raise ValueError("Per-action-type branching caps must be non-negative.")
         if not 0.0 <= value_weight <= 1.0:
             raise ValueError("value_weight must be in the range [0.0, 1.0].")
+        if action_prior_weight < 0.0:
+            raise ValueError("action_prior_weight must be non-negative.")
         self._depth = depth
         self._max_branching = max_branching
         self._max_buy_actions = max_buy_actions
@@ -121,6 +210,8 @@ class ShallowSearchBot:
         self._heuristic = GreedyHeuristicBot(seed=seed)
         self._value_evaluator = value_evaluator
         self._value_weight = value_weight
+        self._action_prior = action_prior
+        self._action_prior_weight = action_prior_weight
         self._transposition_cache: dict[tuple[int, int, tuple[object, ...]], float] = {}
         self._observed_state_counts: dict[tuple[object, ...], int] = {}
         self._post_action_state_counts: dict[tuple[object, ...], int] = {}
@@ -220,13 +311,14 @@ class ShallowSearchBot:
                     value=value,
                     heuristic_score=candidate.heuristic_score,
                     loop_penalty=candidate.loop_penalty,
+                    policy_score=candidate.policy_score,
                 )
             )
 
         return tuple(
             sorted(
                 scores,
-                key=lambda item: (item.value, item.heuristic_score),
+                key=lambda item: (item.value, item.policy_score, item.heuristic_score),
                 reverse=True,
             )
         )
@@ -326,6 +418,7 @@ class ShallowSearchBot:
         actor = state.current_player
         before_affordable = self._heuristic.affordable_card_count(state, root_player)
         before_best_missing = self._heuristic.best_purchase_missing(state, root_player)
+        policy_scores = self._normalized_policy_scores(state, actions)
         candidates: list[_RankedCandidate] = []
         for action in actions:
             next_state = env.step(state, action)
@@ -344,6 +437,9 @@ class ShallowSearchBot:
                 player_id=root_player,
             )
             adjusted_score = score - loop_penalty
+            policy_score = policy_scores.get(action, 0.0)
+            prior_sign = 1.0 if actor == root_player else -1.0
+            ordering_score = adjusted_score + prior_sign * self._action_prior_weight * policy_score
             candidates.append(
                 _RankedCandidate(
                     action=action,
@@ -351,12 +447,14 @@ class ShallowSearchBot:
                     heuristic_score=adjusted_score,
                     loop_penalty=loop_penalty,
                     strategic_signature=self._strategic_signature(next_state, actor, action),
+                    policy_score=policy_score,
+                    ordering_score=ordering_score,
                 )
             )
 
         maximizing = state.current_player == root_player
         candidates.sort(
-            key=lambda item: (item.heuristic_score, self._rng.random()),
+            key=lambda item: (item.ordering_score, item.heuristic_score, self._rng.random()),
             reverse=maximizing,
         )
         limited: list[_RankedCandidate] = []
@@ -395,6 +493,29 @@ class ShallowSearchBot:
         if not limited:
             limited = candidates[: self._max_branching]
         return limited
+
+    def _normalized_policy_scores(
+        self,
+        state: SplendorState,
+        actions: list[Action],
+    ) -> dict[Action, float]:
+        if self._action_prior is None or self._action_prior_weight == 0.0 or not actions:
+            return {}
+        raw_scores = self._action_prior.score_actions(state, actions)
+        if not raw_scores:
+            return {}
+        ranked_actions = sorted(
+            actions,
+            key=lambda action: raw_scores.get(action, -math.inf),
+            reverse=True,
+        )
+        if len(ranked_actions) == 1:
+            return {ranked_actions[0]: 1.0}
+        denominator = float(len(ranked_actions) - 1)
+        return {
+            action: 1.0 - (rank / denominator)
+            for rank, action in enumerate(ranked_actions)
+        }
 
     def _candidate_loop_penalty(
         self,
@@ -501,3 +622,24 @@ class ShallowSearchBot:
             self._heuristic.best_scoring_purchase_missing(state, actor_id),
             self._heuristic.best_noble_gap(state, actor_id),
         )
+
+
+class PolicyGuidedSearchBot(ShallowSearchBot):
+    """Shallow search with a legal-action scorer prior for action ordering."""
+
+    def __init__(
+        self,
+        checkpoint_path: str | Path,
+        device: str = "cpu",
+        policy_prior_weight: float = 2_000.0,
+        **search_kwargs: object,
+    ) -> None:
+        prior = CheckpointLegalActionPriorScorer(checkpoint_path=checkpoint_path, device=device)
+        super().__init__(
+            action_prior=prior,
+            action_prior_weight=policy_prior_weight,
+            **search_kwargs,
+        )
+        self.checkpoint_path = Path(checkpoint_path)
+        self.device = device
+        self.policy_prior_weight = policy_prior_weight

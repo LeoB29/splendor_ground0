@@ -5,8 +5,10 @@ from splendor_ai.training import (
     CorpusSummary,
     ReplayGame,
     ReplayStep,
+    build_replay_corpus_manifest,
     generate_replay_corpus,
     write_replay_corpus,
+    write_replay_corpus_manifest,
 )
 
 
@@ -69,6 +71,110 @@ def test_write_replay_corpus_includes_summary_metadata(tmp_path) -> None:
 
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary_payload["metadata"] == {"pairings": ["greedy:random"]}
+
+
+def test_build_replay_corpus_manifest_records_source_matchups_and_results(tmp_path) -> None:
+    games, summary = generate_replay_corpus(
+        bot_seat_0_factory=lambda: GreedyHeuristicBot(seed=3),
+        bot_seat_1_factory=lambda: RandomLegalBot(seed=4),
+        games=2,
+        seed_start=30,
+        max_turns=400,
+    )
+
+    manifest = build_replay_corpus_manifest(
+        games,
+        summary,
+        metadata={"pairings": ["greedy:random"]},
+        source_type="league",
+    )
+
+    assert manifest["manifest_version"] == 1
+    assert manifest["source_type"] == "league"
+    assert manifest["seed_block"] == {
+        "seed_start": 30,
+        "seed_end_inclusive": 31,
+        "games": 2,
+    }
+    assert manifest["results"]["games"] == 2
+    assert manifest["metadata"]["pairings"] == ["greedy:random"]
+    assert len(manifest["matchups"]) == 1
+    matchup = manifest["matchups"][0]
+    assert matchup["seat0"]["bot_class"] == "GreedyHeuristicBot"
+    assert matchup["seat1"]["bot_class"] == "RandomLegalBot"
+    assert matchup["games"] == 2
+    assert matchup["seat0_wins"] + matchup["seat1_wins"] + matchup["draws"] == 2
+
+
+def test_write_replay_corpus_manifest_writes_json(tmp_path) -> None:
+    games, summary = generate_replay_corpus(
+        bot_seat_0_factory=lambda: GreedyHeuristicBot(seed=3),
+        bot_seat_1_factory=lambda: RandomLegalBot(seed=4),
+        games=1,
+        seed_start=40,
+        max_turns=400,
+    )
+
+    manifest_path = write_replay_corpus_manifest(
+        tmp_path,
+        games,
+        summary,
+        metadata={"pairings": ["greedy:random"]},
+        source_type="self_play",
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest_path.name == "manifest.json"
+    assert manifest["source_type"] == "self_play"
+    assert manifest["files"] == {
+        "replays": "replays.jsonl",
+        "summary": "summary.json",
+    }
+
+
+def test_replay_corpus_manifest_labels_checkpoint_actor_identity() -> None:
+    game = ReplayGame(
+        seed=51,
+        winner=0,
+        final_scores=(15, 12),
+        turns=40,
+        stalled=False,
+        timed_out=False,
+        termination_reason="completed",
+        bot_seats=("LegalActionScorerBot", "GreedyHeuristicBot"),
+        final_state_snapshot={},
+        steps=(),
+        bot_metadata=(
+            {
+                "bot_class": "LegalActionScorerBot",
+                "checkpoint_path": "outputs/legal_action_scorer_001/legal_action_scorer_best.pt",
+                "model_kind": "legal_action_scorer",
+            },
+            {"bot_class": "GreedyHeuristicBot"},
+        ),
+    )
+    summary = CorpusSummary(
+        games=1,
+        total_steps=0,
+        seat0_wins=1,
+        seat1_wins=0,
+        draws=0,
+        stalled_games=0,
+        timed_out_games=0,
+        loop_fallback_triggers=0,
+        loop_fallback_games=0,
+        average_turns=40.0,
+        average_final_score_seat0=15.0,
+        average_final_score_seat1=12.0,
+    )
+
+    manifest = build_replay_corpus_manifest((game,), summary, source_type="league")
+
+    matchup = manifest["matchups"][0]
+    assert matchup["seat0"]["label"] == (
+        "LegalActionScorerBot:legal_action_scorer:"
+        "outputs/legal_action_scorer_001/legal_action_scorer_best.pt"
+    )
 
 
 def test_generate_replay_corpus_can_swap_seats_across_pairings() -> None:

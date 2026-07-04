@@ -3,7 +3,7 @@ from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import Card
 
 
-def test_public_observation_hides_opponent_reserved_card_identity() -> None:
+def test_public_observation_shows_opponent_reserved_card_identity() -> None:
     env = SplendorEnv()
     state = env.initial_state()
     state.players[1].reserved_cards.append(
@@ -19,7 +19,7 @@ def test_public_observation_hides_opponent_reserved_card_identity() -> None:
     observation = encode_public_observation(state, player_id=0)
 
     assert observation["opponent"]["reserved_count"] == 1
-    assert "reserved_cards" not in observation["opponent"]
+    assert observation["opponent"]["reserved_cards"] == ["hidden-card"]
 
 
 def test_public_observation_shows_own_reserved_card_identity() -> None:

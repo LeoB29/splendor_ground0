@@ -257,6 +257,41 @@ def test_search_bot_can_blend_value_evaluator_at_leaf() -> None:
     assert blended_value == 0.75 * heuristic_value + 25.0
 
 
+def test_search_bot_can_use_action_prior_for_ordering() -> None:
+    env = SplendorEnv(seed=0)
+    state = env.initial_state()
+    legal_actions = env.legal_actions(state)
+    preferred_action = next(
+        action
+        for action in legal_actions
+        if action.action_type == ActionType.RESERVE_VISIBLE
+    )
+
+    class PreferredActionPrior:
+        def score_actions(self, state, legal_actions):
+            return {
+                action: 1.0 if action == preferred_action else 0.0
+                for action in legal_actions
+            }
+
+    search_bot = ShallowSearchBot(
+        seed=0,
+        max_branching=5,
+        action_prior=PreferredActionPrior(),
+        action_prior_weight=1_000_000.0,
+    )
+
+    candidates = search_bot._ordered_candidates(
+        env=env,
+        state=state,
+        actions=legal_actions,
+        root_player=state.current_player,
+    )
+
+    assert candidates[0].action == preferred_action
+    assert candidates[0].policy_score == 1.0
+
+
 def test_play_match_swaps_seats_and_collects_results() -> None:
     result = play_match(
         bot_a_factory=lambda: GreedyHeuristicBot(seed=1),

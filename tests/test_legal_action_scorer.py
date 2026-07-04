@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from splendor_ai.bots import RandomLegalBot
-from splendor_ai.encoding import ACTION_FEATURE_SIZE
+from splendor_ai.encoding import ACTION_FEATURE_SIZE, OBSERVATION_SIZE
 from splendor_ai.training import (
     LegalActionReplayDataset,
     LegalActionScorerConfig,
@@ -36,7 +36,7 @@ def test_legal_action_replay_dataset_maps_target_to_legal_action_row(tmp_path) -
 
     sample = dataset[0]
 
-    assert sample.observation.shape == (256,)
+    assert sample.observation.shape == (OBSERVATION_SIZE,)
     assert sample.legal_action_features.ndim == 2
     assert sample.legal_action_features.shape[1] == ACTION_FEATURE_SIZE
     assert 0 <= sample.target_action_row < sample.legal_action_features.shape[0]
@@ -71,7 +71,7 @@ def test_collate_legal_action_replay_samples_pads_variable_legal_action_counts(t
 
     batch = collate_legal_action_replay_samples(samples)
 
-    assert batch["observation"].shape == (2, 256)
+    assert batch["observation"].shape == (2, OBSERVATION_SIZE)
     assert batch["legal_action_features"].shape[0] == 2
     assert batch["legal_action_features"].shape[2] == ACTION_FEATURE_SIZE
     assert batch["legal_action_mask"].dtype == torch.bool

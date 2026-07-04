@@ -1,4 +1,4 @@
-from splendor_ai.encoding import encode_public_observation_tensor
+from splendor_ai.encoding import OBSERVATION_SIZE, encode_public_observation_tensor
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import Card
 
@@ -9,7 +9,7 @@ def test_observation_tensor_has_stable_length_and_sections() -> None:
 
     observation = encode_public_observation_tensor(state, player_id=0)
 
-    assert len(observation.vector) == 256
+    assert len(observation.vector) == OBSERVATION_SIZE
     assert observation.sections == {
         "global": (0, 3),
         "bank": (3, 9),
@@ -19,10 +19,11 @@ def test_observation_tensor_has_stable_length_and_sections() -> None:
         "self_summary": (189, 203),
         "self_reserved": (203, 242),
         "opponent_summary": (242, 256),
+        "opponent_reserved": (256, 295),
     }
 
 
-def test_observation_tensor_hides_opponent_reserved_identity() -> None:
+def test_observation_tensor_exposes_opponent_reserved_identity_features() -> None:
     env = SplendorEnv(seed=0)
     state_a = env.initial_state()
     state_b = env.initial_state()
@@ -37,7 +38,7 @@ def test_observation_tensor_hides_opponent_reserved_identity() -> None:
     observation_a = encode_public_observation_tensor(state_a, player_id=0)
     observation_b = encode_public_observation_tensor(state_b, player_id=0)
 
-    assert observation_a.vector == observation_b.vector
+    assert observation_a.vector != observation_b.vector
 
 
 def test_observation_tensor_exposes_own_reserved_identity_features() -> None:

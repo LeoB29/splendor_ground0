@@ -19,6 +19,17 @@ _PLAYER_SUMMARY_SIZE = 14
 _GLOBAL_FEATURES_SIZE = 3
 _BANK_FEATURES_SIZE = 6
 _DECK_FEATURES_SIZE = 3
+OBSERVATION_SIZE = (
+    _GLOBAL_FEATURES_SIZE
+    + _BANK_FEATURES_SIZE
+    + _DECK_FEATURES_SIZE
+    + _NOBLE_SLOTS * _NOBLE_SLOT_SIZE
+    + len(_BOARD_TIERS) * _CARDS_PER_TIER * _CARD_SLOT_SIZE
+    + _PLAYER_SUMMARY_SIZE
+    + _RESERVED_SLOTS * _CARD_SLOT_SIZE
+    + _PLAYER_SUMMARY_SIZE
+    + _RESERVED_SLOTS * _CARD_SLOT_SIZE
+)
 
 _DECK_NORMALIZERS = {1: 36.0, 2: 26.0, 3: 16.0}
 _TOKEN_NORMALIZERS = {
@@ -106,6 +117,7 @@ def encode_public_observation(state: SplendorState, player_id: int) -> dict[str,
             "bonuses": dict(opponent.bonuses),
             "score": opponent.score,
             "reserved_count": len(opponent.reserved_cards),
+            "reserved_cards": [card.card_id for card in opponent.reserved_cards],
             "purchased_cards": [card.card_id for card in opponent.purchased_cards],
         },
     }
@@ -117,7 +129,7 @@ def encode_public_observation_tensor(
 ) -> ObservationTensor:
     """Encode a flat legal-observation vector for model consumption.
 
-    Current layout length: 256 floats.
+    Current layout length: 295 floats.
     """
 
     player = state.players[player_id]
@@ -177,5 +189,11 @@ def encode_public_observation_tensor(
     push("self_reserved", reserved_values)
 
     push("opponent_summary", _encode_player_summary(opponent))
+
+    opponent_reserved_values: list[float] = []
+    for reserved_index in range(_RESERVED_SLOTS):
+        card = opponent.reserved_cards[reserved_index] if reserved_index < len(opponent.reserved_cards) else None
+        opponent_reserved_values.extend(_encode_card_slot(card))
+    push("opponent_reserved", opponent_reserved_values)
 
     return ObservationTensor(vector=tuple(vector), sections=sections)

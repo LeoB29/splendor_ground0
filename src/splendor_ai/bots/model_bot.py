@@ -12,6 +12,7 @@ from splendor_ai.encoding import (
     ActionCodec,
     encode_legal_action_features,
     encode_public_observation_tensor,
+    fit_feature_vector,
 )
 from splendor_ai.engine.actions import Action, ActionType
 from splendor_ai.engine.env import SplendorEnv
@@ -88,8 +89,12 @@ class CheckpointPolicyBot:
         self._state_visit_counts[signature] = state_visit_count
 
         observation = encode_public_observation_tensor(state, state.current_player)
-        observation_tensor = torch.tensor(
+        observation_vector = fit_feature_vector(
             observation.vector,
+            self._model.config.observation_size,
+        )
+        observation_tensor = torch.tensor(
+            observation_vector,
             dtype=torch.float32,
             device=self._device,
         ).unsqueeze(0)
@@ -225,18 +230,26 @@ class LegalActionScorerBot:
             return None
 
         observation = encode_public_observation_tensor(state, state.current_player)
+        observation_vector = fit_feature_vector(
+            observation.vector,
+            self._model.config.observation_size,
+        )
         action_features = encode_legal_action_features(
             state=state,
             legal_actions=actions,
             player_id=state.current_player,
         )
+        action_feature_vectors = [
+            fit_feature_vector(features.vector, self._model.config.action_feature_size)
+            for features in action_features
+        ]
         observation_tensor = torch.tensor(
-            observation.vector,
+            observation_vector,
             dtype=torch.float32,
             device=self._device,
         ).unsqueeze(0)
         action_feature_tensor = torch.tensor(
-            [features.vector for features in action_features],
+            action_feature_vectors,
             dtype=torch.float32,
             device=self._device,
         ).unsqueeze(0)

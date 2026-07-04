@@ -14,6 +14,7 @@ from splendor_ai.bots import (
     GreedyHeuristicBot,
     LegalActionScorerBot,
     LoopFallbackConfig,
+    PolicyGuidedSearchBot,
     RandomLegalBot,
     ShallowSearchBot,
 )
@@ -21,7 +22,8 @@ from splendor_ai.bots.base import Bot
 
 from .match import GameResult, MatchConfig, play_game
 
-MODEL_BOT_NAMES = ("CheckpointPolicyBot", "LegalActionScorerBot")
+MODEL_BOT_NAMES = ("CheckpointPolicyBot", "LegalActionScorerBot", "PolicyGuidedSearchBot")
+MODEL_KIND_CHOICES = ("flat_policy", "legal_action_scorer", "policy_guided_search")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint", required=True, help="Path to a saved policy/value checkpoint.")
     parser.add_argument(
         "--model-kind",
-        choices=("flat_policy", "legal_action_scorer"),
+        choices=MODEL_KIND_CHOICES,
         default="flat_policy",
         help="Checkpoint architecture to load. Defaults to the original flat policy/value model.",
     )
@@ -40,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--baseline-model-kind",
-        choices=("flat_policy", "legal_action_scorer"),
+        choices=MODEL_KIND_CHOICES,
         default="flat_policy",
         help="Architecture for --baseline-checkpoint.",
     )
@@ -131,6 +133,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=3,
         help="Per-node cap for token-take actions in the search opponent.",
     )
+    parser.add_argument(
+        "--policy-prior-weight",
+        type=float,
+        default=2_000.0,
+        help="Heuristic-scale rank-prior weight for --model-kind policy_guided_search.",
+    )
     return parser
 
 
@@ -152,6 +160,7 @@ def benchmark_checkpoint(
     search_buy_branching: int = 6,
     search_reserve_branching: int = 3,
     search_take_branching: int = 3,
+    policy_prior_weight: float = 2_000.0,
 ) -> dict[str, object]:
     checkpoint = Path(checkpoint_path)
     fallback_config = loop_fallback or LoopFallbackConfig()
@@ -178,6 +187,9 @@ def benchmark_checkpoint(
             "reserve_branching": search_reserve_branching,
             "take_branching": search_take_branching,
         },
+        "policy_guided_search": {
+            "prior_weight": policy_prior_weight,
+        },
         "opponents": [],
     }
 
@@ -200,6 +212,7 @@ def benchmark_checkpoint(
             search_buy_branching=search_buy_branching,
             search_reserve_branching=search_reserve_branching,
             search_take_branching=search_take_branching,
+            policy_prior_weight=policy_prior_weight,
         )
         payload["opponents"].append(opponent_payload)
 
@@ -220,6 +233,12 @@ def benchmark_head_to_head(
     swap_seats: bool = True,
     log_every: int = 5,
     loop_fallback: LoopFallbackConfig | None = None,
+    search_depth: int = 2,
+    search_max_branching: int = 10,
+    search_buy_branching: int = 6,
+    search_reserve_branching: int = 3,
+    search_take_branching: int = 3,
+    policy_prior_weight: float = 2_000.0,
 ) -> dict[str, object]:
     candidate_checkpoint = Path(candidate_checkpoint_path)
     baseline_checkpoint = Path(baseline_checkpoint_path)
@@ -242,6 +261,16 @@ def benchmark_head_to_head(
             "min_own_non_progress_actions": fallback_config.min_own_non_progress_actions,
             "max_buy_logit_gap": fallback_config.max_buy_logit_gap,
         },
+        "search": {
+            "depth": search_depth,
+            "max_branching": search_max_branching,
+            "buy_branching": search_buy_branching,
+            "reserve_branching": search_reserve_branching,
+            "take_branching": search_take_branching,
+        },
+        "policy_guided_search": {
+            "prior_weight": policy_prior_weight,
+        },
     }
     payload["matchup"] = _benchmark_head_to_head(
         candidate_checkpoint_path=candidate_checkpoint,
@@ -257,6 +286,12 @@ def benchmark_head_to_head(
         swap_seats=swap_seats,
         log_every=log_every,
         loop_fallback=fallback_config,
+        search_depth=search_depth,
+        search_max_branching=search_max_branching,
+        search_buy_branching=search_buy_branching,
+        search_reserve_branching=search_reserve_branching,
+        search_take_branching=search_take_branching,
+        policy_prior_weight=policy_prior_weight,
     )
     return payload
 
@@ -485,6 +520,7 @@ def _benchmark_opponent(
     search_buy_branching: int,
     search_reserve_branching: int,
     search_take_branching: int,
+    policy_prior_weight: float,
 ) -> dict[str, object]:
     opponent_factory = _opponent_factory(
         opponent_name,
@@ -511,6 +547,12 @@ def _benchmark_opponent(
         model_kind=model_kind,
         device=device,
         loop_fallback=loop_fallback,
+        search_depth=search_depth,
+        search_max_branching=search_max_branching,
+        search_buy_branching=search_buy_branching,
+        search_reserve_branching=search_reserve_branching,
+        search_take_branching=search_take_branching,
+        policy_prior_weight=policy_prior_weight,
     )
     for game_index in range(games):
         swap = swap_seats and game_index % 2 == 1
@@ -578,6 +620,12 @@ def _benchmark_head_to_head(
     swap_seats: bool,
     log_every: int,
     loop_fallback: LoopFallbackConfig,
+    search_depth: int,
+    search_max_branching: int,
+    search_buy_branching: int,
+    search_reserve_branching: int,
+    search_take_branching: int,
+    policy_prior_weight: float,
 ) -> dict[str, object]:
     played_games: list[GameResult] = []
     candidate_wins = 0
@@ -598,12 +646,24 @@ def _benchmark_head_to_head(
         model_kind=candidate_model_kind,
         device=device,
         loop_fallback=loop_fallback,
+        search_depth=search_depth,
+        search_max_branching=search_max_branching,
+        search_buy_branching=search_buy_branching,
+        search_reserve_branching=search_reserve_branching,
+        search_take_branching=search_take_branching,
+        policy_prior_weight=policy_prior_weight,
     )
     baseline_bot = _model_bot_for_checkpoint(
         checkpoint_path=baseline_checkpoint_path,
         model_kind=baseline_model_kind,
         device=device,
         loop_fallback=loop_fallback,
+        search_depth=search_depth,
+        search_max_branching=search_max_branching,
+        search_buy_branching=search_buy_branching,
+        search_reserve_branching=search_reserve_branching,
+        search_take_branching=search_take_branching,
+        policy_prior_weight=policy_prior_weight,
     )
 
     for game_index in range(games):
@@ -693,11 +753,29 @@ def _model_bot_for_checkpoint(
     model_kind: str,
     device: str,
     loop_fallback: LoopFallbackConfig,
+    search_depth: int = 2,
+    search_max_branching: int = 10,
+    search_buy_branching: int = 6,
+    search_reserve_branching: int = 3,
+    search_take_branching: int = 3,
+    policy_prior_weight: float = 2_000.0,
 ) -> Bot:
     if model_kind == "flat_policy":
         return CheckpointPolicyBot(checkpoint_path, device=device, loop_fallback=loop_fallback)
     if model_kind == "legal_action_scorer":
         return LegalActionScorerBot(checkpoint_path, device=device)
+    if model_kind == "policy_guided_search":
+        return PolicyGuidedSearchBot(
+            checkpoint_path=checkpoint_path,
+            device=device,
+            policy_prior_weight=policy_prior_weight,
+            depth=search_depth,
+            max_branching=search_max_branching,
+            max_buy_actions=search_buy_branching,
+            max_reserve_actions=search_reserve_branching,
+            max_take_actions=search_take_branching,
+            seed=0,
+        )
     raise ValueError(f"Unsupported model kind: {model_kind}")
 
 
@@ -729,6 +807,7 @@ def main() -> None:
             search_buy_branching=args.search_buy_branching,
             search_reserve_branching=args.search_reserve_branching,
             search_take_branching=args.search_take_branching,
+            policy_prior_weight=args.policy_prior_weight,
         )
     else:
         output_path = (
@@ -750,6 +829,12 @@ def main() -> None:
             swap_seats=not args.no_swap_seats,
             log_every=args.log_every,
             loop_fallback=loop_fallback,
+            search_depth=args.search_depth,
+            search_max_branching=args.search_max_branching,
+            search_buy_branching=args.search_buy_branching,
+            search_reserve_branching=args.search_reserve_branching,
+            search_take_branching=args.search_take_branching,
+            policy_prior_weight=args.policy_prior_weight,
         )
     written_path = write_benchmark_payload(output_path, payload)
     print(f"[benchmark] wrote results: {written_path}")
