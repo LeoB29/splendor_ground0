@@ -11,6 +11,7 @@ from typing import Protocol
 import torch
 
 from splendor_ai.encoding import (
+    collate_entity_action_batch,
     encode_legal_action_features,
     encode_public_observation_tensor,
     fit_feature_vector,
@@ -20,6 +21,8 @@ from splendor_ai.engine.constants import ALL_TOKEN_TYPES, TOKEN_COLORS
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import SplendorState
 from splendor_ai.training.model import (
+    CanonicalEntityActionScorerConfig,
+    CanonicalEntityActionScorerModel,
     LegalActionAttentionScorerConfig,
     LegalActionAttentionScorerModel,
     LegalActionScorerConfig,
@@ -153,6 +156,10 @@ class CheckpointLegalActionPriorScorer:
             self._model = LegalActionSetScorerModel(
                 LegalActionSetScorerConfig(**checkpoint.get("model_config", {}))
             )
+        elif model_kind == "canonical_entity_action_scorer":
+            self._model = CanonicalEntityActionScorerModel(
+                CanonicalEntityActionScorerConfig(**checkpoint.get("model_config", {}))
+            )
         else:
             self._model = LegalActionScorerModel(
                 LegalActionScorerConfig(**checkpoint.get("model_config", {}))
@@ -178,6 +185,26 @@ class CheckpointLegalActionPriorScorer:
             return []
         if any(not legal_actions for _state, legal_actions in state_action_batches):
             raise ValueError("Each state in an action batch must have legal actions.")
+        if isinstance(self._model, CanonicalEntityActionScorerModel):
+            batch = collate_entity_action_batch(
+                state_action_batches,
+                device=self._device,
+            )
+            with torch.no_grad():
+                action_scores, _value = self._model(**batch)
+                masked_scores = masked_legal_action_scores(
+                    action_scores,
+                    batch["action_mask"],
+                ).detach().cpu()
+            return [
+                {
+                    action: float(masked_scores[batch_index, row_index].item())
+                    for row_index, action in enumerate(legal_actions)
+                }
+                for batch_index, (_state, legal_actions) in enumerate(
+                    state_action_batches
+                )
+            ]
         observation_vectors = []
         action_vectors_by_state = []
         for state, legal_actions in state_action_batches:

@@ -37,6 +37,14 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   state transition share one edge and aggregate their priors. This repairs a
   search branching artifact but is not an engine-strength promotion; the next
   task is a clean entity/action model on this contract.
+- A clean `CanonicalEntityActionScorerModel` is now available for that next
+  training line. It consumes variable-length canonical state entities and
+  legal-action entities directly, uses no positional embeddings, and has
+  permutation-equivalence and legal-hidden-reserve tests. Checkpoint inference
+  recognizes `canonical_entity_action_scorer`; it is randomly initialized and
+  no historical checkpoint or historical 295-vector is used to initialize it.
+  No entity model is trained or promoted yet: generate fresh legal data and
+  establish representation/invariance gates before any strength comparison.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their

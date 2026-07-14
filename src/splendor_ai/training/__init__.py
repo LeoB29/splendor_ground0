@@ -23,6 +23,8 @@ from .corpus import (
 )
 from .device import TrainingBackend, resolve_training_backend
 from .model import (
+    CanonicalEntityActionScorerConfig,
+    CanonicalEntityActionScorerModel,
     LegalActionAttentionScorerConfig,
     LegalActionAttentionScorerModel,
     LegalActionScorerConfig,
@@ -100,6 +102,8 @@ __all__ = [
     "ValueReplaySample",
     "LegalActionAttentionScorerConfig",
     "LegalActionAttentionScorerModel",
+    "CanonicalEntityActionScorerConfig",
+    "CanonicalEntityActionScorerModel",
     "LegalActionScorerConfig",
     "LegalActionScorerModel",
     "LegalActionSetScorerConfig",

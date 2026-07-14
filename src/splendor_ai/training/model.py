@@ -9,6 +9,14 @@ import torch
 from torch import nn
 
 from splendor_ai.encoding import ACTION_FEATURE_SIZE, OBSERVATION_SIZE, ActionCodec
+from splendor_ai.encoding.entity_encoding import (
+    ACTION_NUMERIC_SIZE,
+    ACTION_TYPE_COUNT,
+    ENTITY_NUMERIC_SIZE,
+    ENTITY_TYPE_COUNT,
+    card_vocabulary_size,
+    noble_vocabulary_size,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +66,21 @@ class LegalActionAttentionScorerConfig:
     attention_layers: int = 2
     attention_heads: int = 4
     attention_feedforward_size: int = 256
+    dropout: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalEntityActionScorerConfig:
+    """Configuration for the clean variable-length entity/action scorer."""
+
+    entity_hidden_size: int = 192
+    action_hidden_size: int = 192
+    scorer_hidden_size: int = 256
+    entity_layers: int = 3
+    action_layers: int = 2
+    attention_heads: int = 4
+    attention_feedforward_size: int = 384
+    id_embedding_size: int = 32
     dropout: float = 0.0
 
 
@@ -423,6 +446,182 @@ class LegalActionAttentionScorerModel(nn.Module):
         action_scores = self.score_head(score_input).squeeze(-1)
         value = self.value_head(state_hidden).squeeze(-1)
         return action_scores, value
+
+
+class CanonicalEntityActionScorerModel(nn.Module):
+    """Permutation-equivariant scorer over legal state and action entities.
+
+    Unlike historical scorers this model receives no slot-indexed observation
+    vector.  Entity collections have no positional encoding, so reordering
+    visible cards, reserves, nobles, or legal actions cannot change the score
+    associated with a semantic action.
+    """
+
+    def __init__(self, config: CanonicalEntityActionScorerConfig | None = None) -> None:
+        super().__init__()
+        self.config = config or CanonicalEntityActionScorerConfig()
+        if self.config.entity_hidden_size % self.config.attention_heads != 0:
+            raise ValueError("entity_hidden_size must be divisible by attention_heads.")
+        if self.config.action_hidden_size % self.config.attention_heads != 0:
+            raise ValueError("action_hidden_size must be divisible by attention_heads.")
+        id_size = self.config.id_embedding_size
+        self.entity_type_embedding = nn.Embedding(ENTITY_TYPE_COUNT, id_size, padding_idx=0)
+        self.card_embedding = nn.Embedding(card_vocabulary_size(), id_size, padding_idx=0)
+        self.noble_embedding = nn.Embedding(noble_vocabulary_size(), id_size, padding_idx=0)
+        self.entity_input = nn.Sequential(
+            nn.Linear(ENTITY_NUMERIC_SIZE + (3 * id_size), self.config.entity_hidden_size),
+            nn.GELU(),
+            nn.LayerNorm(self.config.entity_hidden_size),
+        )
+        self.entity_encoder = nn.TransformerEncoder(
+            _transformer_encoder_layer(
+                self.config.entity_hidden_size,
+                self.config.attention_heads,
+                self.config.attention_feedforward_size,
+                self.config.dropout,
+            ),
+            num_layers=self.config.entity_layers,
+            enable_nested_tensor=False,
+        )
+        self.action_type_embedding = nn.Embedding(ACTION_TYPE_COUNT, id_size, padding_idx=0)
+        self.action_input = nn.Sequential(
+            nn.Linear(ACTION_NUMERIC_SIZE + (3 * id_size), self.config.action_hidden_size),
+            nn.GELU(),
+            nn.LayerNorm(self.config.action_hidden_size),
+        )
+        self.state_to_action_context = nn.Linear(
+            self.config.entity_hidden_size,
+            self.config.action_hidden_size,
+        )
+        self.action_encoder = nn.TransformerEncoder(
+            _transformer_encoder_layer(
+                self.config.action_hidden_size,
+                self.config.attention_heads,
+                self.config.attention_feedforward_size,
+                self.config.dropout,
+            ),
+            num_layers=self.config.action_layers,
+            enable_nested_tensor=False,
+        )
+        self.action_layer_norm = nn.LayerNorm(self.config.action_hidden_size)
+        self.score_head = nn.Sequential(
+            nn.Linear(
+                self.config.entity_hidden_size + self.config.action_hidden_size,
+                self.config.scorer_hidden_size,
+            ),
+            nn.GELU(),
+            nn.Linear(self.config.scorer_hidden_size, 1),
+        )
+        self.value_head = nn.Sequential(
+            nn.Linear(self.config.entity_hidden_size, self.config.entity_hidden_size // 2),
+            nn.GELU(),
+            nn.Linear(self.config.entity_hidden_size // 2, 1),
+            nn.Tanh(),
+        )
+
+    def forward(
+        self,
+        entity_type_ids: torch.Tensor,
+        entity_card_ids: torch.Tensor,
+        entity_noble_ids: torch.Tensor,
+        entity_numeric_features: torch.Tensor,
+        entity_mask: torch.Tensor,
+        action_type_ids: torch.Tensor,
+        action_card_ids: torch.Tensor,
+        action_noble_ids: torch.Tensor,
+        action_numeric_features: torch.Tensor,
+        action_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        self._validate_inputs(
+            entity_type_ids,
+            entity_card_ids,
+            entity_noble_ids,
+            entity_numeric_features,
+            entity_mask,
+            action_type_ids,
+            action_card_ids,
+            action_noble_ids,
+            action_numeric_features,
+            action_mask,
+        )
+        entity_input = torch.cat(
+            [
+                entity_numeric_features,
+                self.entity_type_embedding(entity_type_ids),
+                self.card_embedding(entity_card_ids),
+                self.noble_embedding(entity_noble_ids),
+            ],
+            dim=-1,
+        )
+        entity_hidden = self.entity_encoder(
+            self.entity_input(entity_input),
+            src_key_padding_mask=~entity_mask,
+        )
+        entity_hidden = entity_hidden.masked_fill(~entity_mask.unsqueeze(-1), 0.0)
+        entity_count = entity_mask.sum(dim=1, keepdim=True).clamp_min(1).to(entity_hidden.dtype)
+        state_hidden = entity_hidden.sum(dim=1) / entity_count
+
+        action_input = torch.cat(
+            [
+                action_numeric_features,
+                self.action_type_embedding(action_type_ids),
+                self.card_embedding(action_card_ids),
+                self.noble_embedding(action_noble_ids),
+            ],
+            dim=-1,
+        )
+        action_hidden = self.action_input(action_input)
+        action_hidden = self.action_encoder(
+            action_hidden + self.state_to_action_context(state_hidden).unsqueeze(1),
+            src_key_padding_mask=~action_mask,
+        )
+        action_hidden = self.action_layer_norm(action_hidden)
+        action_hidden = action_hidden.masked_fill(~action_mask.unsqueeze(-1), 0.0)
+        expanded_state = state_hidden.unsqueeze(1).expand(-1, action_hidden.shape[1], -1)
+        scores = self.score_head(torch.cat([expanded_state, action_hidden], dim=-1)).squeeze(-1)
+        return scores, self.value_head(state_hidden).squeeze(-1)
+
+    @staticmethod
+    def _validate_inputs(
+        entity_type_ids: torch.Tensor,
+        entity_card_ids: torch.Tensor,
+        entity_noble_ids: torch.Tensor,
+        entity_numeric_features: torch.Tensor,
+        entity_mask: torch.Tensor,
+        action_type_ids: torch.Tensor,
+        action_card_ids: torch.Tensor,
+        action_noble_ids: torch.Tensor,
+        action_numeric_features: torch.Tensor,
+        action_mask: torch.Tensor,
+    ) -> None:
+        if entity_type_ids.ndim != 2 or action_type_ids.ndim != 2:
+            raise ValueError("Entity and action ids must have shape [batch, items].")
+        if entity_numeric_features.shape != (*entity_type_ids.shape, ENTITY_NUMERIC_SIZE):
+            raise ValueError("Unexpected entity numeric feature shape.")
+        if action_numeric_features.shape != (*action_type_ids.shape, ACTION_NUMERIC_SIZE):
+            raise ValueError("Unexpected action numeric feature shape.")
+        if entity_mask.shape != entity_type_ids.shape or action_mask.shape != action_type_ids.shape:
+            raise ValueError("Entity/action masks must match their id tensors.")
+        if entity_card_ids.shape != entity_type_ids.shape or entity_noble_ids.shape != entity_type_ids.shape:
+            raise ValueError("Entity id tensors must share a shape.")
+        if action_card_ids.shape != action_type_ids.shape or action_noble_ids.shape != action_type_ids.shape:
+            raise ValueError("Action id tensors must share a shape.")
+
+
+def _transformer_encoder_layer(
+    hidden_size: int,
+    attention_heads: int,
+    feedforward_size: int,
+    dropout: float,
+) -> nn.TransformerEncoderLayer:
+    return nn.TransformerEncoderLayer(
+        d_model=hidden_size,
+        nhead=attention_heads,
+        dim_feedforward=feedforward_size,
+        dropout=dropout,
+        activation="gelu",
+        batch_first=True,
+    )
 
 
 class ValueMLP(nn.Module):

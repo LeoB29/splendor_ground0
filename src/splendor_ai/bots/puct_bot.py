@@ -503,7 +503,15 @@ class InformationSetPuctBot:
         if expansions:
             scored_batches = self._scorer.score_action_batches(
                 [
-                    (selected.state, selected.legal_actions or [])
+                    (
+                        selected.state,
+                        list(
+                            actions_by_canonical_successor_key(
+                                selected.state,
+                                selected.legal_actions or [],
+                            ).values()
+                        ),
+                    )
                     for selected in expansions
                 ]
             )
@@ -514,7 +522,12 @@ class InformationSetPuctBot:
                 scored_batches,
                 strict=True,
             ):
-                legal_actions = selected.legal_actions or []
+                legal_actions = list(
+                    actions_by_canonical_successor_key(
+                        selected.state,
+                        selected.legal_actions or [],
+                    ).values()
+                )
                 maximum = max(scores.values())
                 weights = [
                     math.exp(
@@ -530,17 +543,13 @@ class InformationSetPuctBot:
                         priors,
                         self._config.root_prior_mix,
                     )
-                edge_priors: dict[tuple[object, ...], float] = {}
-                for action, prior in zip(legal_actions, priors, strict=True):
-                    action_key = canonical_successor_action_key(selected.state, action)
-                    edge_priors[action_key] = edge_priors.get(action_key, 0.0) + prior
                 self._tree[selected.expansion_key] = _Node(
                     player_id=selected.state.current_player,
                     edges={
-                        action_key: _Edge(
+                        canonical_successor_action_key(selected.state, action): _Edge(
                             prior=prior
                         )
-                        for action_key, prior in edge_priors.items()
+                        for action, prior in zip(legal_actions, priors, strict=True)
                     },
                 )
                 stats.expansions += 1

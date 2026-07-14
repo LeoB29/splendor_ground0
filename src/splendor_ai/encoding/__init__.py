@@ -8,6 +8,15 @@ from .action_features import (
     encode_legal_action_features,
 )
 from .feature_utils import fit_feature_vector
+from .entity_encoding import (
+    ACTION_NUMERIC_SIZE,
+    ENTITY_NUMERIC_SIZE,
+    EntityActionEncoding,
+    EntityStateEncoding,
+    collate_entity_action_batch,
+    encode_canonical_action_entities,
+    encode_canonical_state_entities,
+)
 from .observation import (
     OBSERVATION_SIZE,
     ObservationTensor,
@@ -26,9 +35,13 @@ from .public_belief import (
 
 __all__ = [
     "ACTION_FEATURE_SIZE",
+    "ACTION_NUMERIC_SIZE",
+    "ENTITY_NUMERIC_SIZE",
     "OBSERVATION_SIZE",
     "ActionCodec",
     "ActionFeatureTensor",
+    "EntityActionEncoding",
+    "EntityStateEncoding",
     "ObservationTensor",
     "actions_by_canonical_descriptor",
     "actions_by_canonical_successor_key",
@@ -37,6 +50,9 @@ __all__ = [
     "canonical_public_belief_key",
     "canonical_successor_action_key",
     "canonical_successor_action_keys",
+    "collate_entity_action_batch",
+    "encode_canonical_action_entities",
+    "encode_canonical_state_entities",
     "encode_action_features",
     "encode_legal_action_features",
     "encode_public_observation",
