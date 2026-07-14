@@ -34,9 +34,10 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   frozen exclusively for legacy checkpoints; do not extend new work through it.
 - PUCT information-state keys and edges now use canonical public-belief and
   successor-action keys. Equivalent take/return encodings with the same net
-  state transition share one edge and aggregate their priors. This repairs a
-  search branching artifact but is not an engine-strength promotion; the next
-  task is a clean entity/action model on this contract.
+  state transition share one edge and are scored through one representative
+  action. This repairs a search branching artifact but is not an
+  engine-strength promotion; the next task is a clean entity/action model on
+  this contract.
 - A clean `CanonicalEntityActionScorerModel` is now available for that next
   training line. It consumes variable-length canonical state entities and
   legal-action entities directly, uses no positional embeddings, and has
