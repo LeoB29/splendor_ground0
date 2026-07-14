@@ -11,6 +11,7 @@ from typing import Callable
 
 from splendor_ai.bots import (
     CheckpointPolicyBot,
+    CanonicalEntityActionScorerBot,
     CheckpointValueEvaluator,
     GreedyHeuristicBot,
     LegalActionAttentionScorerBot,
@@ -30,6 +31,7 @@ MODEL_BOT_NAMES = (
     "LegalActionAttentionScorerBot",
     "LegalActionScorerBot",
     "LegalActionSetScorerBot",
+    "CanonicalEntityActionScorerBot",
     "PolicyGuidedSearchBot",
 )
 MODEL_KIND_CHOICES = (
@@ -37,6 +39,7 @@ MODEL_KIND_CHOICES = (
     "legal_action_attention_scorer",
     "legal_action_scorer",
     "legal_action_set_scorer",
+    "canonical_entity_action_scorer",
     "policy_guided_search",
 )
 
@@ -949,6 +952,8 @@ def _model_bot_for_checkpoint(
         return LegalActionAttentionScorerBot(checkpoint_path, device=device)
     if model_kind == "legal_action_set_scorer":
         return LegalActionSetScorerBot(checkpoint_path, device=device)
+    if model_kind == "canonical_entity_action_scorer":
+        return CanonicalEntityActionScorerBot(checkpoint_path, device=device)
     if model_kind == "policy_guided_search":
         value_evaluator = _build_value_evaluator(
             checkpoint_path=search_value_checkpoint,

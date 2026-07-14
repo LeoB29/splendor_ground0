@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from dataclasses import asdict
 from pathlib import Path
 
 import torch
+from torch.utils.data import Subset
 
 from splendor_ai.bots import GreedyHeuristicBot, ShallowSearchBot
 from splendor_ai.training.corpus import (
@@ -19,6 +21,7 @@ from splendor_ai.training.entity_action_supervised import (
     EntityActionReplayDataset,
     create_entity_action_replay_dataloader,
     fit_entity_action_scorer,
+    run_entity_action_epoch,
     split_entity_action_replay_dataset,
 )
 from splendor_ai.training.model import (
@@ -30,7 +33,7 @@ from splendor_ai.training.model import (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--games", type=int, default=120)
+    parser.add_argument("--games", type=int, default=50)
     parser.add_argument("--seed-start", type=int, default=70_000)
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -161,17 +164,42 @@ def main() -> None:
             output_dir / "canonical_entity_action_scorer_best.pt",
         )
     final_validation = artifacts.validation_metrics[-1] if artifacts.validation_metrics else None
-    gate_passed = bool(
+    validation_by_game = []
+    if isinstance(validation_dataset, Subset):
+        validation_seed_to_indices: dict[int, list[int]] = {}
+        for index in validation_dataset.indices:
+            seed = dataset.game_seed_for_index(int(index))
+            validation_seed_to_indices.setdefault(seed, []).append(int(index))
+        for seed, indices in sorted(validation_seed_to_indices.items()):
+            metrics = run_entity_action_epoch(
+                model,
+                create_entity_action_replay_dataloader(
+                    Subset(dataset, indices), args.batch_size, shuffle=False
+                ),
+                device=args.device,
+            )
+            validation_by_game.append({"game_seed": seed, **asdict(metrics)})
+    aggregate_beats_uniform = bool(
         final_validation is not None
         and final_validation.policy_loss < final_validation.uniform_policy_loss
+    )
+    individual_wins = sum(
+        item["policy_loss"] < item["uniform_policy_loss"]
+        for item in validation_by_game
+    )
+    individual_gate = bool(
+        len(validation_by_game) >= 3
+        and individual_wins >= math.ceil(0.75 * len(validation_by_game))
     )
     metrics_payload = {
         "train": [asdict(metric) for metric in artifacts.train_metrics],
         "validation": [asdict(metric) for metric in artifacts.validation_metrics],
+        "validation_by_game": validation_by_game,
         "best_epoch_index": artifacts.best_epoch_index,
         "gates": {
             "no_stalls_or_timeouts": True,
-            "held_out_policy_beats_uniform": gate_passed,
+            "held_out_policy_beats_uniform_aggregate": aggregate_beats_uniform,
+            "held_out_policy_beats_uniform_per_game": individual_gate,
         },
     }
     (output_dir / "canonical_entity_action_metrics.json").write_text(

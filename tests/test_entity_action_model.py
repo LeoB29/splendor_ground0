@@ -4,6 +4,7 @@ from dataclasses import asdict
 
 import torch
 
+from splendor_ai.bots import CanonicalEntityActionScorerBot
 from splendor_ai.bots.search_bot import CheckpointLegalActionPriorScorer
 from splendor_ai.encoding import (
     canonical_legal_action_descriptor,
@@ -108,3 +109,23 @@ def test_checkpoint_scorer_loads_canonical_entity_model(tmp_path) -> None:
     scores = CheckpointLegalActionPriorScorer(checkpoint_path).score_actions(state, actions)
 
     assert set(scores) == set(actions)
+
+
+def test_entity_checkpoint_bot_returns_a_legal_action(tmp_path) -> None:
+    model = _model()
+    checkpoint_path = tmp_path / "entity_bot.pt"
+    torch.save(
+        {
+            "model_kind": "canonical_entity_action_scorer",
+            "model_state_dict": model.state_dict(),
+            "model_config": asdict(model.config),
+        },
+        checkpoint_path,
+    )
+    env = SplendorEnv(seed=8)
+    state = env.initial_state()
+    actions = env.legal_actions(state)
+
+    chosen = CanonicalEntityActionScorerBot(checkpoint_path).choose_action(env, state, actions)
+
+    assert chosen in actions

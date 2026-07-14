@@ -4,6 +4,7 @@ from .base import Bot
 from .heuristic_bot import GreedyHeuristicBot
 from .model_bot import (
     CheckpointPolicyBot,
+    CanonicalEntityActionScorerBot,
     LegalActionAttentionScorerBot,
     LegalActionAttentionSamplingBot,
     LegalActionScorerBot,
@@ -22,6 +23,7 @@ from .search_bot import (
 __all__ = [
     "Bot",
     "CheckpointPolicyBot",
+    "CanonicalEntityActionScorerBot",
     "CheckpointLegalActionPriorScorer",
     "CheckpointValueEvaluator",
     "GreedyHeuristicBot",

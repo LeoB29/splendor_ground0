@@ -55,6 +55,18 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   search was rejected as a CPU corpus configuration after exceeding 15 minutes
   for 30 games without completing. Scale the verified depth1/one-
   determinization corpus to a game-held-out block before considering a GPU.
+- The scaled clean block is `outputs/canonical_entity_scale_004`: 50 fresh
+  rule-based legal games, 3,180 positions, zero stalls/timeouts, and 8
+  game-held-out validation games. The random 32-hidden entity model trained
+  four epochs reached aggregate held-out policy loss 2.953 versus uniform
+  3.406; all eight held-out games beat their own uniform baseline. Its first
+  strength readout is deliberately non-promotional: 15-5 versus Greedy, 5-15
+  versus the legal depth1 shallow-search teacher, and 3-17 versus legal `035`
+  on 20 games each (the `035` block used paired seeds). It is a viable clean
+  behavioral apprentice, not a champion. Do not scale pure imitation alone;
+  the next learning stage should use fresh full-support actor-critic rollouts
+  with a privileged training-only critic and a league including this snapshot,
+  the rule teachers, `016`, `035`, and PUCT variants.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their

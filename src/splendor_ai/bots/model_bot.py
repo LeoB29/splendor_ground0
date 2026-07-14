@@ -11,6 +11,8 @@ import torch
 from splendor_ai.diagnostics import is_progress_transition, state_signature
 from splendor_ai.encoding import (
     ActionCodec,
+    actions_by_canonical_successor_key,
+    collate_entity_action_batch,
     encode_legal_action_features,
     encode_public_observation_tensor,
     fit_feature_vector,
@@ -19,6 +21,8 @@ from splendor_ai.engine.actions import Action, ActionType
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import SplendorState
 from splendor_ai.training.model import (
+    CanonicalEntityActionScorerConfig,
+    CanonicalEntityActionScorerModel,
     LegalActionAttentionScorerConfig,
     LegalActionAttentionScorerModel,
     LegalActionScorerConfig,
@@ -270,6 +274,50 @@ class LegalActionScorerBot:
             best_row = int(torch.argmax(masked_scores, dim=1).item())
 
         return actions[best_row]
+
+
+class CanonicalEntityActionScorerBot:
+    """Greedy legal policy backed by a canonical entity/action checkpoint."""
+
+    def __init__(self, checkpoint_path: str | Path, device: str = "cpu") -> None:
+        self._checkpoint_path = Path(checkpoint_path)
+        self._device = device
+        checkpoint = torch.load(self._checkpoint_path, map_location=device, weights_only=True)
+        self._model = CanonicalEntityActionScorerModel(
+            CanonicalEntityActionScorerConfig(**checkpoint.get("model_config", {}))
+        )
+        self._model.load_state_dict(checkpoint["model_state_dict"])
+        self._model.to(device)
+        self._model.eval()
+
+    @property
+    def checkpoint_path(self) -> Path:
+        return self._checkpoint_path
+
+    @property
+    def loop_fallback_triggers(self) -> int:
+        return 0
+
+    def choose_action(
+        self,
+        env: SplendorEnv,
+        state: SplendorState,
+        legal_actions: list[Action] | None = None,
+    ) -> Action | None:
+        actions = legal_actions if legal_actions is not None else env.legal_actions(state)
+        if not actions:
+            return None
+        representatives = actions_by_canonical_successor_key(state, actions)
+        representative_actions = list(representatives.values())
+        batch = collate_entity_action_batch(
+            [(state, representative_actions)],
+            device=self._device,
+        )
+        with torch.no_grad():
+            scores, _value = self._model(**batch)
+            masked_scores = masked_legal_action_scores(scores, batch["action_mask"])
+            best_row = int(torch.argmax(masked_scores, dim=1).item())
+        return representative_actions[best_row]
 
 
 class LegalActionSetScorerBot:
