@@ -115,7 +115,7 @@ def test_information_key_hides_opponent_private_reserved_identity() -> None:
         RESERVE_SOURCE_DECK,
     )
     state_b.players[1].reserve_card(
-        Card("private-b", 3, "black", 5, {"white": 7}),
+        Card("private-b", 1, "black", 5, {"white": 7}),
         RESERVE_SOURCE_DECK,
     )
     codec = ActionCodec()

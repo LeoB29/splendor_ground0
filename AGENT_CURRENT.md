@@ -26,6 +26,17 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 
 ## Current Conclusions
 
+- Foundation reset is underway. `canonical_public_belief_key` is now the
+  versioned exact observer-relative contract for new search/training work: it
+  preserves public card identities (including purchased cards), preserves the
+  public tier of a blind reserve without exposing its identity, and ignores
+  incidental board/reserve/noble/deck ordering. The 295-wide tensor remains
+  frozen exclusively for legacy checkpoints; do not extend new work through it.
+- PUCT information-state keys and edges now use canonical public-belief and
+  successor-action keys. Equivalent take/return encodings with the same net
+  state transition share one edge and aggregate their priors. This repairs a
+  search branching artifact but is not an engine-strength promotion; the next
+  task is a clean entity/action model on this contract.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their

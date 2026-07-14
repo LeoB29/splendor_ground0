@@ -10,7 +10,13 @@ import random
 import time
 from typing import Any
 
-from splendor_ai.encoding import ActionCodec, encode_public_observation_tensor
+from splendor_ai.encoding import (
+    ActionCodec,
+    actions_by_canonical_successor_key,
+    canonical_public_belief_key,
+    canonical_successor_action_key,
+    canonical_successor_action_keys,
+)
 from splendor_ai.engine.actions import Action, ActionType
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import (
@@ -67,7 +73,7 @@ class _Edge:
 @dataclass(slots=True)
 class _Node:
     player_id: int
-    edges: dict[int, _Edge]
+    edges: dict[tuple[object, ...], _Edge]
     visits: int = 0
 
 
@@ -115,7 +121,7 @@ class PuctSearchStats:
 class _PathStep:
     node: _Node
     edge: _Edge
-    action_index: int
+    action_key: tuple[object, ...]
     parent_player: int
     child_player: int
     virtual_value: float
@@ -231,6 +237,7 @@ class InformationSetPuctBot:
         self._n_step_leaf_cache.clear()
         started = time.perf_counter()
         root_key = information_state_key(state, root_player, actions, self._codec)
+        root_actions_by_key = actions_by_canonical_successor_key(state, actions)
         if (
             not self._config.reuse_tree
             or (
@@ -302,7 +309,10 @@ class InformationSetPuctBot:
             for selected, leaf_value in zip(pending, values, strict=True):
                 root_value = self._backup(selected.path, leaf_value)
                 if selected.path:
-                    root_action_index = selected.path[0].action_index
+                    root_action = root_actions_by_key.get(selected.path[0].action_key)
+                    if root_action is None:
+                        continue
+                    root_action_index = self._codec.encode(state, root_action)
                     stats.root_action_values_by_determinization.setdefault(
                         root_action_index,
                         [],
@@ -312,27 +322,24 @@ class InformationSetPuctBot:
         root_node = self._tree.get(root_key)
         if root_node is None:
             return actions[0]
-        action_by_index = {
-            self._codec.encode(state, action): action
-            for action in actions
-        }
+        action_by_key = actions_by_canonical_successor_key(state, actions)
         available_edges = {
-            action_index: edge
-            for action_index, edge in root_node.edges.items()
-            if action_index in action_by_index
+            action_key: edge
+            for action_key, edge in root_node.edges.items()
+            if action_key in action_by_key
         }
-        best_index, _best_edge = max(
+        best_key, _best_edge = max(
             available_edges.items(),
             key=lambda item: (item[1].visits, item[1].q, item[1].prior),
         )
-        stats.selected_action_index = best_index
+        stats.selected_action_index = self._codec.encode(state, action_by_key[best_key])
         stats.root_edge_stats = {
-            action_index: {
+            self._codec.encode(state, action_by_key[action_key]): {
                 "visits": edge.visits,
                 "q": edge.q,
                 "prior": edge.prior,
             }
-            for action_index, edge in available_edges.items()
+            for action_key, edge in available_edges.items()
         }
         root_prior_probabilities = [edge.prior for edge in available_edges.values()]
         total_root_visits = sum(edge.visits for edge in available_edges.values())
@@ -359,7 +366,7 @@ class InformationSetPuctBot:
         self._last_action_metadata = {
             "root_visit_distribution": [
                 {
-                    "action_index": action_index,
+                        "action_index": action_index,
                     "visits": edge.visits,
                     "probability": (
                         edge.visits / total_root_visits
@@ -367,7 +374,13 @@ class InformationSetPuctBot:
                         else 0.0
                     ),
                 }
-                for action_index, edge in sorted(available_edges.items())
+                for action_index, edge in sorted(
+                    (
+                        (self._codec.encode(state, action_by_key[action_key]), edge)
+                        for action_key, edge in available_edges.items()
+                    ),
+                    key=lambda item: item[0],
+                )
             ],
             "root_prior_entropy": stats.root_prior_entropy,
             "root_prior_normalized_entropy": stats.root_prior_normalized_entropy,
@@ -383,7 +396,7 @@ class InformationSetPuctBot:
         stats.retained_tree_nodes_end = len(self._tree)
         self._last_search_stats = stats
         self._search_history.append(stats)
-        return action_by_index[best_index]
+        return action_by_key[best_key]
 
     def _select_leaf(
         self,
@@ -427,10 +440,7 @@ class InformationSetPuctBot:
                     legal_actions=legal_actions,
                 )
             stats.nodes_reused += 1
-            action_by_index = {
-                self._codec.encode(state, action): action
-                for action in legal_actions
-            }
+            action_by_key = actions_by_canonical_successor_key(state, legal_actions)
             parent_q = (
                 sum(edge.value_sum for edge in node.edges.values())
                 / sum(edge.visits for edge in node.edges.values())
@@ -439,9 +449,9 @@ class InformationSetPuctBot:
             )
             sqrt_visits = math.sqrt(max(node.visits, 1))
 
-            def selection_score(item: tuple[int, _Edge]) -> float:
-                action_index, edge = item
-                if action_index not in action_by_index:
+            def selection_score(item: tuple[tuple[object, ...], _Edge]) -> float:
+                action_key, edge = item
+                if action_key not in action_by_key:
                     return -math.inf
                 q = (
                     edge.q
@@ -456,8 +466,8 @@ class InformationSetPuctBot:
                 )
                 return q + exploration
 
-            action_index, edge = max(node.edges.items(), key=selection_score)
-            next_state = env.step(state, action_by_index[action_index])
+            action_key, edge = max(node.edges.items(), key=selection_score)
+            next_state = env.step(state, action_by_key[action_key])
             virtual_value = (
                 edge.q
                 if edge.visits
@@ -470,7 +480,7 @@ class InformationSetPuctBot:
                 _PathStep(
                     node=node,
                     edge=edge,
-                    action_index=action_index,
+                    action_key=action_key,
                     parent_player=state.current_player,
                     child_player=next_state.current_player,
                     virtual_value=virtual_value,
@@ -520,17 +530,17 @@ class InformationSetPuctBot:
                         priors,
                         self._config.root_prior_mix,
                     )
+                edge_priors: dict[tuple[object, ...], float] = {}
+                for action, prior in zip(legal_actions, priors, strict=True):
+                    action_key = canonical_successor_action_key(selected.state, action)
+                    edge_priors[action_key] = edge_priors.get(action_key, 0.0) + prior
                 self._tree[selected.expansion_key] = _Node(
                     player_id=selected.state.current_player,
                     edges={
-                        self._codec.encode(selected.state, action): _Edge(
+                        action_key: _Edge(
                             prior=prior
                         )
-                        for action, prior in zip(
-                            legal_actions,
-                            priors,
-                            strict=True,
-                        )
+                        for action_key, prior in edge_priors.items()
                     },
                 )
                 stats.expansions += 1
@@ -848,9 +858,11 @@ def information_state_key(
     legal_actions: list[Action],
     codec: ActionCodec,
 ) -> tuple[Any, ...]:
-    observation = encode_public_observation_tensor(state, player_id)
-    legal_indices = tuple(codec.legal_action_indices(state, legal_actions))
-    return (player_id, observation.vector, legal_indices)
+    del codec  # Retained for the public function's backwards-compatible call shape.
+    return (
+        canonical_public_belief_key(state, player_id),
+        canonical_successor_action_keys(state, legal_actions, player_id),
+    )
 
 
 def legal_heuristic_value(
