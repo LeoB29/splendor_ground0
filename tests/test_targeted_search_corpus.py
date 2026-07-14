@@ -67,7 +67,7 @@ def test_targeted_search_corpus_writes_search_relabel_rows(tmp_path, monkeypatch
     )
     monkeypatch.setattr(
         "splendor_ai.training.run_targeted_search_corpus._build_search_bot",
-        lambda config, row_offset: FakeSearchBot(),
+        lambda config, row_offset, action_prior=None: FakeSearchBot(),
     )
 
     summary = build_targeted_search_corpus(
@@ -93,3 +93,52 @@ def test_targeted_search_corpus_writes_search_relabel_rows(tmp_path, monkeypatch
     assert len(rows[0]["observation_vector"]) == OBSERVATION_SIZE
     assert len(rows[0]["search_action_scores"]) == 2
     assert json.loads(summary_path.read_text(encoding="utf-8"))["rows_written"] == 2
+
+
+def test_targeted_search_corpus_filters_by_player_and_phase(tmp_path, monkeypatch) -> None:
+    replay = collect_game_replay(
+        bot_seat_0=RandomLegalBot(seed=11),
+        bot_seat_1=RandomLegalBot(seed=12),
+        seed=13,
+        max_turns=4,
+        include_state_snapshots=True,
+    )
+    replay_path = tmp_path / "replay.jsonl"
+    output_path = tmp_path / "targeted.jsonl"
+    summary_path = tmp_path / "summary.json"
+    export_replay_games_jsonl(replay_path, [replay])
+
+    monkeypatch.setattr(
+        "splendor_ai.training.run_targeted_search_corpus._load_policy_scorer",
+        lambda config: FakePolicyScorer(),
+    )
+    monkeypatch.setattr(
+        "splendor_ai.training.run_targeted_search_corpus._build_search_bot",
+        lambda config, row_offset, action_prior=None: FakeSearchBot(),
+    )
+
+    summary = build_targeted_search_corpus(
+        TargetedSearchCorpusConfig(
+            checkpoint=tmp_path / "unused.pt",
+            model_kind="legal_action_scorer",
+            replay_paths=(replay_path,),
+            output_path=output_path,
+            summary_path=summary_path,
+            min_search_margin=100.0,
+            target_action_types=("TAKE_TOKENS", "RESERVE_VISIBLE", "RESERVE_DECK", "BUY_VISIBLE", "BUY_RESERVED"),
+            late_buy_turn_min=0,
+            player_id_filter=(1,),
+            phase_filter=("early",),
+            training_weight=2.0,
+        )
+    )
+
+    rows = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+
+    assert summary["rows_seen"] == 4
+    assert summary["rows_skipped_by_player_id"] == 2
+    assert summary["rows_skipped_by_phase"] == 0
+    assert summary["rows_written"] == 2
+    assert set(summary["written_by_seat"]) == {"1"}
+    assert all(row["player_id"] == 1 for row in rows)
+    assert all(row["training_weight"] == 2.0 for row in rows)

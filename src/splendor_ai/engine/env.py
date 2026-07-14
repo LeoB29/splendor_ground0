@@ -23,7 +23,14 @@ from .constants import (
     VISIBLE_CARDS_PER_TIER,
 )
 from .data import build_base_deck_by_tier, build_base_nobles
-from .state import Card, PlayerState, SplendorState, empty_token_bank
+from .state import (
+    Card,
+    PlayerState,
+    RESERVE_SOURCE_DECK,
+    RESERVE_SOURCE_VISIBLE,
+    SplendorState,
+    empty_token_bank,
+)
 
 
 def _token_sort_key(color: str) -> int:
@@ -422,7 +429,7 @@ class SplendorEnv:
             raise ValueError("Reserve visible action requires tier and market index.")
 
         card = state.visible_tier_cards[action.tier].pop(action.market_index)
-        player.reserved_cards.append(card)
+        player.reserve_card(card, RESERVE_SOURCE_VISIBLE)
         self._draw_replacement_card(state, action.tier)
         self._apply_take_action(state, player, action)
 
@@ -436,7 +443,7 @@ class SplendorEnv:
             raise ValueError("Reserve deck action requires a tier.")
 
         card = state.hidden_tier_decks[action.tier].pop(0)
-        player.reserved_cards.append(card)
+        player.reserve_card(card, RESERVE_SOURCE_DECK)
         state.deck_counts[action.tier] = len(state.hidden_tier_decks[action.tier])
         self._apply_take_action(state, player, action)
 
@@ -464,7 +471,7 @@ class SplendorEnv:
         if action.reserved_index is None:
             raise ValueError("Buy reserved action requires reserved index.")
 
-        card = player.reserved_cards.pop(action.reserved_index)
+        card = player.pop_reserved_card(action.reserved_index)
         self._pay_tokens(state, player, action.spend_tokens)
         self._award_card(player, card)
         return card

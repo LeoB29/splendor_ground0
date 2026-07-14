@@ -59,6 +59,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exclude-stalled-games", action="store_true")
     parser.add_argument("--exclude-timeout-games", action="store_true")
     parser.add_argument("--max-game-model-loop-fallback-triggers", type=int, default=None)
+    parser.add_argument(
+        "--outcome-loss-weight",
+        type=float,
+        default=0.0,
+        help="Optional cross-entropy loss weight for the win/draw/loss outcome head.",
+    )
+    parser.add_argument(
+        "--min-turn-index",
+        type=int,
+        default=None,
+        help="Only train/evaluate rows with turn_index >= this value.",
+    )
+    parser.add_argument(
+        "--max-turn-index",
+        type=int,
+        default=None,
+        help="Only train/evaluate rows with turn_index <= this value.",
+    )
     return parser
 
 
@@ -76,8 +94,14 @@ def _build_model(args: argparse.Namespace) -> ValueMLP:
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     model_config = ValueModelConfig(**checkpoint.get("model_config", {}))
     model = ValueMLP(model_config)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    incompatible = model.load_state_dict(checkpoint["model_state_dict"], strict=False)
     print(f"[value-train] initialized model from checkpoint: {checkpoint_path}")
+    if incompatible.missing_keys or incompatible.unexpected_keys:
+        print(
+            "[value-train] checkpoint compatibility:"
+            f" missing={list(incompatible.missing_keys)}"
+            f" unexpected={list(incompatible.unexpected_keys)}"
+        )
     return model
 
 
@@ -136,9 +160,12 @@ def _train_config_payload(args: argparse.Namespace) -> dict[str, object]:
         "include_stalled_games": not args.exclude_stalled_games,
         "include_timed_out_games": not args.exclude_timeout_games,
         "max_model_loop_fallback_triggers": args.max_game_model_loop_fallback_triggers,
+        "outcome_loss_weight": args.outcome_loss_weight,
         "validation_fraction": args.validation_fraction,
         "validation_seed": args.validation_seed,
         "validation_split_unit": args.validation_split_unit,
+        "min_turn_index": args.min_turn_index,
+        "max_turn_index": args.max_turn_index,
         "log_every_batches": args.log_every_batches,
     }
 
@@ -157,7 +184,10 @@ def main() -> None:
         f" epochs={args.epochs}"
         f" batch_size={args.batch_size}"
         f" margin_scale={args.margin_scale}"
+        f" outcome_loss_weight={args.outcome_loss_weight}"
         f" validation_split_unit={args.validation_split_unit}"
+        f" min_turn_index={args.min_turn_index}"
+        f" max_turn_index={args.max_turn_index}"
     )
     config = SupervisedTrainConfig(
         batch_size=args.batch_size,
@@ -179,6 +209,8 @@ def main() -> None:
         include_timed_out_games=config.include_timed_out_games,
         max_model_loop_fallback_triggers=config.max_model_loop_fallback_triggers,
         margin_scale=args.margin_scale,
+        min_turn_index=args.min_turn_index,
+        max_turn_index=args.max_turn_index,
     )
     train_dataset, validation_dataset = split_value_replay_dataset(
         dataset,
@@ -213,6 +245,7 @@ def main() -> None:
         model=model,
         log_every_batches=args.log_every_batches,
         batch_progress_callback=_print_batch_progress,
+        outcome_loss_weight=args.outcome_loss_weight,
     )
     elapsed = time.perf_counter() - start_time
 
@@ -245,9 +278,12 @@ def main() -> None:
             "validation_seed": args.validation_seed,
             "validation_split_unit": args.validation_split_unit,
             "margin_scale": args.margin_scale,
+            "outcome_loss_weight": args.outcome_loss_weight,
             "excluded_stalled_games": args.exclude_stalled_games,
             "excluded_timeout_games": args.exclude_timeout_games,
             "max_game_model_loop_fallback_triggers": args.max_game_model_loop_fallback_triggers,
+            "min_turn_index": args.min_turn_index,
+            "max_turn_index": args.max_turn_index,
         },
         "checkpoints": {
             "final_checkpoint_path": checkpoint_path.name,

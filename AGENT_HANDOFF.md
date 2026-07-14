@@ -1,5 +1,9 @@
 # Agent Handoff
 
+Short current-state handoff: read `AGENT_CURRENT.md` first.
+
+This file is now the long historical record of the project. Keep detailed experiment history here, but put the active goals/takeaways/next steps in `AGENT_CURRENT.md`.
+
 This file is the shortest path for a new agent to get productive in this repo.
 
 ## Objective
@@ -68,6 +72,156 @@ Infra:
 
 ## Current Reality
 
+Latest continuation:
+
+- Added value-risk audit tooling:
+  - `run_value_risk_audit.py`
+  - `src/splendor_ai/training/run_value_risk_audit.py`
+  - `tests/test_value_risk_audit.py`
+- Purpose: compare a neural scorer's top action against plain PGS, while using `value_model_006` only as offline outcome metadata and as a separate "would outcome-PGS change this?" diagnostic. This avoids treating the value head as a live teacher after the failed seat1 confirmation.
+- Focused verification passed in the restored Anaconda environment with `PYTHONPATH=src`:
+  - `python -m pytest -q tests\test_value_risk_audit.py tests\test_search_value_diff.py tests\test_policy_search_disagreement.py --basetemp .codex_pytest_tmp_value_risk`
+  - result: 6 passed
+  - `python -m py_compile run_value_risk_audit.py src\splendor_ai\training\run_value_risk_audit.py`
+- Ran bounded depth-2 late-seat1 audits over the current-generation value corpus (`max_rows=1200`, analyzed 234 filtered rows):
+  - `outputs/analysis/value_risk_audit_022_late40_seat1_sample1200.json`
+  - `outputs/analysis/value_risk_audit_022_late40_seat1_sample1200_rows.jsonl`
+  - `outputs/analysis/value_risk_audit_016_late40_seat1_sample1200.json`
+  - `outputs/analysis/value_risk_audit_016_late40_seat1_sample1200_rows.jsonl`
+- Headline result:
+  - `022` vs plain PGS: 53/234 disagreements (`22.65%`), mean plain-PGS regret of policy action `372.5`, max `2984.0`.
+  - `016` vs plain PGS: 56/234 disagreements (`23.93%`), mean plain-PGS regret of policy action `359.3`, max `3090.0`.
+  - Outcome-PGS changed the plain-PGS action on the same 41/234 rows (`17.52%`) for both audits, matching the earlier search-value diff.
+  - Value/outcome metadata rarely confirmed the neural disagreement: policy matched outcome-PGS on only 7/53 `022` disagreements and 8/56 `016` disagreements.
+  - `016` and `022` chose the same top action on 215/234 rows. They shared 44 plain-PGS disagreement rows, so the issue is mostly inherited/shared neural-vs-PGS behavior, not a new `022`-specific failure.
+- Interpretation:
+  - Do not train a targeted correction model from this audit. The value-confirmed correction set is only 7-8 rows, far below the "few hundred clean rows" threshold and not reliable enough for a supervised/ranking run.
+  - The biggest high-regret neural-vs-PGS disagreements are usually not supported by outcome-PGS; in many cases outcome-PGS agrees with plain PGS against the neural policy.
+  - The next useful step should be either a broader, non-value teacher improvement loop or a more direct PGS-vs-policy disagreement diagnosis, not a value-risk targeted training run.
+- Follow-up non-value PGS disagreement diagnosis:
+  - Extended `run_policy_search_disagreement.py` / `src/splendor_ai/training/run_policy_search_disagreement.py` with:
+    - optional `--search-policy-prior-checkpoint`, `--search-policy-prior-device`, and `--search-policy-prior-weight` so it can compare against PGS rather than only unguided shallow search;
+    - `--player-id-filter`, `--phase-filter`, and `--min-turn-index`;
+    - score-margin buckets in the summary.
+  - Focused tests passed for the extended analyzer.
+  - Ran PGS016 teacher diagnostics with depth 2, weight 3000, no value head:
+    - `outputs/analysis/policy_pgs016_disagreement_022_late_bothseats_sample1800.json`
+    - `outputs/analysis/policy_pgs016_disagreement_016_late_bothseats_sample1800.json`
+    - `outputs/analysis/policy_pgs016_disagreement_022_allphase_sample1200.json`
+    - `outputs/analysis/policy_pgs016_disagreement_016_allphase_sample1200.json`
+  - Late/both-seat sample, `min_turn_index=40`, 692 analyzed:
+    - `022`: agreement `0.7486`, 174 disagreements, 7 missing from searched candidates.
+    - `016`: agreement `0.7182`, 195 disagreements, 1 missing from searched candidates.
+    - Seat split for `022`: seat0 agreement `0.7312`, seat1 `0.7659`.
+    - Seat split for `016`: seat0 agreement `0.7197`, seat1 `0.7168`.
+    - Interpretation: late seat1 is not where `022` looks worse against PGS016; `022` is actually more PGS-aligned there than `016`.
+  - All-phase sample, 1,200 analyzed:
+    - `022`: agreement `0.7067`, 352 disagreements.
+    - `016`: agreement `0.7150`, 342 disagreements.
+    - `022` phase agreement: early `0.6048`, mid `0.7370`, late `0.7812`.
+    - `016` phase agreement: early `0.6371`, mid `0.7407`, late `0.7674`.
+    - Main `022` weakness versus PGS016 is early action selection, especially token-taking and reserve-choice buckets, not late seat1 race decisions.
+    - Action-type buckets with weakest `022` all-phase agreement:
+      - `TAKE_TOKENS`: n=220, agreement `0.5364`.
+      - `RESERVE_DECK`: n=85, agreement `0.5647`.
+      - `RESERVE_VISIBLE`: n=172, agreement `0.5872`.
+    - Common off-diagonal mismatches for `022`: `RESERVE_VISIBLE -> RESERVE_DECK`, `BUY_RESERVED -> BUY_VISIBLE`, `RESERVE_DECK -> RESERVE_VISIBLE`.
+  - Current conclusion:
+    - Do not train another late seat1/value-targeted correction.
+    - If doing a policy improvement run next, make it a broad non-value PGS/ranking distillation experiment with emphasis on early token/reserve decisions, not a seat1 late-race patch.
+- Early token/reserve PGS distillation experiment completed as `028`:
+  - Added relabel filters to `run_improve_replay_actions.py` / `src/splendor_ai/training/improve_replay_actions.py`:
+    - `--min-turn-index`
+    - `--max-turn-index`
+    - `--action-type-filter`
+    - `--action-type-filter-scope original|selected|either`
+  - Focused relabel tests passed.
+  - Generated focused non-value PGS016 corpus:
+    - `data/corpus_pgs016_early_token_reserve_028/replays.jsonl`
+    - `data/corpus_pgs016_early_token_reserve_028/summary.json`
+    - Inputs: current-generation value league replay rows, bounded to first 6,000 rows read.
+    - Filters: `turn_index <= 39`, action type filter `TAKE_TOKENS RESERVE_VISIBLE RESERVE_DECK`, scope `either`.
+    - Teacher: PGS016, depth 2, prior weight 3000, no value head.
+    - Rows written: 2,053.
+    - Changed by PGS: 789; unchanged anchors: 1,264.
+    - Composition: mostly turns 0-19; selected actions were `TAKE_TOKENS` 995, `RESERVE_VISIBLE` 569, `RESERVE_DECK` 482, `BUY_VISIBLE` 7.
+    - Main changed transitions: `RESERVE_VISIBLE -> RESERVE_DECK` 165 and `RESERVE_DECK -> RESERVE_VISIBLE` 138.
+  - Trained:
+    - `outputs/legal_action_scorer_028_early_pgs_distill/legal_action_attention_scorer_best.pt`
+    - Parent: `outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt`
+    - Architecture: attention.
+    - Device: CPU because CUDA was not visible in this restored shell.
+    - Data: six broad current-generation replay shards plus the focused corpus repeated twice.
+    - 3 epochs, lr `1e-4`, value loss `0.0`, search distill loss `0.05`, distill temperature `1000`.
+    - Dataset: 23,390 samples; best validation checkpoint epoch 2; validation acc `0.7139`.
+  - PGS016 agreement diagnostics:
+    - All-phase 1,200-row sample:
+      - `016`: agreement `0.7150`.
+      - `022`: agreement `0.7067`.
+      - `028`: agreement `0.7200`.
+      - `028` fixed the early alignment regression: early agreement `0.6371` versus `022` early `0.6048`.
+      - `028` improved `RESERVE_VISIBLE` agreement from `0.5872` to `0.6471`; `RESERVE_DECK` from `0.5647` to `0.5761`; `TAKE_TOKENS` stayed `0.5318`.
+    - Late/both-seat 692-row sample:
+      - `016`: agreement `0.7182`.
+      - `022`: agreement `0.7486`.
+      - `028`: agreement `0.7529`.
+  - Benchmarks:
+    - `028` vs `022`, 50 games, seed 28000: `24-25-1`; no stalls/timeouts/fallbacks. Candidate by seat: seat0 `14/25`, seat1 `10/25`.
+    - `028` vs `016`, 50 games, seed 28100: `25-25-0`; no stalls/timeouts/fallbacks. Candidate by seat: seat0 `13/25`, seat1 `12/25`.
+    - Search opponent, same 30-game block seed 28200:
+      - `028`: `12-18-0`, no stalls/timeouts/fallbacks; model seat0 `5/15`, seat1 `7/15`.
+      - `022`: `18-11-1`, no stalls/timeouts/fallbacks; model seat0 `10/15`, seat1 `8/15`.
+      - `016`: `12-17-1`, no stalls/timeouts/fallbacks; model seat0 `7/15`, seat1 `5/15`.
+  - Conclusion:
+    - `028` is not promotable. It achieved the intended PGS-alignment diagnostic improvement, but it regressed sharply versus search compared with `022`.
+    - The run suggests PGS-alignment alone is an insufficient objective: it can move supervised diagnostics while weakening game strength.
+    - Do not scale this exact early token/reserve distillation recipe. If continuing from here, either analyze why `022` beats search despite lower all-phase PGS agreement, or use actual game-strength gates as the optimization target rather than PGS agreement.
+- `022` vs `028` regression audit on the search benchmark block:
+  - Added a root wrapper `run_policy_diff_against_teacher.py`.
+  - Extended `src/splendor_ai/training/run_policy_diff_against_teacher.py` with:
+    - `teacher_source="search"` for live unguided shallow-search teacher comparisons;
+    - `--game-seed-filter`;
+    - `--model-turns-only`.
+  - Added `tests/test_policy_diff_against_teacher.py`; focused test passed.
+  - Differential seeds from the shared 30-game search block seed 28200 where `022` beat search and `028` lost search:
+    - `28200, 28204, 28206, 28207, 28208, 28212, 28215, 28218, 28220, 28227`.
+  - Regenerated faithful snapshot traces for the same search block:
+    - `data/corpus_regression_022_vs_search_seed28200_snapshots/`
+      - 30 games, 1,968 rows, 0 stalls/timeouts/fallbacks.
+      - Reproduced benchmark result: model `18-11-1` vs search.
+    - `data/corpus_regression_028_vs_search_seed28200_snapshots/`
+      - 30 games, 1,936 rows, 0 stalls/timeouts/fallbacks.
+      - Reproduced benchmark result: model `12-18-0` vs search.
+  - Ran policy diffs on model turns only, before=`022`, after=`028`, teacher=`search`:
+    - `outputs/analysis/policy_diff_022_to_028_on_022_search_wins_diffseeds.json`
+    - `outputs/analysis/policy_diff_022_to_028_on_028_search_losses_diffseeds.json`
+    - Derived summary:
+      - `outputs/analysis/policy_diff_022_028_search_regression_derived_summary.json`
+  - On the `022` winning trajectories:
+    - 340 model turns.
+    - `022` search-teacher match rate `0.5882`.
+    - `028` search-teacher match rate `0.5794`.
+    - Top-action agreement `0.8941` (about 36 changed model turns).
+    - Early phase was where most changes occurred: early top-action agreement `0.75`; mid `0.9533`; late `0.9556`.
+    - Notable losses were early `RESERVE_VISIBLE` positions: search-teacher `RESERVE_VISIBLE:early` match dropped from `0.3824` to `0.2941`, with 4 after-teacher losses.
+  - On the `028` losing trajectories:
+    - 320 model turns.
+    - `022` search-teacher match rate `0.4844`.
+    - `028` search-teacher match rate `0.4969`.
+    - Top-action agreement `0.8594` (about 45 changed model turns).
+    - This means the actual losing trajectories are not explained by `028` simply disagreeing more with immediate shallow search; if anything it matches the one-ply/depth-2 teacher slightly more often on those states.
+  - Tempo/conversion extraction on the 10 differential seeds:
+    - `022` average model score `16.3`; search score `11.6`.
+    - `028` average model score `9.6`; search score `15.6`.
+    - First buy turn was the same on average: `7.5`.
+    - First scoring buy was slightly earlier for `028` (`32.1`) than `022` (`34.5`), so the issue is not simply delayed first scoring.
+    - `022`: average buys `21.1`, reserves `7.4`, scoring buys `7.4`, bought points `16.3`.
+    - `028`: average buys `18.8`, reserves `8.1`, scoring buys `5.2`, bought points `9.6`.
+  - Current interpretation:
+    - `028` learned the targeted early token/reserve alignment but seems to hurt the conversion pipeline after the opening: it reserves a little more, buys fewer total cards, and especially buys far fewer point-scoring cards.
+    - The regression is not primarily late seat1, not loop/fallback related, and not just "worse immediate search agreement."
+    - Do not train more early reserve/token PGS imitation. The next useful diagnostic should focus on conversion efficiency: how early reserves/takes affect later scoring-buy count and bought points, and why `022` preserves that better than `028`.
+
 The warm-start pipeline is in a stronger place than the prior handoff. Continued sharded `search:greedy` corpus scaling plus multi-corpus supervised training produced a new local champion checkpoint, and a narrow inference-only loop fallback now mitigates the rare checkpoint repetition failures seen in greedy benchmarks.
 
 Strategic assessment:
@@ -77,6 +231,139 @@ Strategic assessment:
 - Splendor is not Go: it has hidden deck/refill uncertainty, structured economic actions, tactical tempo, and a much more irregular action space. AlphaGo is a useful reference for the overall loop of policy/value learning plus search, but the architecture should be adapted rather than copied.
 - The likely superhuman path is: keep the exact simulator and benchmark discipline, harvest one or two more small gated warm-start improvements if they keep working, then pivot toward a structured legal-action scorer and self-play/league training against historical checkpoints and stronger search baselines.
 - Greedy is no longer a sufficient long-term benchmark. Keep it as a sanity check, but champion promotion should increasingly depend on stronger tuned search opponents, previous neural champions, fallback-trigger counts, and eventually human/expert-style evaluation.
+
+Current-generation value experiment status:
+
+- Added reproducible value-blended search plumbing to the main CLIs:
+  - `run_benchmark.py` now accepts `--search-value-checkpoint`, `--search-value-device`, `--search-value-weight`, and `--search-value-scale` for `--model-kind policy_guided_search`.
+  - `run_replay_corpus.py` accepts the same `--search-value-*` flags for `search` and `policy_guided_search` replay actors and records them in metadata.
+  - `run_improve_replay_actions.py` accepts `--value-checkpoint`, `--value-device`, `--value-weight`, and `--value-scale` so ranking/distillation rows can use the same value-blended teacher.
+- Generated clean current-generation value corpus `data/corpus_value_currentgen_004/`:
+  - 300 games, 19,284 replay rows, all with state snapshots.
+  - Shards: `016_vs_022`, `016_vs_search`, `022_vs_search`, `pgs016_vs_search`, `016_vs_pgs016`, `022_vs_pgs016`.
+  - Seeds 90000-90299, `--source-type currentgen_value_league`, `--swap-seats`.
+  - Aggregate hygiene: 0 stalled games, 0 timed-out games, 0 loop-fallback triggers.
+- Trained `outputs/value_model_004_currentgen/value_model_best.pt`:
+  - 19,284 samples, 17,328 train / 1,956 game-heldout validation, 8 CPU epochs.
+  - Best validation checkpoint was epoch 1.
+  - Final train metrics overfit heavily (`train_sign_acc=0.976`, `train_pearson=0.984`), but validation was weak (`mse=0.235`, `mae=0.393`, `sign_acc=0.556`, `pearson=0.176`).
+- Swept PGS016 + `value_model_004_currentgen` vs plain shallow search on seed block 90300, 20 games each:
+  - weight 0.00: 11-9-0, avg margin +1.70; seat0 6-4 margin +24, seat1 5-5 margin +10.
+  - weight 0.05: 8-12-0, avg margin -2.50; seat0 3-7 margin -44, seat1 5-5 margin -6.
+  - weight 0.10: 4-16-0, avg margin -5.15; seat0 1-9 margin -69, seat1 3-7 margin -34.
+  - weight 0.25: 11-9-0, avg margin -0.05; seat0 5-5 margin -8, seat1 6-4 margin +7.
+  - All sweep runs had 0 stalls and 0 timeouts.
+- Conclusion:
+  - Do not generate the 500-1,000 broad value-blended PGS games from this value model.
+  - The explicit scaling gate was not met: value-blended PGS did not beat plain PGS; the only matching win-rate point (`0.25`) lost the margin advantage.
+  - Best next technical step is value-target/validation work before another value-search generation loop: inspect phase-bucket value error, late-state-only value training, or outcome targets that reduce early-game noise. Broad PGS generation should wait for a value blend that improves plain PGS on at least a 50-100 game confirmation block.
+- Follow-up value diagnostics / late-only probe:
+  - Added `run_value_diagnostics.py` and module `src/splendor_ai/training/run_value_diagnostics.py`.
+    - Reports overall and bucketed value metrics by phase, turn band, seat, source, actor, current score, opponent score, race state, current score margin, and target margin.
+    - Can run against `all`, `train`, or reconstructed held-out `validation` split.
+  - Added value turn filters:
+    - `ValueReplayDataset(min_turn_index=..., max_turn_index=...)`
+    - `run_value_supervised.py --min-turn-index/--max-turn-index`
+    - `run_value_evaluate.py --min-turn-index/--max-turn-index`
+  - Added value-blend turn gates to search:
+    - `ShallowSearchBot(value_min_turn_index=..., value_max_turn_index=...)`
+    - benchmark/replay/relabel CLIs expose corresponding `--search-value-min-turn-index` / `--search-value-max-turn-index` or `--value-min-turn-index` / `--value-max-turn-index`.
+  - Diagnostic report for `value_model_004_currentgen`:
+    - `outputs/analysis/value_model_004_currentgen_validation_diagnostics.json`
+    - Held-out validation split, 1,956 samples: mse `0.2145`, mae `0.3838`, sign acc `0.5573`, Pearson `0.1319`.
+    - Phase buckets showed late positions are more learnable:
+      - early: n=600, mae `0.404`, sign `0.525`, Pearson `0.035`
+      - mid: n=900, mae `0.393`, sign `0.556`, Pearson `0.121`
+      - late: n=456, mae `0.338`, sign `0.603`, Pearson `0.282`
+    - Major bias: positions where the actor is already far ahead were badly underpredicted (`current_score_margin=ahead_5plus`: sign `0.273`, bias `-0.445`).
+  - Trained late-only value model:
+    - `outputs/value_model_005_late40_currentgen/value_model_best.pt`
+    - Same current-generation corpus, `--min-turn-index 40`, 7,284 samples, 6,528 train / 756 game-heldout validation, 8 epochs.
+    - Best epoch 8; validation mse `0.1826`, mae `0.3375`, sign acc `0.6468`, Pearson `0.3348`.
+    - Diagnostic report: `outputs/analysis/value_model_005_late40_validation_diagnostics.json`.
+  - Swept PGS016 + gated late-only value vs plain search on seed block 90300, 20 games each, `--search-value-min-turn-index 40`:
+    - Plain PGS baseline: 11-9-0, avg margin `+1.70`; seat0 6-4 margin +24, seat1 5-5 margin +10.
+    - `value_model_005`, weight 0.05: 11-9-0, avg margin `+1.25`; seat0 6-4 margin +24, seat1 5-5 margin +1.
+    - `value_model_005`, weight 0.10: 8-12-0, avg margin `-1.55`; seat0 4-6 margin -22, seat1 4-6 margin -9.
+    - `value_model_005`, weight 0.25: 11-8-1, avg margin `+1.05`; seat0 7-3 margin +29, seat1 4-5-1 margin -8.
+  - Conclusion:
+    - Late-only value training improved held-out value metrics, but still did not produce a better PGS teacher.
+    - Do not scale broad PGS generation from `value_model_005`.
+    - The next value-specific idea would need to address the ahead-position sign/bias problem directly, e.g. score-margin calibration or a win/loss/outcome head, before another expensive search sweep.
+- Outcome-head / value-bias experiment:
+  - Added a win/draw/loss outcome head to `ValueMLP`.
+    - `ValueMLP.forward(...)` remains backward-compatible and returns the scalar value head.
+    - `ValueMLP.outcome_logits(...)` returns 3 logits: loss/draw/win.
+    - Old value checkpoints remain loadable via `strict=False` in value eval/diagnostics/search loading.
+  - Added optional value multi-task training:
+    - `compute_value_losses(...)`
+    - `run_value_supervised.py --outcome-loss-weight`
+    - metrics now include `total_loss`, `outcome_loss`, and `outcome_class_accuracy`.
+  - Extended diagnostics:
+    - `run_value_diagnostics.py` now reports outcome-head accuracy and mean loss/draw/win probabilities per bucket.
+  - Added search evaluator modes:
+    - `CheckpointValueEvaluator(prediction_mode="value"|"outcome"|"blend")`
+    - `prediction_mode="outcome"` uses `P(win) - P(loss)` as the normalized value before heuristic scaling.
+    - Benchmark/replay/relabel CLIs expose `--search-value-prediction-mode`, `--search-value-outcome-blend-weight`, and corresponding relabel flags.
+  - Trained `outputs/value_model_006_late40_outcome_currentgen/value_model_best.pt`:
+    - Same current-generation value corpus as 005, `--min-turn-index 40`, `--outcome-loss-weight 0.5`.
+    - 7,284 samples, 6,528 train / 756 game-heldout validation, 8 epochs.
+    - Best validation checkpoint was epoch 3 by total loss.
+    - Validation diagnostics: mse `0.1762`, mae `0.3460`, sign acc `0.6349`, outcome acc `0.6190`, Pearson `0.3404`.
+    - Bias buckets improved materially versus 005:
+      - `ahead_5plus`: mse `0.2340 -> 0.1546`, Pearson `0.026 -> 0.435`, outcome acc `0.692 -> 0.750`; scalar bias still negative (`-0.266 -> -0.251`).
+      - `current_score=10-14`: mse `0.1447 -> 0.1225`, sign `0.609 -> 0.677`, outcome acc `0.489 -> 0.647`.
+      - `large_win`: mse `0.6634 -> 0.5828`, sign `0.710 -> 0.806`, outcome acc `0.484 -> 0.871`.
+  - Search probe using outcome-mode leaves, gated at `turn_index >= 40`, seed block 90300, 20 games each:
+    - plain PGS baseline: 11-9-0, avg margin `+1.70`.
+    - `006` outcome mode, weight 0.05: 13-7-0, avg margin `+1.80`; seat0 6-4 margin +19, seat1 7-3 margin +17.
+    - `006` outcome mode, weight 0.10: 10-10-0, avg margin `-0.50`.
+    - `006` outcome mode, weight 0.25: 7-13-0, avg margin `-2.25`.
+  - 50-game confirmation on fresh seed block 90400 rejected the apparent 20-game gain:
+    - plain PGS: 29-21-0, avg margin `+1.20`; seat0 15-10 margin +30, seat1 14-11 margin +30.
+    - `006` outcome mode, weight 0.05: 24-26-0, avg margin `-0.68`; seat0 15-10 margin +35, seat1 9-16 margin -69.
+  - Conclusion:
+    - The outcome head fixed several diagnostic bias buckets, but using it in search is still not a stronger teacher.
+    - Do not scale broad PGS generation from `value_model_006`.
+    - The 20-game apparent gain was noise; the 50-game confirmation exposed a major seat1 regression.
+    - The next useful step is not another value-blend sweep. Either diagnose why outcome-guided leaves hurt seat1 late searches, or move the value head out of root gameplay and use it only as an offline diagnostic / data-selection signal.
+  - Follow-up search-value decision diagnostic:
+    - Added `run_search_value_diff.py` and module `src/splendor_ai/training/run_search_value_diff.py`.
+    - It compares plain PGS and value-guided PGS on the same replay snapshots and reports:
+      - changed top-action rate;
+      - baseline regret of the value-guided action under plain PGS values;
+      - value regret of the plain-PGS action under value-guided values;
+      - buckets by seat, phase, score-margin bucket, baseline/value action type, and action-type matrix;
+      - high-regret changed examples.
+    - Full late-seat1 depth-2 run over all rows was too expensive and timed out before writing; stale Python process was stopped.
+    - Bounded depth-2 samples over the current-generation corpus, same PGS016 prior and `value_model_006` outcome mode:
+      - Seat1 late sample:
+        - command output: `outputs/analysis/pgs016_vs_value006_outcome_late40_seat1_diff_sample1200.json`
+        - rows analyzed 234, changed 41 (`17.5%`).
+        - plain-PGS baseline regret of changed value actions: mean `27.1`, max `107.0`.
+        - value-guided regret of plain-PGS actions: mean `77.2`, max `483.7`.
+        - highest change rates by score-margin bucket:
+          - tied: 14/44 changed (`31.8%`)
+          - ahead 1-4: 15/55 changed (`27.3%`)
+          - ahead 5+: 3/13 changed (`23.1%`)
+          - behind 1-4: 8/95 changed (`8.4%`)
+          - behind 5+: 1/27 changed (`3.7%`)
+        - Most changes were within buy choices, especially visible-buy to reserved-buy or a different visible buy. Examples include late/tied states where outcome mode preferred a reserved buy over the plain-PGS visible buy despite baseline regret of `65-100`.
+      - Seat0 matching sample:
+        - command output: `outputs/analysis/pgs016_vs_value006_outcome_late40_seat0_diff_sample1200.json`
+        - rows analyzed 234, changed 41 (`17.5%`).
+        - plain-PGS baseline regret of changed value actions: mean `45.5`, max `142.5`.
+        - change distribution was less concentrated in tied/ahead positions than seat1:
+          - tied: 6/40 changed (`15.0%`)
+          - ahead 1-4: 16/78 changed (`20.5%`)
+          - ahead 5+: 0/16 changed (`0.0%`)
+          - behind 1-4: 18/83 changed (`21.7%`)
+          - behind 5+: 1/17 changed (`5.9%`)
+    - Current interpretation:
+      - Outcome-guided leaves are not globally "seat1-only bad"; they perturb a similar fraction of late choices for both seats.
+      - The seat1 harm is plausibly from where the perturbations occur: tied/ahead late positions, where seat1 is often responding in the final race and small tempo/card-choice changes can flip the result.
+      - Do not keep sweeping live value blend weights. The outcome head is useful as an offline diagnostic/calibration signal, but not as a promoted PGS leaf evaluator yet.
+      - If revisiting value search, add a much stricter gate such as applying outcome leaves only in clearly behind late positions, or only when the baseline PGS action and value-guided action agree on action type/card family. This should be treated as a new diagnostic experiment, not a generation loop.
 
 Legal-action scorer pivot status:
 
@@ -299,7 +586,729 @@ Legal-action scorer pivot status:
     - `outputs/benchmarks/policy_guided_search_014_vs_search_100g_seed56000.json`
       - Policy-guided search `014` vs plain shallow search: 44-55-1, avg margin -0.58, avg model score 12.58 vs 13.16, 0 timeouts.
       - Seat split was asymmetric: model as seat 0 went 26-24-0 with avg margin +0.58; model as seat 1 went 18-31-1 with avg margin -1.74.
-  - Current read: the 15-5 smoke was likely variance. Policy-guided search is close to plain shallow search but not a confirmed improvement at `policy_prior_weight=2000`; tune/ablate it before using it as the next teacher.
+  - Policy-prior weight sweep with `014` as the prior, all vs plain shallow search on seed block 57000, 20 games each:
+    - weight `0`: 8-12-0, avg margin -0.85, 0 timeouts/fallback triggers.
+    - weight `500`: 9-10-1, avg margin +0.25, 0 timeouts/fallback triggers.
+    - weight `1000`: 10-10-0, avg margin +0.55, 0 timeouts/fallback triggers.
+    - weight `1500`: 13-7-0, avg margin +2.60, 0 timeouts/fallback triggers.
+    - weight `3000`: 13-7-0, avg margin +3.35, 0 timeouts/fallback triggers.
+  - 100-game confirmation for the best sweep setting:
+    - `outputs/benchmarks/policy_guided_search_014_w3000_vs_search_100g_seed56000.json`
+      - Policy-guided search `014`, `policy_prior_weight=3000`, vs plain shallow search: 59-40-1, avg margin +1.19, avg model score 13.24 vs 12.05, 0 stalls/timeouts/fallback triggers.
+      - Seat split: model as seat 0 went 33-16-1 with avg margin +2.40; model as seat 1 went 26-24-0 with avg margin -0.02.
+      - This directly improves over the same seed block at weight `2000` (44-55-1, avg margin -0.58).
+    - `outputs/benchmarks/policy_guided_search_014_w3000_vs_search_100g_seed58000.json`
+      - Independent confirmation: 56-44-0, avg margin +0.65, avg model score 12.73 vs 12.08, 0 stalls/timeouts/fallback triggers.
+      - Seat split: model as seat 0 went 31-19-0 with avg margin +1.76; model as seat 1 went 25-25-0 with avg margin -0.46.
+    - Combined weight-3000 confirmation across seed blocks 56000 and 58000: 115-84-1, avg margin +0.92, avg model score 12.98 vs 12.06, 0 stalls/timeouts/fallback triggers.
+  - Current read: `policy_prior_weight=3000` is now a confirmed improvement over plain shallow search on these two 100-game blocks and is the best available policy-guided search setting. Use it as the next teacher for a conservative corpus/relabel experiment, while keeping plain shallow search and the existing neural pool as promotion gates. Watch the seat-1 margin: it is near break-even despite the positive aggregate result.
+- First policy-guided teacher corpus/probe:
+  - Generated `data/corpus_policy_guided_search_014_w3000_vs_search_001`.
+    - `source_type=policy_guided_search_vs_search`, 20 games, seed block 59000-59019, `--swap-seats`, `--include-state-snapshots`.
+    - Seat0/seat1 top-level result: 12-8-0, 1,262 steps, 0 stalls/timeouts/fallback triggers.
+    - Manifest actor rows:
+      - `PolicyGuidedSearchBot:policy_guided_search:legal_action_scorer_014_wide_targeted_fromscratch` as seat0 vs `ShallowSearchBot`: 7-3-0.
+      - `ShallowSearchBot` as seat0 vs policy-guided search: 5-5-0.
+  - Trained small probe `outputs/legal_action_scorer_015_policy_guided_probe/`.
+    - Parent: `outputs/legal_action_scorer_014_wide_targeted_fromscratch/legal_action_scorer_best.pt`.
+    - Training data: only the 20-game policy-guided-search-vs-search corpus.
+    - 1,262 rows, game-heldout validation, 4 CPU epochs, `--value-loss-weight 0.0`, learning rate `0.00005`.
+    - Best validation checkpoint: epoch 2, validation loss 1.0555, validation accuracy 0.6270.
+  - Quick search check on seed block 60000:
+    - `015`: 9-11-0, avg margin -0.90, avg model score 12.75 vs 13.65, 0 stalls/timeouts/fallback triggers.
+    - Parent `014` on the same block: 9-11-0, avg margin +0.75, avg model score 14.10 vs 13.35, 0 stalls/timeouts/fallback triggers.
+  - Current read: reject `015` as a promotion candidate. The probe proves the corpus/training path works, but training on only this small direct teacher corpus did not improve over `014`. The next useful attempt should either scale the policy-guided teacher corpus substantially or mix it conservatively with the stronger targeted/search-correction corpora rather than fine-tuning on this 20-game corpus alone.
+- Scaled policy-guided teacher mix candidate, `legal_action_scorer_016_policy_guided_mix`:
+  - Generated `data/corpus_policy_guided_search_014_w3000_vs_search_002`.
+    - `source_type=policy_guided_search_vs_search`, 100 games, seed block 61000-61099, `--swap-seats`, `--include-state-snapshots`.
+    - 6,436 steps, 0 stalls/timeouts/fallback triggers.
+    - Top-level seat W-L-D: 54-44-2.
+    - Manifest actor rows:
+      - Policy-guided search `014`, `policy_prior_weight=3000`, as seat0 vs plain shallow search: 27-22-1.
+      - Plain shallow search as seat0 vs policy-guided search `014`: 27-22-1.
+  - Trained `outputs/legal_action_scorer_016_policy_guided_mix/`.
+    - Parent: `outputs/legal_action_scorer_014_wide_targeted_fromscratch/legal_action_scorer_best.pt`.
+    - Training data:
+      - `data/corpus_checkpoint_greedy_snapshots_001/improved_search_policy_margin500_no_take.jsonl`
+      - `data/corpus_checkpoint_greedy_snapshots_002/improved_search_policy_margin500_no_take.jsonl`
+      - `data/corpus_checkpoint_greedy_snapshots_003/improved_search_policy_margin500_no_take.jsonl`
+      - `data/corpus_targeted_search_full_001/targeted_search_disagreements.jsonl`
+      - `data/corpus_policy_guided_search_014_w3000_vs_search_002/replays.jsonl`
+    - Setup: 10,861 rows, 9,835 train / 1,026 game-heldout validation, 6 CPU epochs, batch size 256, learning rate `0.00005`, `--value-loss-weight 0.0`.
+    - Best validation checkpoint: epoch 6, validation loss 1.0585, validation accuracy 0.6384.
+  - Benchmarks for `legal_action_scorer_016_policy_guided_mix/legal_action_scorer_best.pt`:
+    - vs parent `014`, 100 games seed 62000: 63-37-0, avg margin +1.52, 0 stalls/timeouts/fallback triggers.
+    - vs `001`, 100 games seed 62100: 67-33-0, avg margin +3.03, 0 stalls/timeouts/fallback triggers.
+    - vs `003`, 100 games seed 62200: 65-35-0, avg margin +2.73, 0 stalls/timeouts/fallback triggers.
+    - vs old flat champion `policy_improve_margin500_002`, 100 games seed 62400: 69-31-0, avg margin +3.81, 0 stalls/timeouts/fallback triggers.
+    - Standardized shallow-search block seed 20000: 44-55-1, avg margin -1.01, avg model score 12.18 vs 13.19, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 28-21-1, avg margin +0.44; as seat1 16-34-0, avg margin -2.46.
+      - This is a large improvement over prior scorer search gates on the same seed block: `014` was 28-71-1, `013` 29-70-1, `001` 30-70-0, `003` 29-71-0.
+    - vs policy-guided-search teacher `014` at `policy_prior_weight=3000`, 100 games seed 62300: 42-58-0, avg margin -1.10, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 26-24-0, avg margin +0.84; as seat1 16-34-0, avg margin -3.04.
+  - Current read: promote `016` as the current best fast neural scorer / parent checkpoint. It clearly beats `014`, `001`, `003`, and the old flat champion, and it materially improves the standardized shallow-search gate. Do not treat it as stronger than the policy-guided-search teacher; the teacher remains stronger and exposes a persistent seat-1 weakness. The next useful branch is to generate more policy-guided teacher data with stronger seat balance or targeted seat-1 correction, then train a conservative `017` from `016` while keeping seed-20000 shallow search and teacher head-to-head as gates.
+- Seat-1-targeted policy-guided correction candidate, `legal_action_scorer_017_seat1_policy_guided_mix`:
+  - Generated `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_001`.
+    - `source_type=policy_guided_search_seat1_vs_search`, 100 games, seed block 63000-63099.
+    - Pairing: plain shallow search as seat0 vs policy-guided search using `016` as the prior at `policy_prior_weight=3000` as seat1.
+    - 6,456 steps, 0 stalls/timeouts/fallback triggers.
+    - Seat0/seat1 result: shallow search beat the seat1 policy-guided teacher 55-44-1, avg final score 12.70 vs 12.42. This confirms the seat-1 weakness remains even when using `016` as the policy prior.
+  - Built filtered weighted seat-1 teacher rows:
+    - Output: `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_001/seat1_teacher_weighted.jsonl`.
+    - 3,228 rows, all `player_id == 1`.
+    - 1,420 rows from teacher wins weighted 1.5; 1,772 rows from teacher losses weighted 1.25; 36 draw rows weighted 1.25.
+    - Rows tagged with `target_source="seat1_policy_guided_teacher"`.
+  - Trained `outputs/legal_action_scorer_017_seat1_policy_guided_mix/`.
+    - Parent: `outputs/legal_action_scorer_016_policy_guided_mix/legal_action_scorer_best.pt`.
+    - Training data: the same anchor/targeted/policy-guided mix used for `016`, plus the weighted seat-1 teacher rows.
+    - Setup: 14,089 rows, 12,582 train / 1,507 game-heldout validation, 5 CPU epochs, batch size 256, learning rate `0.00003`, `--value-loss-weight 0.0`.
+    - Best validation checkpoint: epoch 5, validation loss 1.0762, validation accuracy 0.6324.
+  - Benchmarks for `legal_action_scorer_017_seat1_policy_guided_mix/legal_action_scorer_best.pt`:
+    - vs `016`, 100 games seed 64000: 44-56-0, avg margin -0.25, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 24-26-0, avg margin +0.78; as seat1 20-30-0, avg margin -1.28.
+    - vs `014`, 100 games seed 64100: 55-45-0, avg margin +0.23, 0 stalls/timeouts/fallback triggers.
+      - This still beats `014`, but much less convincingly than `016` did in its own checked block.
+    - Standardized shallow-search block seed 20000: 43-57-0, avg margin -0.89, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 26-24-0, avg margin +0.06; as seat1 17-33-0, avg margin -1.84.
+      - Compared with `016` on the same seed block (44-55-1, avg margin -1.01; seat0 28-21-1, seat1 16-34-0), `017` slightly improved score margin/seat1 win count but lost win rate and regressed seat0.
+    - vs policy-guided-search teacher using `016` prior at `policy_prior_weight=3000`, 100 games seed 64200: 41-58-1, avg margin -1.05, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 19-31-0, avg margin -1.82; as seat1 22-28-0, avg margin -0.28.
+      - The seat1-focused training improved the candidate's seat1 margin against this teacher but damaged seat0 enough that the total result remained worse than the teacher.
+  - Current read: reject `017`; keep `016` as the current best fast neural parent. The weighted seat-1 imitation pass did not clear the promotion bar and appears to trade away seat0 strength for only modest seat1 gains. The next useful step should be diagnostic rather than another blind weighted imitation run: split policy/search disagreements and action-type frequencies by seat, especially early token/reserve choices and late race decisions, then generate targeted correction rows only for high-margin seat1 mistakes instead of all seat1 teacher actions.
+- Seat-aware disagreement diagnostics after rejecting `017`:
+  - Extended `run_policy_search_disagreement.py` to report:
+    - `by_seat`
+    - `by_seat_phase`
+    - `by_seat_model_action_type`
+    - `by_seat_search_action_type`
+    - `seat` on stored high-margin examples
+  - Focused tests passed:
+    - `python -m pytest tests/test_policy_search_disagreement.py -q --basetemp .codex_pytest_tmp_policy_disagreement` -> 2 passed.
+  - Ran `016` disagreement analysis on two 2,000-row slices:
+    - `outputs/analysis/016_search_disagreement_policy_guided_corpus_seat_split.json`
+      - Source: `data/corpus_policy_guided_search_014_w3000_vs_search_002/replays.jsonl`
+      - Overall agreement: 0.6055.
+      - Seat0 agreement: 0.6240; seat1 agreement: 0.5870.
+      - Early phase is weak for both seats, and weaker for seat1:
+        - seat0 early: 0.4677
+        - seat1 early: 0.4355
+      - Seat1 model-action agreement:
+        - `RESERVE_DECK`: 0.1915, many model actions missing from search candidates.
+        - `TAKE_TOKENS`: 0.3371.
+        - `RESERVE_VISIBLE`: 0.4331.
+        - `BUY_VISIBLE`: 0.7258.
+        - `BUY_RESERVED`: 0.8323.
+    - `outputs/analysis/016_search_disagreement_seat1_teacher_corpus_seat_split.json`
+      - Source: `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_001/replays.jsonl`
+      - Overall agreement: 0.5780.
+      - Seat0 agreement: 0.5700; seat1 agreement: 0.5860.
+      - Seat1 model-action agreement:
+        - `RESERVE_DECK`: 0.2045.
+        - `TAKE_TOKENS`: 0.2697.
+        - `RESERVE_VISIBLE`: 0.4385.
+        - `BUY_VISIBLE`: 0.7659.
+        - `BUY_RESERVED`: 0.7683.
+  - Diagnosis:
+    - Early token-taking and reserve decisions remain the most frequent alignment problem, but many are low-margin or pruned/missing from search candidates.
+    - The largest search margins are mostly late tactical buy/reserve decisions, especially choosing the wrong buy target, buying when search wants a reserve, reserving when search wants a buy, or choosing the wrong reserved/visible buy.
+    - This explains why broad seat1 imitation (`017`) was not enough: it added many ordinary seat1 rows, while the high-value mistakes are sparse and late.
+  - Generated a high-margin seat1 correction corpus:
+    - Input: `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_001/seat1_teacher_weighted.jsonl` (seat1-only rows).
+    - Output: `data/corpus_targeted_seat1_high_margin_001/targeted_search_disagreements.jsonl`.
+    - Summary: `data/corpus_targeted_seat1_high_margin_001/summary.json`.
+    - Filter: `min_search_margin=1000`, search target action types `RESERVE_VISIBLE RESERVE_DECK BUY_VISIBLE BUY_RESERVED`, `late_buy_turn_min=50`, no missing-model-action inclusions.
+    - Result: 3,228 rows analyzed, 1,396 disagreements, 55 written correction rows.
+    - Written rows: 55 all seat1; 53 late, 2 mid.
+    - Search target types: `BUY_VISIBLE` 26, `RESERVE_DECK` 12, `RESERVE_VISIBLE` 9, `BUY_RESERVED` 8.
+    - Model top types on those rows: `BUY_VISIBLE` 32, `RESERVE_VISIBLE` 13, `BUY_RESERVED` 7, `RESERVE_DECK` 3.
+    - Margin mean is high because one race/tactical miss is near terminal scale; minimum is 1000 by filter.
+  - Current read: do not train another candidate on just these 55 rows. They are useful as diagnostics and as a seed for a larger correction set. Next training attempt should first scale seat1 data collection, then mine high-margin late buy/reserve corrections across a larger seat1 corpus. A reasonable next corpus target is 300-500 seat1 policy-guided-search games, then run the same high-margin filter and only train if the correction file reaches a few hundred rows without excessive duplication by seed/position.
+- Scaled high-margin seat1 correction candidate, `legal_action_scorer_018_seat1_high_margin`:
+  - Continued the seat1 policy-guided data collection after a machine crash. Completed five 100-game shards total:
+    - Existing `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_001`, seeds 63000-63099: search seat0 vs policy-guided `016` seat1, search won 55-44-1.
+    - `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_002`, seeds 65000-65099: search won 55-44-1.
+    - `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_003`, seeds 65100-65199: policy-guided `016` seat1 won 55-45-0.
+    - `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_004`, seeds 65200-65299: search won 62-38-0.
+    - `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_005`, seeds 65300-65399: search won 53-45-2.
+    - All shards were clean: 500 games, 32,186 steps total, 0 stalls/timeouts/fallback triggers.
+    - Combined actor result: policy-guided `016` as seat1 went 227-270-3 vs plain shallow search. This confirms the seat1 weakness is stable across larger data.
+  - Built combined seat1-only weighted file:
+    - Output: `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_500/seat1_teacher_weighted.jsonl`.
+    - 16,093 seat1 rows from 500 games.
+    - 7,298 rows from seat1 teacher wins weighted 1.5; 8,659 from losses weighted 1.25; 136 from draws weighted 1.25.
+  - Mined high-margin seat1 corrections from the combined file:
+    - Output: `data/corpus_targeted_seat1_high_margin_500/targeted_search_disagreements.jsonl`.
+    - Summary: `data/corpus_targeted_seat1_high_margin_500/summary.json`.
+    - Filter: `min_search_margin=1000`, target action types `RESERVE_VISIBLE RESERVE_DECK BUY_VISIBLE BUY_RESERVED`, `late_buy_turn_min=50`, no missing-model-action inclusions.
+    - 16,093 rows analyzed, 6,991 disagreements, 285 correction rows written.
+    - Written rows: all seat1; 257 late, 28 mid; 204 unique game seeds; max 5 rows from one seed.
+    - Search target types: `BUY_VISIBLE` 171, `RESERVE_VISIBLE` 45, `RESERVE_DECK` 44, `BUY_RESERVED` 25.
+    - Model top types on those rows: `BUY_VISIBLE` 191, `BUY_RESERVED` 53, `RESERVE_VISIBLE` 35, `RESERVE_DECK` 6.
+  - Trained `outputs/legal_action_scorer_018_seat1_high_margin/`.
+    - Parent: `outputs/legal_action_scorer_016_policy_guided_mix/legal_action_scorer_best.pt`.
+    - Training data: same anchor/targeted/policy-guided mix used for `016`, plus only the 285 high-margin seat1 correction rows. The broad seat1 imitation rows from `017` were not included.
+    - Setup: 11,146 rows, 9,859 train / 1,287 game-heldout validation, 4 CPU epochs, batch size 256, learning rate `0.00003`, `--value-loss-weight 0.0`.
+    - Best validation checkpoint: epoch 3, validation loss 1.2947, validation accuracy 0.6200.
+  - Benchmarks for `legal_action_scorer_018_seat1_high_margin/legal_action_scorer_best.pt`:
+    - vs `016`, 100 games seed 66000: 53-47-0, avg margin +0.19, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 28-22-0, avg margin +0.58; as seat1 25-25-0, avg margin -0.20.
+    - vs `014`, 100 games seed 66100: 54-46-0, avg margin +0.72, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 27-23-0, avg margin +1.22; as seat1 27-23-0, avg margin +0.22.
+    - Standardized shallow-search block seed 20000: 43-56-1, avg margin -1.06, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 28-21-1, avg margin +0.78; as seat1 15-35-0, avg margin -2.90.
+      - This is a slight regression from `016` on the same search gate: `016` was 44-55-1, avg margin -1.01, seat1 16-34-0, seat1 avg margin -2.46.
+    - vs policy-guided-search teacher using `016` prior at `policy_prior_weight=3000`, 100 games seed 66200: 45-54-1, avg margin -0.57, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 23-27-0, avg margin -0.10; as seat1 22-28-0, avg margin -1.04.
+  - Current read: reject `018`; keep `016` as the current best fast neural parent. The high-margin seat1 correction set produced a narrow direct head-to-head edge over `016`, but it did not preserve the standardized search gate and worsened seat1 search performance. The likely issue is still not enough reliable supervised signal for seat1 race/tactical decisions, or the correction rows are too sparse/off-policy to train by simple imitation without damaging general search behavior. Next step should not be another small supervised fine-tune on this same signal. Prefer one of:
+    - generate a much larger policy-guided/search league with both seats and train with game/result-aware weighting, not seat1-only rows;
+    - improve the search teacher/feature representation for final-round timing and race threats, then regenerate corrections;
+    - use the policy-guided search bot itself as a stronger inference-time player while separately working on neural distillation.
+- Mixed league/result-weighted candidate, `legal_action_scorer_019_league_result_weighted`:
+  - Generated a 300-game manifest-audited league block around `016`, all with `--source-type league`, `--include-state-snapshots`, `--swap-seats`, 0 stalls/timeouts/fallback triggers:
+    - `data/corpus_league_019_016_vs_014`: 50 games, 3,182 steps, top-level seat W-L-D 28-22-0.
+      - Actor-level `016` vs `014`: 27-23-0.
+    - `data/corpus_league_019_016_vs_001`: 50 games, 3,180 steps, top-level 28-22-0.
+      - Actor-level `016` vs `001`: 33-17-0.
+    - `data/corpus_league_019_016_vs_003`: 50 games, 3,130 steps, top-level 29-20-1.
+      - Actor-level `016` vs `003`: 34-15-1.
+    - `data/corpus_league_019_016_vs_flat`: 50 games, 3,144 steps, top-level 30-20-0.
+      - Actor-level `016` vs old flat champion: 39-11-0.
+    - `data/corpus_league_019_pgs016_vs_search`: 50 games, 3,282 steps, top-level 32-18-0.
+      - Actor-level policy-guided search using `016` at `policy_prior_weight=3000` vs plain shallow search: 33-17-0.
+    - `data/corpus_league_019_016_vs_pgs016`: 50 games, 3,158 steps, top-level 29-21-0.
+      - Actor-level fast `016` vs policy-guided search using `016` at `policy_prior_weight=3000`: 16-34-0.
+  - Trained `outputs/legal_action_scorer_019_league_result_weighted/`.
+    - Parent: `outputs/legal_action_scorer_016_policy_guided_mix/legal_action_scorer_best.pt`.
+    - Training data: same anchor/targeted/policy-guided mix used for `016`, plus all six `corpus_league_019_*` replay files.
+    - Setup: 29,937 rows, 26,994 train / 2,943 game-heldout validation, 5 CPU epochs, batch size 256, learning rate `0.00003`, `--value-loss-weight 0.0`.
+    - Result-aware weights: `--winner-action-weight 1.5`, `--loser-action-weight 0.5`, `--draw-action-weight 1.0`.
+    - Best validation checkpoint: epoch 5, validation loss 0.8728, validation accuracy 0.7227.
+  - Benchmarks for `legal_action_scorer_019_league_result_weighted/legal_action_scorer_best.pt`:
+    - vs `016`, 100 games seed 68000: 47-53-0, avg margin +0.01, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 30-20-0, avg margin +1.38; as seat1 17-33-0, avg margin -1.36.
+    - vs `014`, 100 games seed 68100: 50-50-0, avg margin -0.24, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 26-24-0, avg margin +0.22; as seat1 24-26-0, avg margin -0.70.
+    - Standardized shallow-search block seed 20000: 40-60-0, avg margin -1.29, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 23-27-0, avg margin -0.68; as seat1 17-33-0, avg margin -1.90.
+      - This is a regression from `016` on the same gate: `016` was 44-55-1, avg margin -1.01.
+    - vs policy-guided-search teacher using `016` prior at `policy_prior_weight=3000`, 100 games seed 68200: 30-70-0, avg margin -2.07, 0 stalls/timeouts/fallback triggers.
+      - Seat split: as seat0 16-34-0, avg margin -1.94; as seat1 14-36-0, avg margin -2.20.
+  - Current read: reject `019`; keep `016` as the current best fast neural parent. The mixed league/result-weighted recipe improved validation metrics but failed the real gates. It appears to overfit or imitate weaker/ambiguous league actions, diluting the search-strength signal from `016`. Do not keep scaling this exact result-weighted supervised recipe. Next main path should be either:
+    - use policy-guided search directly for stronger play while designing a better distillation objective;
+    - add richer action/state features for final-round timing, race threats, and denial value before more supervised distillation;
+    - or build a true self-play/league RL-style update where game outcomes drive policy improvement, rather than row-level imitation of mixed actors.
+- Action-set-aware scorer candidate, `legal_action_scorer_020_set_scorer`:
+  - Added `LegalActionSetScorerModel` / `LegalActionSetScorerConfig`.
+    - Encodes state and legal actions like the existing scorer.
+    - Pools masked mean/max/count context across the whole legal action set.
+    - Scores each action using state encoding + action encoding + set-context encoding.
+  - Added checkpoint kind `legal_action_set_scorer` across:
+    - training CLI: `run_legal_action_supervised.py --architecture set`
+    - inference bot: `LegalActionSetScorerBot`
+    - benchmark CLI
+    - replay corpus generation
+    - policy/search disagreement and targeted-corpus tooling
+    - policy-guided search prior loading
+  - Trained `outputs/legal_action_scorer_020_set_scorer/`.
+    - Init checkpoint: `outputs/legal_action_scorer_016_policy_guided_mix/legal_action_scorer_best.pt`.
+    - Warm-start loaded 24 compatible tensors and skipped 4 old score-head tensors.
+    - Training data: same five-corpus mix used for `016`.
+    - Setup: 10,861 rows, 9,835 train / 1,026 game-heldout validation, 6 CPU epochs, batch size 256, learning rate `0.00005`, `--value-loss-weight 0.0`.
+    - Best validation checkpoint: epoch 6, validation loss 1.2333, validation accuracy 0.6170.
+      - This is worse than `016` validation accuracy 0.6384, so validation did not indicate a win.
+  - Benchmarks for `legal_action_scorer_020_set_scorer/legal_action_set_scorer_best.pt`:
+    - vs `016`, 100 games seed 70000: 41-57-2, avg margin -1.21, 0 timeouts.
+      - Seat split: as seat0 19-30-1, avg margin -1.16; as seat1 22-27-1, avg margin -1.26.
+    - Standardized shallow-search block seed 20000: 40-60-0, avg margin -1.46, 0 timeouts.
+      - Seat split: as seat0 24-26-0, avg margin -0.44; as seat1 16-34-0, avg margin -2.48.
+      - This is worse than `016` on the same gate: `016` was 44-55-1, avg margin -1.01.
+    - vs policy-guided-search teacher using `016` prior at `policy_prior_weight=3000`, 100 games seed 70100: 28-72-0, avg margin -2.65, 0 timeouts.
+      - Seat split: as seat0 14-36-0, avg margin -2.64; as seat1 14-36-0, avg margin -2.66.
+  - Current read: reject `020`; keep `016` as the best fast neural scorer. The architecture wiring is useful and should stay, but the naive pooled-set scorer did not improve strength. The likely issue is that mean/max set context is too weak or too abruptly introduced by partial warm-start. If revisiting this branch, try a real pairwise/attention action-set ranker or distill from policy-guided search rankings directly into the set-aware model, instead of treating pooled context as a small drop-in replacement.
+- Attention action-set scorer candidate, `legal_action_scorer_021_attention_scorer`:
+  - Added `LegalActionAttentionScorerModel` / `LegalActionAttentionScorerConfig`.
+    - Encodes state and each legal action like the previous scorer family.
+    - Adds a state-conditioned masked self-attention encoder over the legal action rows.
+    - Scores each action after it has directly interacted with the other legal alternatives.
+  - Added checkpoint kind `legal_action_attention_scorer` across:
+    - training CLI: `run_legal_action_supervised.py --architecture attention`
+    - inference bot: `LegalActionAttentionScorerBot`
+    - benchmark CLI
+    - replay corpus generation
+    - policy/search disagreement and targeted-corpus tooling
+    - policy-guided search prior loading
+  - Trained `outputs/legal_action_scorer_021_attention_scorer/`.
+    - Init checkpoint: `outputs/legal_action_scorer_016_policy_guided_mix/legal_action_scorer_best.pt`.
+    - Warm-start loaded 24 compatible tensors and skipped 4 old score-head tensors.
+    - Training data: same five-corpus mix used for `016` and `020`.
+    - Setup: 10,861 rows, 9,835 train / 1,026 game-heldout validation, 6 CPU epochs, batch size 256, learning rate `0.00005`, `--value-loss-weight 0.0`, attention layers 2, heads 4, feedforward 256.
+    - Best validation checkpoint: epoch 6, validation loss 1.1085, validation accuracy 0.6287.
+      - Better than `020` validation accuracy 0.6170, still below `016` validation accuracy 0.6384.
+  - Benchmarks for `legal_action_scorer_021_attention_scorer/legal_action_attention_scorer_best.pt`:
+    - vs `016`, 100 games seed 71000: 54-46-0, avg margin +0.35, 0 timeouts.
+      - Seat split: as seat0 29-21-0, avg margin +0.94; as seat1 25-25-0, avg margin -0.24.
+    - Standardized shallow-search block seed 20000: 42-58-0, avg margin -0.72, 0 timeouts.
+      - Seat split: as seat0 24-26-0, avg margin +0.12; as seat1 18-32-0, avg margin -1.56.
+      - This improves over `020` (40-60-0, avg margin -1.46) but remains below `016` win rate on the same gate (`016` was 44-55-1, avg margin -1.01).
+    - vs policy-guided-search teacher using `016` prior at `policy_prior_weight=3000`, 100 games seed 71100: 38-62-0, avg margin -2.00, 0 timeouts.
+      - Seat split: as seat0 23-27-0, avg margin -0.16; as seat1 15-35-0, avg margin -3.84.
+  - Current read: do not promote `021`; keep `016` as the best fast neural scorer. `021` is architecturally more promising than `020` and beats `016` directly on one 100-game block, but it still fails the standardized search gate and has a severe seat1 failure against policy-guided search. The next useful experiment should not be another plain imitation run. If continuing this branch, use the attention scorer with an explicit search-ranking objective, ideally from policy-guided-search ranked action scores, to preserve the direct head-to-head gain while repairing search/teacher alignment.
+- Attention + search-ranking distillation candidate, `legal_action_scorer_022_attention_distill`:
+  - Trained `outputs/legal_action_scorer_022_attention_distill/`.
+    - Init checkpoint: `outputs/legal_action_scorer_021_attention_scorer/legal_action_attention_scorer_best.pt`.
+    - Warm-start loaded 56 compatible tensors, skipped 0.
+    - Training data: same five-corpus mix used for `016`/`020`/`021`, plus `data/corpus_search_distill_full_001/improved_search_policy_margin500_no_take.jsonl`.
+    - Distillation signal:
+      - `data/corpus_targeted_search_full_001/targeted_search_disagreements.jsonl`: 1,842 rows with `search_action_scores`, all with at least two scored actions, avg 4.80 scores/row.
+      - `data/corpus_search_distill_full_001/improved_search_policy_margin500_no_take.jsonl`: 4,454 rows with scores, 4,440 rows with at least two scored actions, avg 7.04 scores/row.
+    - Setup: 15,315 rows, 13,888 train / 1,427 game-heldout validation, 4 CPU epochs, batch size 256, learning rate `0.00003`, `--value-loss-weight 0.0`, `--search-distill-loss-weight 0.05`, `--search-distill-temperature 1000`.
+    - Best validation checkpoint: epoch 4, validation loss 0.9847, validation accuracy 0.7022.
+  - Benchmarks for `legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt`:
+    - vs `016`, 100 games seed 72000: 48-52-0, avg margin -0.64, 0 timeouts.
+      - Seat split: as seat0 29-21-0, avg margin +1.02; as seat1 19-31-0, avg margin -2.30.
+      - This is worse directly than `021` vs `016` (54-46-0), so distillation traded away some direct neural-pool strength.
+    - vs `021`, 100 games seed 72200: 52-48-0, avg margin +0.21, 0 timeouts.
+      - Seat split: as seat0 32-18-0, avg margin +2.18; as seat1 20-30-0, avg margin -1.76.
+      - This suggests `022` is not purely a search-specialist regression, but the edge is small and seat-sensitive.
+    - Standardized shallow-search block seed 20000: 55-45-0, avg margin +1.01, 0 timeouts.
+      - Seat split: as seat0 29-21-0, avg margin +1.72; as seat1 26-24-0, avg margin +0.30.
+      - This is the first clear win over the standardized search gate. It substantially improves over `016` (44-55-1), `020` (40-60-0), and `021` (42-58-0).
+    - vs policy-guided-search teacher using `016` prior at `policy_prior_weight=3000`, 100 games seed 72100: 41-59-0, avg margin -0.94, 0 timeouts.
+      - Seat split: as seat0 24-26-0, avg margin +0.06; as seat1 17-33-0, avg margin -1.94.
+      - Better than `021` on this teacher gate (38-62-0, avg margin -2.00), but still not beating the teacher and still seat1-limited.
+  - Confirmation after the initial 022 result:
+    - vs `016`, fresh 200 games seed 73000: 109-91-0, avg margin +0.34, 0 timeouts.
+      - Seat split: as seat0 55-45-0, avg margin +0.90; as seat1 54-46-0, avg margin -0.22.
+      - Combined direct vs `016` across seed 72000 + 73000 blocks: 157-143-0 over 300 games, avg margin about +0.01.
+      - Conclusion: the initial 48-52 direct result was likely noise; direct strength against `016` is roughly even to slightly positive.
+    - vs shallow search, fresh 100 games seed 73200: 39-61-0, avg margin -1.18, 0 timeouts.
+      - Seat split: as seat0 24-26-0, avg margin +0.16; as seat1 15-35-0, avg margin -2.52.
+      - Combined search vs seed 20000 + 73200 blocks: 94-106-0 over 200 games, avg margin about -0.09.
+      - Conclusion: the seed-20000 55-45 search win did not fully generalize. 022 is much more search-competitive than prior models, but not a confirmed search-beater.
+  - Current read: `022` is a real improvement on search alignment and is not clearly weaker than `016`, but it is still not a clean champion. Keep `016` as the conservative best fast neural scorer; keep `022` as the best search-aligned neural candidate and a promising parent for the next distillation branch. The next useful experiment should target the remaining seat1 gap without destroying the search gain:
+    - run a small distillation-weight sweep from `021` or `022` (`0.02`, `0.05`, `0.1`) using the same data and gates; or
+    - generate policy-guided-search ranked action scores from the stronger PGS016 teacher, especially for seat1 positions, then train attention scorer on those rankings rather than plain shallow-search rankings.
+- Policy-guided-search ranked distillation candidate, `legal_action_scorer_023_attention_pgs_distill`:
+  - Extended `run_improve_replay_actions.py` / `improve_replay_actions.py` to support policy-guided search ranking:
+    - `--policy-prior-checkpoint`
+    - `--policy-prior-weight`
+    - `--policy-prior-device`
+    - optional `--player-id-filter`
+    - metadata source is `policy_guided_search` when a prior is used.
+    - The prior checkpoint is loaded once and reused across ranked rows.
+  - Generated `data/corpus_pgs016_ranked_023/seat1_pgs_ranked.jsonl`.
+    - Input: `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_500/seat1_teacher_weighted.jsonl`.
+    - Ranked first 3,000 seat1 positions with PGS016:
+      - prior checkpoint `outputs/legal_action_scorer_016_policy_guided_mix/legal_action_scorer_best.pt`
+      - `policy_prior_weight=3000`
+      - depth 2 / max branching 10 / buy 6 / reserve 3 / take 3.
+    - Output summary:
+      - 3,000 rows written, all seat1, all source `policy_guided_search`.
+      - 300 top-action changes, 2,700 unchanged.
+      - 2,998 rows have at least two ranked actions.
+      - Average ranked actions per row: 5.84.
+  - Trained `outputs/legal_action_scorer_023_attention_pgs_distill/`.
+    - Parent: `outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt`.
+    - Training data: same 022 mix plus the new PGS016-ranked seat1 corpus.
+    - Setup: 18,315 rows, 16,683 train / 1,632 game-heldout validation, 3 CPU epochs, batch size 256, learning rate `0.00002`, `--value-loss-weight 0.0`, `--search-distill-loss-weight 0.03`, `--search-distill-temperature 1000`.
+    - Best validation checkpoint: epoch 3, validation loss 1.1822, validation accuracy 0.6330.
+  - Benchmarks for `legal_action_scorer_023_attention_pgs_distill/legal_action_attention_scorer_best.pt`:
+    - vs `016`, 200 games seed 81000: 99-100-1, avg margin +0.31, 0 timeouts.
+      - Seat split: as seat0 52-48-0, avg margin +0.59; as seat1 47-52-1, avg margin +0.03.
+      - Directly, 023 is essentially tied with 016.
+    - vs `022`, 100 games seed 81200: 50-50-0, avg margin +0.05, 0 timeouts.
+      - Seat split: as seat0 26-24-0, avg margin +0.16; as seat1 24-26-0, avg margin -0.06.
+      - 023 does not clearly improve over 022.
+    - Standardized shallow-search block seed 20000: 45-55-0, avg margin -0.50, 0 timeouts.
+      - Seat split: as seat0 25-25-0, avg margin +0.06; as seat1 20-30-0, avg margin -1.06.
+      - This regresses from 022's 55-45-0 on the same seed block.
+    - Fresh shallow-search block seed 73200: 38-62-0, avg margin -1.32, 0 timeouts.
+      - Seat split: as seat0 23-27-0, avg margin -0.26; as seat1 15-35-0, avg margin -2.38.
+      - This does not repair 022's fresh-block search instability.
+    - vs policy-guided-search teacher using `016` prior at `policy_prior_weight=3000`, 100 games seed 81300: 40-59-1, avg margin -0.78, 0 timeouts.
+      - Seat split: as seat0 25-25-0, avg margin +0.52; as seat1 15-34-1, avg margin -2.08.
+      - This is not better than 022's PGS teacher gate (41-59-0).
+  - Current read: reject `023`; keep `016` as conservative best fast scorer and `022` as the best search-aligned neural candidate. The first PGS-ranked seat1 distillation attempt did not fix seat1 and damaged the strongest seed-20000 search result. Likely causes:
+    - only 3,000 PGS-ranked seat1 rows, with just 300 top-action changes, may be too weak/sparse;
+    - training only on top-action relabels plus soft scores may still overfit seat1 distribution without improving general search alignment;
+    - PGS-ranked labels from positions where the teacher is seat1 may not be enough; need mixed-seat PGS rankings and/or higher-quality high-margin PGS disagreement rows.
+  - Next useful direction should be diagnostic before more training:
+    - compare 022 vs 023 policy/search disagreement by seat/action type on the same rows;
+    - inspect where 023 changed decisions versus 022, especially seat1 token/reserve and late buy actions;
+    - if continuing PGS-ranked data, mine high-margin PGS-vs-022 disagreements instead of ranking broad teacher trajectory rows.
+- 022 vs 023 policy-diff diagnostics:
+  - Wrote:
+    - `outputs/analysis/022_vs_023_policy_diff_pgs016_ranked_seat1.json`
+    - `outputs/analysis/022_vs_023_policy_diff_search_distill_full.json`
+    - `outputs/analysis/022_vs_023_policy_diff_targeted_search_full.json`
+  - On the new PGS016-ranked seat1 corpus:
+    - 3,000 rows, all seat1.
+    - 022/023 top-action agreement: 95.63%.
+    - PGS teacher top-match rate:
+      - 022: 70.27%.
+      - 023: 70.77%.
+    - 023 teacher gains/losses: 57 gains vs 42 losses.
+    - Average teacher-value gap improved only slightly: 421.6 -> 419.2.
+    - Largest shifts:
+      - `RESERVE_VISIBLE -> RESERVE_DECK`: 49.
+      - `RESERVE_VISIBLE -> RESERVE_VISIBLE`: 25.
+      - `TAKE_TOKENS -> TAKE_TOKENS`: 23.
+    - By phase:
+      - early teacher match improved 60.99% -> 62.27%.
+      - mid improved 77.33% -> 77.78%.
+      - late slightly regressed 71.08% -> 70.87%.
+  - On `corpus_search_distill_full_001`:
+    - 4,454 rows.
+    - 022/023 top-action agreement: 97.53%.
+    - Shallow-search teacher top-match rate:
+      - 022: 79.91%.
+      - 023: 80.60%.
+    - 023 teacher gains/losses: 52 gains vs 21 losses.
+    - Average teacher-value gap improved only slightly: 1960.5 -> 1954.4.
+    - Seat1 match improved 79.39% -> 80.18%, but seat1 value gap slightly worsened 64.5 -> 66.1.
+  - On `corpus_targeted_search_full_001`:
+    - 1,842 rows.
+    - 022/023 top-action agreement: 92.78%.
+    - Search teacher top-match rate:
+      - 022: 34.91%.
+      - 023: 35.56%.
+    - 023 teacher gains/losses: 36 gains vs 24 losses.
+    - Early rows improved 27.37% -> 29.29%, but late rows regressed 45.00% -> 43.82%.
+  - Diagnostic conclusion:
+    - 023 did learn a small amount from the PGS-ranked data, but the actual policy changed very little.
+    - The PGS-ranked broad seat1 corpus mainly nudged reserve choice variants (`RESERVE_VISIBLE -> RESERVE_DECK`) and same-type token/reserve choices.
+    - It did not create enough high-value tactical changes to improve benchmarks, and it slightly damaged the strongest 022 search result.
+    - Do not continue by adding more broad teacher-trajectory rows in the same format. If continuing PGS distillation, mine high-margin PGS-vs-022 disagreements and overweight only those corrections, especially seat1 late/race decisions.
+- High-margin PGS-vs-022 targeted correction candidate, `legal_action_scorer_024_attention_pgs_targeted`:
+  - Extended `run_targeted_search_corpus.py` so targeted disagreement mining can use policy-guided search directly:
+    - `--policy-prior-checkpoint`
+    - `--policy-prior-weight`
+    - `--policy-prior-device`
+    - `--player-id-filter`
+    - `--phase-filter`
+    - `--training-weight`
+    - Summary now includes rows skipped by player/phase and written rows by seat.
+  - Verification after the tooling change:
+    - `python -m py_compile src\splendor_ai\training\run_targeted_search_corpus.py` passed.
+    - `python -m pytest -q tests\test_targeted_search_corpus.py tests\test_improve_replay_actions.py --basetemp .codex_pytest_tmp_targeted_final` passed: 8 passed.
+    - Full suite passed: `python -m pytest -q --basetemp .codex_pytest_tmp_all` -> 152 passed.
+  - Generated `data/corpus_pgs022_targeted_024/targeted_pgs_disagreements.jsonl`.
+    - Input: `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_500/seat1_teacher_weighted.jsonl`.
+    - Compared 022 top action against PGS016 depth-2 search with:
+      - prior checkpoint `outputs/legal_action_scorer_016_policy_guided_mix/legal_action_scorer_best.pt`
+      - `policy_prior_weight=3000`
+      - search branching depth 2 / max 10 / buy 6 / reserve 3 / take 3.
+    - Filters: `--player-id-filter 1`, `--phase-filter mid late`, `--min-search-margin 500`, `--include-missing-model-action`, `--late-buy-turn-min 45`, `--training-weight 2.0`, first 8,000 source rows.
+    - Summary:
+      - 8,000 rows seen, 5,520 analyzed, 2,480 skipped by phase.
+      - 1,448 PGS-vs-022 disagreements.
+      - 346 high-margin correction rows written.
+      - All written rows are seat1.
+      - Phase split: late 226, mid 120.
+      - Target action types: `BUY_VISIBLE` 150, `RESERVE_VISIBLE` 82, `RESERVE_DECK` 58, `TAKE_TOKENS` 37, `BUY_RESERVED` 19.
+  - Trained `outputs/legal_action_scorer_024_attention_pgs_targeted/`.
+    - Parent: `outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt`.
+    - Training data: exact 022 mix plus only the 346-row targeted PGS-vs-022 correction corpus. The broad 023 PGS-ranked corpus was intentionally excluded.
+    - Setup: 15,661 rows, 13,943 train / 1,718 game-heldout validation, 3 CPU epochs, batch size 256, learning rate `0.00002`, `--value-loss-weight 0.0`, `--search-distill-loss-weight 0.03`, `--search-distill-temperature 1000`.
+    - Best validation checkpoint: epoch 3, validation loss 1.0866, validation accuracy 0.6420.
+  - Benchmarks for `legal_action_scorer_024_attention_pgs_targeted/legal_action_attention_scorer_best.pt`:
+    - vs `016`, 200 games seed 83000: 95-103-2, avg margin +0.10, 0 timeouts.
+      - Seat split: as seat0 63-37-0, avg margin +2.24; as seat1 32-66-2, avg margin -2.04.
+      - This fails to improve the conservative fast neural champion and still has a severe seat1 weakness.
+    - vs `022`, 100 games seed 83200: 47-53-0, avg margin -0.37, 0 timeouts.
+      - Seat split: as seat0 27-23-0, avg margin +1.26; as seat1 20-30-0, avg margin -2.00.
+      - The targeted PGS correction did not improve over its parent.
+    - Standardized shallow-search block seed 20000: 47-51-2, avg margin +0.22, 0 timeouts.
+      - Seat split: model as seat0 26-23-1, avg margin +1.06; as seat1 21-28-1, avg margin -0.62.
+      - This is worse than 022 on the same seed block (55-45-0).
+    - Fresh shallow-search block seed 73200: 37-63-0, avg margin -1.47, 0 timeouts.
+      - Seat split: model as seat0 20-30-0, avg margin -0.90; as seat1 17-33-0, avg margin -2.04.
+      - This is also worse than 022's fresh search block (39-61-0, avg margin -1.18).
+    - vs policy-guided-search teacher using `016` prior at `policy_prior_weight=3000`, 100 games seed 83300: 34-66-0, avg margin -2.00, 0 timeouts.
+      - Seat split: as seat0 21-29-0, avg margin -1.06; as seat1 13-37-0, avg margin -2.94.
+      - This is clearly worse than 022 and 023 on the PGS teacher gate.
+  - Current read: reject `024`. The experiment was useful because it tested the narrow high-margin correction hypothesis cleanly, but simple supervised fine-tuning on 346 targeted PGS-vs-022 rows did not fix seat1 and damaged the search/PGS gates. Keep `016` as conservative best fast scorer and `022` as the best search-aligned neural parent. Do not immediately scale more of the same targeted PGS rows; the failure mode points to optimization/representation or teacher-target mismatch, not just too few rows.
+  - Best next direction:
+    - Diagnose why the 346 correction rows move behavior in the wrong direction before training again.
+    - Compare 022 vs 024 top-action changes on the targeted corpus and on search benchmarks, by phase/action/seat.
+    - Measure whether 024 actually increased teacher top-match on the 346 targeted rows; if it did but benchmarks regressed, the rows are overfitting/off-policy.
+    - Then either use a much lower correction weight / replay ratio, or move to online evaluation-style updates instead of more supervised correction rows.
+- 022 vs 024 correction-learning diagnostics:
+  - Added `run_policy_diff_against_teacher.py`.
+    - Compares two checkpoints against either stored `search_action_scores` or a live policy-guided-search teacher.
+    - Reports teacher top-match rates, before/after top-action agreement, gains/losses, teacher-value gaps, phase/action/seat buckets, and action-type shift matrices.
+  - Verification after adding the diagnostic CLI:
+    - `python -m py_compile src\splendor_ai\training\run_policy_diff_against_teacher.py` passed.
+    - Full suite passed: `python -m pytest -q --basetemp .codex_pytest_tmp_all` -> 152 passed.
+  - Stored-teacher diagnostic on the 346 rows actually used to train `024`:
+    - Output: `outputs/analysis/022_vs_024_policy_diff_pgs022_targeted_346.json`.
+    - Dataset: `data/corpus_pgs022_targeted_024/targeted_pgs_disagreements.jsonl`.
+    - 346 rows analyzed, all rows are by construction PGS-vs-022 disagreements.
+    - 022 teacher top-match: 0 / 346 = 0.00%.
+    - 024 teacher top-match: 43 / 346 = 12.43%.
+    - 022/024 top-action agreement: 291 / 346 = 84.10%.
+    - 024 changed top action on only 55 rows; 43 of those changes hit the teacher top action and 12 changed to another non-teacher action.
+    - Teacher-gap mean improved from 8,851.7 to 8,121.9, but the max-gap terminal-scale misses remained.
+    - By teacher target type:
+      - `RESERVE_VISIBLE`: 26 / 82 learned = 31.7%.
+      - `RESERVE_DECK`: 6 / 58 learned = 10.3%.
+      - `BUY_RESERVED`: 2 / 19 learned = 10.5%.
+      - `BUY_VISIBLE`: 9 / 150 learned = 6.0%.
+      - `TAKE_TOKENS`: 0 / 37 learned = 0.0%.
+    - Interpretation: `024` did not strongly memorize the targeted correction rows. It mostly learned visible-reserve corrections and barely learned the larger late visible-buy or token-take corrections.
+  - Live-PGS diagnostic on the broader first-8,000-row mined slice:
+    - Output: `outputs/analysis/022_vs_024_policy_diff_pgs016_live_first8000_midlate.json`.
+    - Input: `data/corpus_policy_guided_search_016_w3000_seat1_vs_search_500/seat1_teacher_weighted.jsonl`.
+    - Same slice/filter as the 024 mining pass: first 8,000 rows, seat1 only, mid/late only, PGS016 prior weight 3000, depth 2 / max 10 / buy 6 / reserve 3 / take 3, seed 82000.
+    - 8,000 rows seen, 2,480 skipped by phase, 5,520 analyzed.
+    - 022 teacher top-match: 4,072 / 5,520 = 73.77%.
+    - 024 teacher top-match: 4,089 / 5,520 = 74.08%.
+    - Net improvement: +17 teacher matches, only +0.31 percentage points.
+    - 022/024 top-action agreement: 5,321 / 5,520 = 96.39%, so the trained policy barely moved on the broader distribution.
+    - Gains/losses: 90 teacher gains vs 73 teacher losses.
+    - Phase split:
+      - Mid: 74.97% -> 75.13%, 54 gains / 48 losses.
+      - Late: 71.28% -> 71.89%, 36 gains / 25 losses.
+    - By teacher target type:
+      - `RESERVE_VISIBLE`: 73.24% -> 75.71%, 28 gains / 15 losses.
+      - `RESERVE_DECK`: 30.73% -> 37.61%, 16 gains / 1 loss.
+      - `BUY_VISIBLE`: 75.70% -> 75.79%, 30 gains / 27 losses.
+      - `BUY_RESERVED`: 90.15% -> 89.29%, 4 gains / 12 losses.
+      - `TAKE_TOKENS`: 56.91% -> 56.04%, 12 gains / 18 losses.
+    - Interpretation: the broad effect is not overfitting in the strong sense; `024` did not over-learn the correction file. It made a very small teacher-alignment improvement, concentrated in reserve targets, while slightly regressing buy-reserved and token-take teacher alignment. That tiny net alignment gain was not enough to improve play and coincided with worse search/PGS benchmarks.
+  - Current read after diagnostics:
+    - The failure is not simply "the model memorized 346 off-policy rows and overfit." It barely learned those rows.
+    - The supervised update mostly nudged reserve choices, did not solve late buy/race misses, and caused small offsetting losses elsewhere.
+    - Do not fix this by just adding more of the same rows at the same recipe. The next training attempt should either:
+      - lower the correction weight/replay ratio and train as a gentler regularizer, then gate immediately; or
+      - change the target/optimization style, e.g. pairwise/ranking loss focused on teacher-vs-model alternatives, or online league/search evaluation, rather than top-1 imitation of sparse corrections.
+- Stronger correction-pressure ablation, `legal_action_scorer_025_attention_pgs_targeted_pressure`:
+  - Purpose: test whether the current CE/distillation objective can actually move onto the 346 high-margin PGS-vs-022 correction rows when given much stronger pressure.
+  - Trained `outputs/legal_action_scorer_025_attention_pgs_targeted_pressure/`.
+    - Parent: `outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt`.
+    - Training data: exact 022 anchor/search-distill mix, plus `data/corpus_pgs022_targeted_024/targeted_pgs_disagreements.jsonl` repeated 8 times.
+    - The targeted rows already have `training_weight=2.0`, so effective correction pressure was much higher than `024`.
+    - Setup: 18,083 rows, 16,211 train / 1,872 game-heldout validation, 2 CPU epochs, batch size 256, learning rate `0.00005`, `--value-loss-weight 0.0`, `--search-distill-loss-weight 0.03`, `--search-distill-temperature 1000`.
+    - Best validation checkpoint: epoch 2, validation loss 1.2215, validation accuracy 0.5999.
+    - Validation accuracy dropped materially, as expected from heavy correction pressure.
+  - Diagnostic on the 346 targeted rows:
+    - Output: `outputs/analysis/022_vs_025_policy_diff_pgs022_targeted_346.json`.
+    - 022 teacher top-match: 0 / 346 = 0.00%.
+    - 025 teacher top-match: 123 / 346 = 35.55%.
+    - 022/025 top-action agreement: 180 / 346 = 52.02%.
+    - Teacher-gap mean improved from 8,851.7 to 4,171.1.
+    - By teacher target type:
+      - `RESERVE_VISIBLE`: 58 / 82 learned = 70.7%.
+      - `RESERVE_DECK`: 26 / 58 learned = 44.8%.
+      - `TAKE_TOKENS`: 11 / 37 learned = 29.7%.
+      - `BUY_VISIBLE`: 25 / 150 learned = 16.7%.
+      - `BUY_RESERVED`: 3 / 19 learned = 15.8%.
+    - Interpretation: stronger pressure can move the policy, but still learns reserve corrections much more readily than late/race buy corrections.
+  - Live-PGS diagnostic on the broader first-8,000-row mined slice:
+    - Output: `outputs/analysis/022_vs_025_policy_diff_pgs016_live_first8000_midlate.json`.
+    - Same slice/filter as `024`: first 8,000 source rows, seat1 only, mid/late only, PGS016 prior weight 3000, depth 2 / max 10 / buy 6 / reserve 3 / take 3, seed 82000.
+    - 5,520 rows analyzed.
+    - 022 teacher top-match: 4,072 / 5,520 = 73.77%.
+    - 025 teacher top-match: 3,918 / 5,520 = 70.98%.
+    - Net broad alignment change: -154 teacher matches, -2.79 percentage points.
+    - 022/025 top-action agreement: 85.25%.
+    - Gains/losses: 248 teacher gains vs 402 teacher losses.
+    - Phase split:
+      - Mid: 74.97% -> 72.42%, 138 gains / 233 losses.
+      - Late: 71.28% -> 68.00%, 110 gains / 169 losses.
+    - By teacher target type:
+      - `RESERVE_VISIBLE`: 73.24% -> 77.04%, 63 gains / 43 losses.
+      - `RESERVE_DECK`: 30.73% -> 49.54%, 44 gains / 3 losses.
+      - `BUY_VISIBLE`: 75.70% -> 70.99%, 98 gains / 247 losses.
+      - `BUY_RESERVED`: 90.15% -> 83.77%, 9 gains / 68 losses.
+      - `TAKE_TOKENS`: 56.91% -> 55.90%, 34 gains / 41 losses.
+    - Interpretation: `025` passes the "can the loss move the policy?" check but fails the "does movement preserve broad teacher alignment?" check. It over-rotates into reserve/deck-reserve behavior and damages buy alignment, especially `BUY_VISIBLE` and `BUY_RESERVED`.
+  - Current read: reject `025` without full benchmarks. The pre-benchmark diagnostic failed: broad PGS alignment regressed substantially, so spending time on 100-game gates is not justified unless specifically requested.
+  - Next useful technical step:
+    - Stop increasing top-1 correction replay pressure.
+    - Implement a pairwise/ranking preference objective for correction rows: teacher action should score above the model's previous/top competing action by a margin, without forcing the entire distribution to imitate the sparse correction row.
+    - Use the 346 correction rows as a small controlled test for the new loss:
+      - require meaningful targeted-row improvement;
+      - require no broad 5,520-row PGS alignment regression;
+      - only then benchmark.
+- Pairwise preference-loss implementation and first candidate, `legal_action_scorer_026_attention_pgs_pairwise_pref`:
+  - Implemented first-class pairwise/ranking support in legal-action scorer training:
+    - `LegalActionReplayDataset` now detects rows with a valid `model_top_action_index`.
+    - For those rows, the replay `action_index` is the teacher/preferred action and `model_top_action_index` is the competitor.
+    - Batches now include:
+      - `preference_competitor_row`
+      - `preference_mask`
+      - `policy_sample_weight`
+      - `distill_sample_weight`
+      - `preference_sample_weight`
+    - Added `compute_pairwise_preference_loss`, using a softplus margin loss: competitor score should be below teacher score by the configured margin.
+    - Added CLI flags to `run_legal_action_supervised.py`:
+      - `--preference-loss-weight`
+      - `--preference-margin`
+      - `--preference-rows-policy-weight`
+      - `--preference-rows-distill-weight`
+      - `--preference-rows-preference-weight`
+    - This allows correction rows to contribute pairwise preference loss while their CE/distillation weights are set to zero, avoiding sparse top-1 imitation on those rows.
+  - Verification after implementation:
+    - Focused tests passed: `python -m pytest -q tests\test_legal_action_supervised.py tests\test_legal_action_scorer.py --basetemp .codex_pytest_tmp_pref_focused` -> 21 passed.
+    - Full suite passed: `python -m pytest -q --basetemp .codex_pytest_tmp_all` -> 154 passed.
+  - Trained `outputs/legal_action_scorer_026_attention_pgs_pairwise_pref/`.
+    - Parent: `outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt`.
+    - Training data: exact 022 anchor/search-distill mix plus `data/corpus_pgs022_targeted_024/targeted_pgs_disagreements.jsonl` repeated 4 times.
+    - Preference row settings:
+      - `--preference-loss-weight 0.5`
+      - `--preference-margin 1.0`
+      - `--preference-rows-policy-weight 0.0`
+      - `--preference-rows-distill-weight 0.0`
+      - `--preference-rows-preference-weight 1.0`
+    - Other setup: 16,699 rows, 14,915 train / 1,784 game-heldout validation, 3 CPU epochs, batch size 256, learning rate `0.00003`, `--value-loss-weight 0.0`, anchor `--search-distill-loss-weight 0.05`.
+    - Best validation checkpoint: epoch 3. Validation loss 1.2506 and accuracy 0.5975; the total loss scale includes the preference term, so compare diagnostics rather than validation loss.
+  - Diagnostic on the 346 targeted rows:
+    - Output: `outputs/analysis/022_vs_026_policy_diff_pgs022_targeted_346.json`.
+    - 022 teacher top-match: 0 / 346 = 0.00%.
+    - 026 teacher top-match: 115 / 346 = 33.24%.
+    - 022/026 top-action agreement: 124 / 346 = 35.84%.
+    - Teacher-gap mean improved from 8,851.7 to 4,012.1.
+    - By teacher target type:
+      - `RESERVE_DECK`: 41 / 58 learned = 70.7%.
+      - `RESERVE_VISIBLE`: 39 / 82 learned = 47.6%.
+      - `TAKE_TOKENS`: 9 / 37 learned = 24.3%.
+      - `BUY_VISIBLE`: 23 / 150 learned = 15.3%.
+      - `BUY_RESERVED`: 3 / 19 learned = 15.8%.
+    - Interpretation: pairwise loss can move the model, but this setting still mostly learns reserve/deck-reserve corrections and barely learns late/race buy corrections.
+  - Live-PGS diagnostic on the broader first-8,000-row mined slice:
+    - Output: `outputs/analysis/022_vs_026_policy_diff_pgs016_live_first8000_midlate.json`.
+    - Same slice/filter as `024`/`025`: first 8,000 source rows, seat1 only, mid/late only, PGS016 prior weight 3000, depth 2 / max 10 / buy 6 / reserve 3 / take 3, seed 82000.
+    - 5,520 rows analyzed.
+    - 022 teacher top-match: 4,072 / 5,520 = 73.77%.
+    - 026 teacher top-match: 3,557 / 5,520 = 64.44%.
+    - Net broad alignment change: -515 teacher matches, -9.33 percentage points.
+    - 022/026 top-action agreement: 74.11%.
+    - Gains/losses: 280 teacher gains vs 795 teacher losses.
+    - Phase split:
+      - Mid: 74.97% -> 67.85%, 181 gains / 446 losses.
+      - Late: 71.28% -> 57.39%, 99 gains / 349 losses.
+    - By teacher target type:
+      - `RESERVE_DECK`: 30.73% -> 55.50%, 71 gains / 17 losses.
+      - `BUY_VISIBLE`: 75.70% -> 62.10%, 106 gains / 536 losses.
+      - `BUY_RESERVED`: 90.15% -> 83.33%, 10 gains / 73 losses.
+      - `RESERVE_VISIBLE`: 73.24% -> 64.52%, 43 gains / 89 losses.
+      - `TAKE_TOKENS`: 56.91% -> 52.55%, 50 gains / 80 losses.
+    - Action shifts show the failure mode clearly:
+      - From 022 `BUY_VISIBLE`, 026 changed 498 rows to `RESERVE_DECK`.
+      - From 022 `RESERVE_VISIBLE`, 026 changed 138 rows to `RESERVE_DECK`.
+      - From 022 `BUY_RESERVED`, 026 changed 51 rows to `RESERVE_DECK`.
+    - Interpretation: this first pairwise setting over-rotates hard toward `RESERVE_DECK` and damages broad PGS alignment. Reject `026` without full benchmarks.
+  - Current read:
+    - Pairwise preference loss is implemented and functional.
+    - The first setting is too strong/broad and should not be benchmarked.
+    - If continuing this branch, use a much gentler ablation before changing the objective again:
+      - no repeated correction rows or at most 1-2 repeats;
+      - `--preference-loss-weight` around `0.02` to `0.1`;
+      - consider filtering preference rows to late `BUY_VISIBLE` / `BUY_RESERVED` corrections only, because reserve corrections are easy to learn but harmful when over-amplified.
+    - Gate any such run with the same two diagnostics before benchmarks.
+- Gentle buy-only pairwise preference candidate, `legal_action_scorer_027_attention_buy_pairwise_pref`:
+  - Purpose: test the safer version of the pairwise idea after `026` over-rotated into reserves.
+  - Created filtered buy/race preference corpus:
+    - Output: `data/corpus_pgs022_buy_pref_027/buy_preference_rows.jsonl`.
+    - Source: `data/corpus_pgs022_targeted_024/targeted_pgs_disagreements.jsonl`.
+    - Filters: teacher action type `BUY_VISIBLE` or `BUY_RESERVED`, `turn_index >= 45`, valid `model_top_action_index`.
+    - 346 rows seen, 169 rows written.
+    - Target types: `BUY_VISIBLE` 150, `BUY_RESERVED` 19.
+    - Phase split: late 136, mid 33.
+  - Created sanitized anchor copy:
+    - Output: `data/corpus_pgs022_buy_pref_027/targeted_search_full_no_pref_anchor.jsonl`.
+    - Source: `data/corpus_targeted_search_full_001/targeted_search_disagreements.jsonl`.
+    - Removed `model_top_action_index`, `model_top_action_payload`, `model_top_score`, and `model_top_search_value` from 1,842 rows.
+    - Reason: the global preference-row flags would otherwise turn this older targeted-search anchor into preference-only training rows. The sanitized copy keeps it as a normal CE/distillation anchor.
+  - Trained `outputs/legal_action_scorer_027_attention_buy_pairwise_pref/`.
+    - Parent: `outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt`.
+    - Training data: exact 022 mix, except using the sanitized targeted-search anchor, plus the 169-row buy-only preference corpus once.
+    - Preference settings:
+      - `--preference-loss-weight 0.03`
+      - `--preference-margin 1.0`
+      - `--preference-rows-policy-weight 0.0`
+      - `--preference-rows-distill-weight 0.0`
+      - `--preference-rows-preference-weight 1.0`
+    - Other setup: 15,484 rows, 13,731 train / 1,753 game-heldout validation, 3 CPU epochs, batch size 256, learning rate `0.00003`, `--value-loss-weight 0.0`, anchor `--search-distill-loss-weight 0.05`.
+    - Best validation checkpoint: epoch 3, validation loss 1.0509, validation accuracy 0.6828.
+  - Tests for the pairwise implementation were already completed before this run:
+    - Focused tests: 21 passed.
+    - Full suite: 154 passed.
+  - Diagnostics:
+    - Buy-only targeted rows:
+      - Output: `outputs/analysis/022_vs_027_policy_diff_buy_pref_169.json`.
+      - 022 teacher top-match: 0 / 169 = 0.00%.
+      - 027 teacher top-match: 26 / 169 = 15.38%.
+      - 022/027 top-action agreement: 129 / 169 = 76.33%.
+      - Gap mean improved from 15,921.9 to 1,407.7.
+      - By target type: `BUY_VISIBLE` 24 / 150 = 16.0%; `BUY_RESERVED` 2 / 19 = 10.5%.
+    - Full 346 targeted rows:
+      - Output: `outputs/analysis/022_vs_027_policy_diff_pgs022_targeted_346.json`.
+      - 027 teacher top-match: 32 / 346 = 9.25%.
+      - 022/027 top-action agreement: 84.10%.
+    - Broader first-8,000-row live-PGS slice:
+      - Output: `outputs/analysis/022_vs_027_policy_diff_pgs016_live_first8000_midlate.json`.
+      - 5,520 rows analyzed.
+      - 022 teacher top-match: 4,072 / 5,520 = 73.77%.
+      - 027 teacher top-match: 4,073 / 5,520 = 73.79%.
+      - Net broad alignment change: +1 teacher match; 115 gains vs 114 losses.
+      - 022/027 top-action agreement: 94.75%.
+      - Useful targeted shift:
+        - `BUY_VISIBLE` teacher alignment improved 75.70% -> 77.21%, 76 gains / 28 losses.
+      - Harmful offsetting shifts:
+        - `RESERVE_VISIBLE` teacher alignment regressed 73.24% -> 65.65%, 3 gains / 43 losses.
+        - `TAKE_TOKENS` regressed 56.91% -> 55.90%.
+        - `BUY_RESERVED` regressed 90.15% -> 89.29%.
+      - Interpretation: this gentle buy-only setting is diagnostically much safer than `026` and does improve broad `BUY_VISIBLE` alignment, but the effect is small and offset by reserve/token regressions.
+  - Benchmarks:
+    - vs `016`, 200 games seed 87000: 95-105-0, avg margin 0.00, 0 timeouts.
+      - Seat split: as seat0 50-50-0, avg margin +0.48; as seat1 45-55-0, avg margin -0.48.
+    - vs `022`, 100 games seed 87200: 46-54-0, avg margin -0.02, 0 timeouts.
+      - Seat split: as seat0 20-30-0, avg margin +0.10; as seat1 26-24-0, avg margin -0.14.
+    - Standardized shallow-search block seed 20000: 44-55-1, avg margin +0.37, 0 timeouts.
+      - Seat split: model as seat0 22-28-0, avg margin +0.72; as seat1 22-27-1, avg margin +0.02.
+      - This is worse in win rate than `022` on the same seed block (55-45-0) and only matches the older `016` win/loss shape despite positive score margin.
+  - Current read: reject `027` as a promotion candidate.
+    - It is the first correction run that preserved broad PGS alignment and improved broad `BUY_VISIBLE` alignment, so the buy-only/gentle direction is technically sound.
+    - It did not produce playing-strength gains. Direct gates vs `016`/`022` and standardized search failed.
+    - Do not run more broad benchmarks for this checkpoint unless needed for a specific comparison.
+  - Next useful direction:
+    - The supervised correction path is producing useful local alignment but not stronger play.
+    - If continuing pairwise, tune only one small change at a time:
+      - slightly raise buy-only preference pressure (`0.05` or `0.08`) while keeping no repeats; or
+      - restrict even further to late `BUY_VISIBLE` rows where the model top was a reserve, since that is the clearest harmful race miss.
+    - A stronger alternative is to stop supervised patching and move to online league/search evaluation updates, because local teacher-match improvements have repeatedly failed to translate into benchmark gains.
+- Diagnostic-gated candidate harness:
+  - Added `run_candidate_harness.py`.
+    - Config-driven harness for training variants, running diagnostics, applying JSON gates, and only then running benchmarks.
+    - Supports `module` stages via `python -m ...` or raw `command` stages.
+    - Supports `skip_if_outputs_exist` so expensive completed stages can be reused.
+    - Supports gates over JSON paths such as `overall.after_teacher_match_rate`, `by_teacher_action_type.BUY_VISIBLE.after_teacher_match_rate`, or `matchup.candidate_wins`.
+    - Variant status becomes `diagnostic_failed`, `benchmark_failed`, `passed`, etc., based on gates.
+  - Tests:
+    - Added `tests/test_candidate_harness.py`.
+    - Focused harness tests passed: 4 passed.
+    - Full suite passed after adding the harness: `python -m pytest -q --basetemp .codex_pytest_tmp_all` -> 158 passed.
+  - Added reusable config:
+    - `configs/candidate_harness_027_existing.json`.
+    - This validates the harness on existing `027` outputs without retraining.
+  - Harness validation run:
+    - Command:
+      - `$env:PYTHONPATH='src'; python -m splendor_ai.training.run_candidate_harness --config configs\candidate_harness_027_existing.json --output-path outputs\harness\candidate_harness_027_existing_summary.json`
+    - Summary:
+      - Training skipped because the `027` checkpoint already exists.
+      - Diagnostics skipped because JSON outputs already exist, then gates were evaluated from disk.
+      - Diagnostic gates passed:
+        - buy-target teacher match: actual 0.1538 >= 0.10.
+        - broad teacher alignment no-drop: actual 0.73786 >= 0.7376.
+        - broad `BUY_VISIBLE` alignment improved: actual 0.77212 >= 0.7569.
+      - Benchmark gate failed:
+        - `matchup.candidate_wins` vs `022`: actual 46 < required 50.
+      - Final variant status: `benchmark_failed`, matching the manual `027` verdict.
+  - Current read:
+    - Future supervised candidates should go through this harness rather than manual train/diagnose/benchmark loops.
+    - The next useful use of the harness is a small sweep over buy-only pairwise settings, e.g. `preference_loss_weight` 0.05 and 0.08, or a stricter late-buy-visible-where-model-reserved corpus. But given repeated benchmark failures, consider moving to league/search evaluation updates before spending many more CPU hours on supervised patch variants.
 - Smoke-trained the first real scorer on `data/corpus_checkpoint_greedy_snapshots_003/improved_search_policy_margin500_no_take.jsonl`.
   - Output: `outputs/legal_action_scorer_smoke_001/`
   - 800 samples, 720 train / 80 validation, 1 epoch, CPU.
@@ -787,12 +1796,16 @@ Test-Path outputs\policy_improve_margin500_002\supervised_policy_value.pt
 
 Near-term:
 
-0. Current immediate recommendation after the targeted-corpus smoke:
-   - Do not promote `outputs/legal_action_scorer_012_targeted_smoke`.
-   - Do not promote `outputs/legal_action_scorer_013_targeted_full_from001` as a champion; it did not improve the standardized search gate.
-   - `outputs/legal_action_scorer_014_wide_targeted_fromscratch` is the most interesting current neural parent: it beats `001`/`003` directly and improves search score margin, but not search win rate as a greedy policy.
-   - `PolicyGuidedSearchBot` using `014` as the prior looked strong in a 20-game probe, but the 100-game confirmation went 44-55-1 vs plain shallow search with avg margin -0.58.
-   - Next do a small prior-weight ablation before using policy-guided search as a teacher/player: compare weights such as 0, 250, 500, 1000, and 2000 on the same seed block.
+0. Current immediate recommendation after `024`:
+   - Do not promote `outputs/legal_action_scorer_024_attention_pgs_targeted`.
+   - Keep `outputs/legal_action_scorer_016_policy_guided_mix/legal_action_scorer_best.pt` as the conservative best fast scorer.
+   - Keep `outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt` as the best search-aligned neural parent.
+   - The latest hypothesis tested cleanly and failed: high-margin seat1 PGS-vs-022 corrections, trained as a small overweighted supervised corpus, did not fix seat1 and regressed search/PGS gates.
+   - Next do diagnostics before training again:
+     - compare 022 vs 024 top-action changes on `data/corpus_pgs022_targeted_024/targeted_pgs_disagreements.jsonl`;
+     - measure 022/024 teacher top-match on those 346 rows and on the broader 8,000-row mined slice;
+     - inspect whether the bad shift is concentrated in late buys, reserves, or token takes;
+     - if 024 matches the correction rows better but benchmarks worse, reduce correction weight/replay ratio or abandon this supervised correction style in favor of online league/search evaluation.
 
 1. Treat the current local neural champion set as unresolved between:
 

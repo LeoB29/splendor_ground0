@@ -3,10 +3,12 @@ import json
 from splendor_ai.bots import GreedyHeuristicBot, RandomLegalBot
 from splendor_ai.encoding import OBSERVATION_SIZE, ActionCodec
 from splendor_ai.engine.env import SplendorEnv
+from splendor_ai.engine.state import RESERVE_SOURCE_DECK
 from splendor_ai.training import (
     collect_game_replay,
     deserialize_state_snapshot,
     export_replay_games_jsonl,
+    serialize_state_snapshot,
 )
 
 
@@ -100,6 +102,24 @@ def test_collect_game_replay_can_record_reconstructable_state_snapshots(tmp_path
     export_replay_games_jsonl(output_path, [replay])
     first_payload = json.loads(output_path.read_text(encoding="utf-8").splitlines()[0])
     assert first_payload["state_snapshot"]["turn_index"] == first_step.turn_index
+
+
+def test_state_snapshot_preserves_and_defaults_reserve_provenance() -> None:
+    env = SplendorEnv(seed=8)
+    state = env.initial_state()
+    state.players[0].reserve_card(
+        state.hidden_tier_decks[1][0],
+        RESERVE_SOURCE_DECK,
+    )
+
+    snapshot = serialize_state_snapshot(state)
+    reconstructed = deserialize_state_snapshot(snapshot)
+
+    assert reconstructed.players[0].reserved_card_source(0) == RESERVE_SOURCE_DECK
+
+    del snapshot["players"][0]["reserved_card_sources"]
+    legacy = deserialize_state_snapshot(snapshot)
+    assert legacy.players[0].reserved_card_source(0) == "legacy_unknown"
 
 
 def test_collect_game_replay_applies_no_progress_cutoff() -> None:

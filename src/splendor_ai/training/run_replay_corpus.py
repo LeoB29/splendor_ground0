@@ -8,10 +8,16 @@ from pathlib import Path
 
 from splendor_ai.bots import (
     CheckpointPolicyBot,
+    CheckpointValueEvaluator,
     GreedyHeuristicBot,
+    InformationSetPuctBot,
+    LegalActionAttentionScorerBot,
+    LegalActionAttentionSamplingBot,
     LegalActionScorerBot,
+    LegalActionSetScorerBot,
     LoopFallbackConfig,
     PolicyGuidedSearchBot,
+    PuctConfig,
     RandomLegalBot,
     ShallowSearchBot,
 )
@@ -31,6 +37,7 @@ def _build_bot_factory(
     if normalized == "greedy":
         return lambda: GreedyHeuristicBot(seed=seed)
     if normalized == "search":
+        value_evaluator = _build_value_evaluator(args)
         return lambda: ShallowSearchBot(
             depth=args.search_depth,
             max_branching=args.search_max_branching,
@@ -38,7 +45,100 @@ def _build_bot_factory(
             max_reserve_actions=args.search_reserve_branching,
             max_take_actions=args.search_take_branching,
             seed=seed,
+            value_evaluator=value_evaluator,
+            value_weight=args.search_value_weight,
+            value_min_turn_index=args.search_value_min_turn_index,
+            value_max_turn_index=args.search_value_max_turn_index,
+            information_legal=not args.allow_oracle_search,
+            determinizations=args.search_determinizations,
+            determinization_seed=seed,
         )
+    if normalized == "puct":
+        checkpoint_path = _resolve_checkpoint_path(
+            args,
+            "checkpoint",
+            seat_index=seat_index,
+        )
+        cached_bot = None
+
+        def factory():
+            nonlocal cached_bot
+            if cached_bot is None:
+                cached_bot = InformationSetPuctBot(
+                    checkpoint_path,
+                    device=args.checkpoint_device,
+                    config=PuctConfig(
+                        simulations=args.puct_simulations,
+                        c_puct=args.puct_c_puct,
+                        prior_temperature=args.puct_prior_temperature,
+                        fpu_reduction=args.puct_fpu_reduction,
+                        max_depth=args.puct_max_depth,
+                        heuristic_scale=args.puct_heuristic_scale,
+                        seed=seed,
+                        inference_batch_size=args.puct_inference_batch_size,
+                        reuse_tree=args.puct_tree_reuse,
+                        max_tree_nodes=args.puct_max_tree_nodes,
+                        value_min_turn_index=args.puct_value_min_turn_index,
+                        value_max_turn_index=args.puct_value_max_turn_index,
+                        n_step_leaf_depth=args.puct_n_step_leaf_depth,
+                        n_step_leaf_width=args.puct_n_step_leaf_width,
+                        n_step_leaf_candidate_limit=(
+                            args.puct_n_step_leaf_candidate_limit
+                        ),
+                        n_step_leaf_weight=args.puct_n_step_leaf_weight,
+                        n_step_leaf_delta_clip=(
+                            args.puct_n_step_leaf_delta_clip
+                        ),
+                        n_step_leaf_min_turn_index=(
+                            args.puct_n_step_leaf_min_turn_index
+                        ),
+                        n_step_leaf_max_turn_index=(
+                            args.puct_n_step_leaf_max_turn_index
+                        ),
+                        n_step_leaf_min_max_score=(
+                            args.puct_n_step_leaf_min_max_score
+                        ),
+                        rollout_leaf_count=args.puct_rollout_leaf_count,
+                        rollout_leaf_max_depth=args.puct_rollout_leaf_max_depth,
+                        rollout_leaf_top_k=args.puct_rollout_leaf_top_k,
+                        rollout_leaf_temperature=(
+                            args.puct_rollout_leaf_temperature
+                        ),
+                        rollout_leaf_policy=args.puct_rollout_leaf_policy,
+                    ),
+                    value_checkpoint_path=args.puct_value_checkpoint,
+                    value_prediction_mode=args.puct_value_prediction_mode,
+                    value_outcome_blend_weight=(
+                        args.puct_value_outcome_blend_weight
+                    ),
+                )
+            return cached_bot
+
+        return factory
+    if normalized == "checkpoint_sample":
+        checkpoint_path = _resolve_checkpoint_path(args, bot_name, seat_index=seat_index)
+        checkpoint_model_kind = _resolve_checkpoint_model_kind(args, seat_index=seat_index)
+        if checkpoint_model_kind != "legal_action_attention_scorer":
+            raise ValueError(
+                "checkpoint_sample currently requires "
+                "--checkpoint-model-kind legal_action_attention_scorer."
+            )
+        cached_bot = None
+
+        def factory():
+            nonlocal cached_bot
+            if cached_bot is None:
+                cached_bot = LegalActionAttentionSamplingBot(
+                    checkpoint_path,
+                    device=args.checkpoint_device,
+                    seed=seed,
+                    epsilon=args.sampling_epsilon,
+                    temperature=args.sampling_temperature,
+                    top_k=args.sampling_top_k,
+                )
+            return cached_bot
+
+        return factory
     if normalized == "checkpoint":
         checkpoint_path = _resolve_checkpoint_path(args, bot_name, seat_index=seat_index)
         checkpoint_model_kind = _resolve_checkpoint_model_kind(args, seat_index=seat_index)
@@ -59,7 +159,18 @@ def _build_bot_factory(
                         checkpoint_path,
                         device=args.checkpoint_device,
                     )
+                elif checkpoint_model_kind == "legal_action_attention_scorer":
+                    cached_bot = LegalActionAttentionScorerBot(
+                        checkpoint_path,
+                        device=args.checkpoint_device,
+                    )
+                elif checkpoint_model_kind == "legal_action_set_scorer":
+                    cached_bot = LegalActionSetScorerBot(
+                        checkpoint_path,
+                        device=args.checkpoint_device,
+                    )
                 elif checkpoint_model_kind == "policy_guided_search":
+                    value_evaluator = _build_value_evaluator(args)
                     cached_bot = PolicyGuidedSearchBot(
                         checkpoint_path,
                         device=args.checkpoint_device,
@@ -70,6 +181,13 @@ def _build_bot_factory(
                         max_reserve_actions=args.search_reserve_branching,
                         max_take_actions=args.search_take_branching,
                         seed=seed,
+                        value_evaluator=value_evaluator,
+                        value_weight=args.search_value_weight,
+                        value_min_turn_index=args.search_value_min_turn_index,
+                        value_max_turn_index=args.search_value_max_turn_index,
+                        information_legal=not args.allow_oracle_search,
+                        determinizations=args.search_determinizations,
+                        determinization_seed=seed,
                     )
                 else:
                     raise ValueError(f"Unsupported checkpoint model kind: {checkpoint_model_kind}")
@@ -102,11 +220,79 @@ def build_parser() -> argparse.ArgumentParser:
         default=60,
         help="Cut off a game after this many consecutive plies without buy/reserve/score progress.",
     )
-    parser.add_argument("--seat0-bot", default="greedy", choices=("greedy", "random", "search", "checkpoint"))
-    parser.add_argument("--seat1-bot", default="random", choices=("greedy", "random", "search", "checkpoint"))
+    parser.add_argument(
+        "--seat0-bot",
+        default="greedy",
+        choices=(
+            "greedy",
+            "random",
+            "search",
+            "checkpoint",
+            "checkpoint_sample",
+            "puct",
+        ),
+    )
+    parser.add_argument(
+        "--seat1-bot",
+        default="random",
+        choices=(
+            "greedy",
+            "random",
+            "search",
+            "checkpoint",
+            "checkpoint_sample",
+            "puct",
+        ),
+    )
     parser.add_argument("--seat0-seed", type=int, default=0)
     parser.add_argument("--seat1-seed", type=int, default=1)
+    parser.add_argument("--sampling-epsilon", type=float, default=0.2)
+    parser.add_argument("--sampling-temperature", type=float, default=0.5)
+    parser.add_argument("--sampling-top-k", type=int, default=3)
     parser.add_argument("--search-depth", type=int, default=2, help="Search depth for the search bot.")
+    parser.add_argument("--search-determinizations", type=int, default=1)
+    parser.add_argument("--allow-oracle-search", action="store_true")
+    parser.add_argument("--puct-simulations", type=int, default=64)
+    parser.add_argument("--puct-c-puct", type=float, default=2.0)
+    parser.add_argument("--puct-prior-temperature", type=float, default=1.0)
+    parser.add_argument("--puct-fpu-reduction", type=float, default=0.0)
+    parser.add_argument("--puct-max-depth", type=int, default=80)
+    parser.add_argument("--puct-heuristic-scale", type=float, default=4_000.0)
+    parser.add_argument("--puct-inference-batch-size", type=int, default=8)
+    parser.add_argument("--puct-tree-reuse", action="store_true")
+    parser.add_argument("--puct-max-tree-nodes", type=int, default=50_000)
+    parser.add_argument("--puct-n-step-leaf-depth", type=int, default=0)
+    parser.add_argument("--puct-n-step-leaf-width", type=int, default=1)
+    parser.add_argument("--puct-n-step-leaf-candidate-limit", type=int, default=8)
+    parser.add_argument("--puct-n-step-leaf-weight", type=float, default=1.0)
+    parser.add_argument(
+        "--puct-n-step-leaf-delta-clip", type=float, default=None
+    )
+    parser.add_argument("--puct-n-step-leaf-min-turn-index", type=int, default=None)
+    parser.add_argument("--puct-n-step-leaf-max-turn-index", type=int, default=None)
+    parser.add_argument("--puct-n-step-leaf-min-max-score", type=int, default=None)
+    parser.add_argument("--puct-rollout-leaf-count", type=int, default=0)
+    parser.add_argument("--puct-rollout-leaf-max-depth", type=int, default=12)
+    parser.add_argument("--puct-rollout-leaf-top-k", type=int, default=3)
+    parser.add_argument("--puct-rollout-leaf-temperature", type=float, default=0.5)
+    parser.add_argument(
+        "--puct-rollout-leaf-policy",
+        choices=("random", "heuristic"),
+        default="random",
+    )
+    parser.add_argument("--puct-value-checkpoint", default=None)
+    parser.add_argument("--puct-value-min-turn-index", type=int, default=None)
+    parser.add_argument("--puct-value-max-turn-index", type=int, default=None)
+    parser.add_argument(
+        "--puct-value-prediction-mode",
+        choices=("value", "outcome", "blend"),
+        default="value",
+    )
+    parser.add_argument(
+        "--puct-value-outcome-blend-weight",
+        type=float,
+        default=0.5,
+    )
     parser.add_argument(
         "--search-max-branching",
         type=int,
@@ -153,19 +339,37 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--checkpoint-model-kind",
-        choices=("flat_policy", "legal_action_scorer", "policy_guided_search"),
+        choices=(
+            "flat_policy",
+            "legal_action_scorer",
+            "legal_action_attention_scorer",
+            "legal_action_set_scorer",
+            "policy_guided_search",
+        ),
         default="flat_policy",
         help="Architecture loaded for BOT name 'checkpoint'.",
     )
     parser.add_argument(
         "--seat0-checkpoint-model-kind",
-        choices=("flat_policy", "legal_action_scorer", "policy_guided_search"),
+        choices=(
+            "flat_policy",
+            "legal_action_scorer",
+            "legal_action_attention_scorer",
+            "legal_action_set_scorer",
+            "policy_guided_search",
+        ),
         default=None,
         help="Optional architecture override when seat 0 uses BOT name 'checkpoint'.",
     )
     parser.add_argument(
         "--seat1-checkpoint-model-kind",
-        choices=("flat_policy", "legal_action_scorer", "policy_guided_search"),
+        choices=(
+            "flat_policy",
+            "legal_action_scorer",
+            "legal_action_attention_scorer",
+            "legal_action_set_scorer",
+            "policy_guided_search",
+        ),
         default=None,
         help="Optional architecture override when seat 1 uses BOT name 'checkpoint'.",
     )
@@ -197,6 +401,52 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=2_000.0,
         help="Heuristic-scale rank-prior weight for checkpoint policy-guided search bots.",
+    )
+    parser.add_argument(
+        "--search-value-checkpoint",
+        default=None,
+        help="Optional value checkpoint blended into search/PGS leaf evaluation.",
+    )
+    parser.add_argument(
+        "--search-value-device",
+        default="cpu",
+        help="Device used by --search-value-checkpoint.",
+    )
+    parser.add_argument(
+        "--search-value-weight",
+        type=float,
+        default=0.0,
+        help="Leaf blend weight for the learned value model in search/PGS.",
+    )
+    parser.add_argument(
+        "--search-value-scale",
+        type=float,
+        default=15_000.0,
+        help="Multiplier mapping normalized value predictions to heuristic scale.",
+    )
+    parser.add_argument(
+        "--search-value-prediction-mode",
+        choices=("value", "outcome", "blend"),
+        default="value",
+        help="Use scalar value head, outcome P(win)-P(loss), or a blend for search leaves.",
+    )
+    parser.add_argument(
+        "--search-value-outcome-blend-weight",
+        type=float,
+        default=0.5,
+        help="Outcome contribution when --search-value-prediction-mode=blend.",
+    )
+    parser.add_argument(
+        "--search-value-min-turn-index",
+        type=int,
+        default=None,
+        help="Only blend learned value into search leaves at or after this turn index.",
+    )
+    parser.add_argument(
+        "--search-value-max-turn-index",
+        type=int,
+        default=None,
+        help="Only blend learned value into search leaves at or before this turn index.",
     )
     parser.add_argument(
         "--pairing",
@@ -244,6 +494,9 @@ def main() -> None:
             f" buy_branching={args.search_buy_branching}"
             f" reserve_branching={args.search_reserve_branching}"
             f" take_branching={args.search_take_branching}"
+            f" value_checkpoint={args.search_value_checkpoint}"
+            f" value_weight={args.search_value_weight}"
+            f" value_min_turn_index={args.search_value_min_turn_index}"
         )
     if any("checkpoint" in pairing for pairing in pairing_labels):
         print(
@@ -256,6 +509,9 @@ def main() -> None:
             f" device={args.checkpoint_device}"
             f" loop_fallback_enabled={not args.disable_checkpoint_loop_fallback}"
             f" policy_prior_weight={args.policy_prior_weight}"
+            f" search_value_checkpoint={args.search_value_checkpoint}"
+            f" search_value_weight={args.search_value_weight}"
+            f" search_value_min_turn_index={args.search_value_min_turn_index}"
         )
 
     stalled_games = 0
@@ -390,6 +646,18 @@ def _checkpoint_loop_fallback_config(args: argparse.Namespace) -> LoopFallbackCo
     )
 
 
+def _build_value_evaluator(args: argparse.Namespace) -> CheckpointValueEvaluator | None:
+    if args.search_value_checkpoint is None or args.search_value_weight == 0.0:
+        return None
+    return CheckpointValueEvaluator(
+        checkpoint_path=args.search_value_checkpoint,
+        device=args.search_value_device,
+        value_scale=args.search_value_scale,
+        prediction_mode=args.search_value_prediction_mode,
+        outcome_blend_weight=args.search_value_outcome_blend_weight,
+    )
+
+
 def _summary_metadata(args: argparse.Namespace, pairing_labels: list[str]) -> dict[str, object]:
     metadata: dict[str, object] = {
         "pairings": pairing_labels,
@@ -402,23 +670,81 @@ def _summary_metadata(args: argparse.Namespace, pairing_labels: list[str]) -> di
         "no_progress_limit": args.no_progress_limit,
         "search": {
             "depth": args.search_depth,
+            "information_legal": not args.allow_oracle_search,
+            "determinizations": args.search_determinizations,
             "max_branching": args.search_max_branching,
             "buy_branching": args.search_buy_branching,
             "reserve_branching": args.search_reserve_branching,
             "take_branching": args.search_take_branching,
+            "value_checkpoint": args.search_value_checkpoint,
+            "value_device": args.search_value_device,
+            "value_weight": args.search_value_weight,
+            "value_scale": args.search_value_scale,
+            "value_prediction_mode": args.search_value_prediction_mode,
+            "value_outcome_blend_weight": args.search_value_outcome_blend_weight,
+            "value_min_turn_index": args.search_value_min_turn_index,
+            "value_max_turn_index": args.search_value_max_turn_index,
+        },
+        "sampling": {
+            "epsilon": args.sampling_epsilon,
+            "temperature": args.sampling_temperature,
+            "top_k": args.sampling_top_k,
+        },
+        "puct": {
+            "simulations": args.puct_simulations,
+            "c_puct": args.puct_c_puct,
+            "prior_temperature": args.puct_prior_temperature,
+            "fpu_reduction": args.puct_fpu_reduction,
+            "max_depth": args.puct_max_depth,
+            "heuristic_scale": args.puct_heuristic_scale,
+            "inference_batch_size": args.puct_inference_batch_size,
+            "tree_reuse": args.puct_tree_reuse,
+            "max_tree_nodes": args.puct_max_tree_nodes,
+            "value_checkpoint": args.puct_value_checkpoint,
+            "value_min_turn_index": args.puct_value_min_turn_index,
+            "value_max_turn_index": args.puct_value_max_turn_index,
+            "value_prediction_mode": args.puct_value_prediction_mode,
+            "value_outcome_blend_weight": (
+                args.puct_value_outcome_blend_weight
+            ),
+            "n_step_leaf_depth": args.puct_n_step_leaf_depth,
+            "n_step_leaf_width": args.puct_n_step_leaf_width,
+            "n_step_leaf_candidate_limit": args.puct_n_step_leaf_candidate_limit,
+            "n_step_leaf_weight": args.puct_n_step_leaf_weight,
+            "n_step_leaf_delta_clip": args.puct_n_step_leaf_delta_clip,
+            "n_step_leaf_min_turn_index": args.puct_n_step_leaf_min_turn_index,
+            "n_step_leaf_max_turn_index": args.puct_n_step_leaf_max_turn_index,
+            "n_step_leaf_min_max_score": args.puct_n_step_leaf_min_max_score,
+            "rollout_leaf_count": args.puct_rollout_leaf_count,
+            "rollout_leaf_max_depth": args.puct_rollout_leaf_max_depth,
+            "rollout_leaf_top_k": args.puct_rollout_leaf_top_k,
+            "rollout_leaf_temperature": args.puct_rollout_leaf_temperature,
+            "rollout_leaf_policy": args.puct_rollout_leaf_policy,
         },
     }
-    if any("checkpoint" in pairing for pairing in pairing_labels):
+    if any(
+        "checkpoint" in pairing or "puct" in pairing
+        for pairing in pairing_labels
+    ):
+        default_model_kind = (
+            "information_set_puct"
+            if any("puct" in pairing for pairing in pairing_labels)
+            else args.checkpoint_model_kind
+        )
         metadata["checkpoint"] = {
             "path": args.checkpoint_path,
-            "model_kind": args.checkpoint_model_kind,
+            "model_kind": default_model_kind,
             "seat0": {
                 "path": args.seat0_checkpoint_path or args.checkpoint_path,
-                "model_kind": args.seat0_checkpoint_model_kind or args.checkpoint_model_kind,
+                "model_kind": (
+                    args.seat0_checkpoint_model_kind or default_model_kind
+                ),
             },
             "seat1": {
                 "path": args.seat1_checkpoint_path or args.checkpoint_path,
-                "model_kind": args.seat1_checkpoint_model_kind or args.checkpoint_model_kind,
+                "model_kind": (
+                    args.seat1_checkpoint_model_kind or default_model_kind
+                ),
             },
             "device": args.checkpoint_device,
             "policy_prior_weight": args.policy_prior_weight,

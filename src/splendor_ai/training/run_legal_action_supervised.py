@@ -6,7 +6,7 @@ import argparse
 import json
 import math
 import time
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from pathlib import Path
 
 import torch
@@ -17,8 +17,18 @@ from .legal_action_supervised import (
     fit_legal_action_scorer_dataloaders_with_artifacts,
     split_legal_action_replay_dataset,
 )
-from .model import LegalActionScorerConfig, LegalActionScorerModel
+from .model import (
+    LegalActionAttentionScorerConfig,
+    LegalActionAttentionScorerModel,
+    LegalActionScorerConfig,
+    LegalActionScorerModel,
+    LegalActionSetScorerConfig,
+    LegalActionSetScorerModel,
+)
 from .supervised import BatchProgress, SupervisedTrainConfig
+
+
+MODEL_ARCHITECTURE_CHOICES = ("independent", "set", "attention")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,13 +59,45 @@ def build_parser() -> argparse.ArgumentParser:
         default=1_000.0,
         help="Temperature used to convert stored search values into soft action targets.",
     )
+    parser.add_argument(
+        "--root-visit-loss-weight",
+        type=float,
+        default=0.0,
+        help="Optional loss weight for stored normalized PUCT root-visit targets.",
+    )
+    parser.add_argument(
+        "--preference-loss-weight",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional pairwise loss weight for rows with model_top_action_index. "
+            "The replay action is scored above the stored model-top competitor."
+        ),
+    )
+    parser.add_argument(
+        "--preference-margin",
+        type=float,
+        default=1.0,
+        help="Margin used by the pairwise preference loss.",
+    )
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--init-checkpoint", default=None)
+    parser.add_argument(
+        "--architecture",
+        choices=MODEL_ARCHITECTURE_CHOICES,
+        default="independent",
+        help="Use the original independent action scorer or the action-set-aware scorer.",
+    )
     parser.add_argument("--state-hidden-size", type=int, default=256)
     parser.add_argument("--action-hidden-size", type=int, default=128)
+    parser.add_argument("--set-context-hidden-size", type=int, default=128)
     parser.add_argument("--scorer-hidden-size", type=int, default=256)
     parser.add_argument("--state-depth", type=int, default=3)
     parser.add_argument("--action-depth", type=int, default=2)
+    parser.add_argument("--set-context-depth", type=int, default=2)
+    parser.add_argument("--attention-layers", type=int, default=2)
+    parser.add_argument("--attention-heads", type=int, default=4)
+    parser.add_argument("--attention-feedforward-size", type=int, default=256)
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--log-every-batches", type=int, default=100)
     parser.add_argument("--validation-fraction", type=float, default=0.1)
@@ -90,42 +132,209 @@ def build_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="Multiplicative sample weight for drawn-game actions.",
     )
+    parser.add_argument(
+        "--preference-rows-policy-weight",
+        type=float,
+        default=1.0,
+        help=(
+            "Additional multiplier for CE policy loss on rows that contain "
+            "a valid model_top_action_index preference pair. Use 0 for "
+            "preference-only correction rows."
+        ),
+    )
+    parser.add_argument(
+        "--preference-rows-distill-weight",
+        type=float,
+        default=1.0,
+        help=(
+            "Additional multiplier for search-distillation loss on rows that "
+            "contain a valid model_top_action_index preference pair."
+        ),
+    )
+    parser.add_argument(
+        "--preference-rows-preference-weight",
+        type=float,
+        default=1.0,
+        help=(
+            "Additional multiplier for pairwise preference loss on rows that "
+            "contain a valid model_top_action_index preference pair."
+        ),
+    )
     parser.add_argument("--exclude-stalled-games", action="store_true")
     parser.add_argument("--exclude-timeout-games", action="store_true")
     parser.add_argument("--max-game-model-loop-fallback-triggers", type=int, default=None)
     return parser
 
 
-def _build_model(args: argparse.Namespace) -> LegalActionScorerModel:
+def _build_model(
+    args: argparse.Namespace,
+) -> LegalActionScorerModel | LegalActionSetScorerModel | LegalActionAttentionScorerModel:
     if args.init_checkpoint is None:
-        return LegalActionScorerModel(
-            LegalActionScorerConfig(
+        return _new_model_from_args(args)
+
+    checkpoint_path = Path(args.init_checkpoint)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    model = _new_model_from_checkpoint_config(args, checkpoint.get("model_config", {}))
+    checkpoint_model_kind = str(checkpoint.get("model_kind", "legal_action_scorer"))
+    target_model_kind = _model_kind_for_architecture(args.architecture)
+    excluded_prefixes = ("score_head.",) if checkpoint_model_kind != target_model_kind else ()
+    loaded, skipped = _load_compatible_state_dict(
+        model,
+        checkpoint["model_state_dict"],
+        excluded_prefixes=excluded_prefixes,
+    )
+    print(
+        f"[legal-train] initialized model from checkpoint: {checkpoint_path}"
+        f" compatible_tensors={loaded} skipped_tensors={skipped}"
+    )
+    return model
+
+
+def _new_model_from_args(
+    args: argparse.Namespace,
+) -> LegalActionScorerModel | LegalActionSetScorerModel | LegalActionAttentionScorerModel:
+    if args.architecture == "attention":
+        return LegalActionAttentionScorerModel(
+            LegalActionAttentionScorerConfig(
                 state_hidden_size=args.state_hidden_size,
                 action_hidden_size=args.action_hidden_size,
                 scorer_hidden_size=args.scorer_hidden_size,
                 state_depth=args.state_depth,
                 action_depth=args.action_depth,
+                attention_layers=args.attention_layers,
+                attention_heads=args.attention_heads,
+                attention_feedforward_size=args.attention_feedforward_size,
                 dropout=args.dropout,
             )
         )
+    if args.architecture == "set":
+        return LegalActionSetScorerModel(
+            LegalActionSetScorerConfig(
+                state_hidden_size=args.state_hidden_size,
+                action_hidden_size=args.action_hidden_size,
+                set_context_hidden_size=args.set_context_hidden_size,
+                scorer_hidden_size=args.scorer_hidden_size,
+                state_depth=args.state_depth,
+                action_depth=args.action_depth,
+                set_context_depth=args.set_context_depth,
+                dropout=args.dropout,
+            )
+        )
+    return LegalActionScorerModel(
+        LegalActionScorerConfig(
+            state_hidden_size=args.state_hidden_size,
+            action_hidden_size=args.action_hidden_size,
+            scorer_hidden_size=args.scorer_hidden_size,
+            state_depth=args.state_depth,
+            action_depth=args.action_depth,
+            dropout=args.dropout,
+        )
+    )
 
-    checkpoint_path = Path(args.init_checkpoint)
-    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
-    model_config = LegalActionScorerConfig(**checkpoint.get("model_config", {}))
-    model = LegalActionScorerModel(model_config)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    print(f"[legal-train] initialized model from checkpoint: {checkpoint_path}")
-    return model
+
+def _new_model_from_checkpoint_config(
+    args: argparse.Namespace,
+    checkpoint_config: dict[str, object],
+) -> LegalActionScorerModel | LegalActionSetScorerModel | LegalActionAttentionScorerModel:
+    if args.architecture == "attention":
+        payload = _filtered_config_payload(
+            LegalActionAttentionScorerConfig,
+            checkpoint_config,
+            {
+                "attention_layers": args.attention_layers,
+                "attention_heads": args.attention_heads,
+                "attention_feedforward_size": args.attention_feedforward_size,
+            },
+        )
+        return LegalActionAttentionScorerModel(LegalActionAttentionScorerConfig(**payload))
+    if args.architecture == "set":
+        payload = _filtered_config_payload(
+            LegalActionSetScorerConfig,
+            checkpoint_config,
+            {
+                "set_context_hidden_size": args.set_context_hidden_size,
+                "set_context_depth": args.set_context_depth,
+            },
+        )
+        return LegalActionSetScorerModel(LegalActionSetScorerConfig(**payload))
+    payload = _filtered_config_payload(LegalActionScorerConfig, checkpoint_config, {})
+    return LegalActionScorerModel(LegalActionScorerConfig(**payload))
+
+
+def _filtered_config_payload(
+    config_type: (
+        type[LegalActionScorerConfig]
+        | type[LegalActionSetScorerConfig]
+        | type[LegalActionAttentionScorerConfig]
+    ),
+    checkpoint_config: dict[str, object],
+    overrides: dict[str, object],
+) -> dict[str, object]:
+    allowed = {field.name for field in fields(config_type)}
+    payload = {
+        key: value
+        for key, value in checkpoint_config.items()
+        if key in allowed
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _load_compatible_state_dict(
+    model: LegalActionScorerModel | LegalActionSetScorerModel | LegalActionAttentionScorerModel,
+    checkpoint_state_dict: dict[str, torch.Tensor],
+    excluded_prefixes: tuple[str, ...] = (),
+) -> tuple[int, int]:
+    model_state_dict = model.state_dict()
+    compatible = {
+        name: tensor
+        for name, tensor in checkpoint_state_dict.items()
+        if name in model_state_dict
+        and model_state_dict[name].shape == tensor.shape
+        and not name.startswith(excluded_prefixes)
+    }
+    model_state_dict.update(compatible)
+    model.load_state_dict(model_state_dict)
+    return len(compatible), len(checkpoint_state_dict) - len(compatible)
+
+
+def _model_kind_for_architecture(architecture: str) -> str:
+    if architecture == "attention":
+        return "legal_action_attention_scorer"
+    if architecture == "set":
+        return "legal_action_set_scorer"
+    return "legal_action_scorer"
+
+
+def _checkpoint_filenames(architecture: str) -> tuple[str, str, str]:
+    if architecture == "attention":
+        return (
+            "legal_action_attention_scorer.pt",
+            "legal_action_attention_scorer_best.pt",
+            "legal_action_attention_scorer_metrics.json",
+        )
+    if architecture == "set":
+        return (
+            "legal_action_set_scorer.pt",
+            "legal_action_set_scorer_best.pt",
+            "legal_action_set_scorer_metrics.json",
+        )
+    return (
+        "legal_action_scorer.pt",
+        "legal_action_scorer_best.pt",
+        "legal_action_scorer_metrics.json",
+    )
 
 
 def _save_checkpoint(
     path: Path,
-    model: LegalActionScorerModel,
+    model: LegalActionScorerModel | LegalActionSetScorerModel | LegalActionAttentionScorerModel,
     train_config_payload: dict[str, object],
+    model_kind: str,
 ) -> None:
     torch.save(
         {
-            "model_kind": "legal_action_scorer",
+            "model_kind": model_kind,
             "model_state_dict": model.state_dict(),
             "model_config": asdict(model.config),
             "train_config": train_config_payload,
@@ -166,9 +375,16 @@ def _train_config_payload(args: argparse.Namespace) -> dict[str, object]:
         "value_loss_weight": args.value_loss_weight,
         "search_distill_loss_weight": args.search_distill_loss_weight,
         "search_distill_temperature": args.search_distill_temperature,
+        "root_visit_loss_weight": args.root_visit_loss_weight,
+        "preference_loss_weight": args.preference_loss_weight,
+        "preference_margin": args.preference_margin,
         "epochs": args.epochs,
         "device": args.device,
         "init_checkpoint": args.init_checkpoint,
+        "architecture": args.architecture,
+        "attention_layers": args.attention_layers,
+        "attention_heads": args.attention_heads,
+        "attention_feedforward_size": args.attention_feedforward_size,
         "include_stalled_games": not args.exclude_stalled_games,
         "include_timed_out_games": not args.exclude_timeout_games,
         "max_model_loop_fallback_triggers": args.max_game_model_loop_fallback_triggers,
@@ -179,6 +395,9 @@ def _train_config_payload(args: argparse.Namespace) -> dict[str, object]:
         "winner_action_weight": args.winner_action_weight,
         "loser_action_weight": args.loser_action_weight,
         "draw_action_weight": args.draw_action_weight,
+        "preference_rows_policy_weight": args.preference_rows_policy_weight,
+        "preference_rows_distill_weight": args.preference_rows_distill_weight,
+        "preference_rows_preference_weight": args.preference_rows_preference_weight,
         "log_every_batches": args.log_every_batches,
     }
 
@@ -195,7 +414,10 @@ def main() -> None:
         f" device={args.device}"
         f" epochs={args.epochs}"
         f" batch_size={args.batch_size}"
+        f" architecture={args.architecture}"
         f" search_distill_loss_weight={args.search_distill_loss_weight}"
+        f" root_visit_loss_weight={args.root_visit_loss_weight}"
+        f" preference_loss_weight={args.preference_loss_weight}"
         f" policy_target_filter={args.policy_target_filter}"
         f" validation_split_unit={args.validation_split_unit}"
     )
@@ -224,6 +446,9 @@ def main() -> None:
         winner_action_weight=args.winner_action_weight,
         loser_action_weight=args.loser_action_weight,
         draw_action_weight=args.draw_action_weight,
+        preference_rows_policy_weight=args.preference_rows_policy_weight,
+        preference_rows_distill_weight=args.preference_rows_distill_weight,
+        preference_rows_preference_weight=args.preference_rows_preference_weight,
         observation_size=model.config.observation_size,
         action_feature_size=model.config.action_feature_size,
     )
@@ -262,21 +487,26 @@ def main() -> None:
         batch_progress_callback=_print_batch_progress,
         search_distill_loss_weight=args.search_distill_loss_weight,
         search_distill_temperature=args.search_distill_temperature,
+        root_visit_loss_weight=args.root_visit_loss_weight,
+        preference_loss_weight=args.preference_loss_weight,
+        preference_margin=args.preference_margin,
     )
     elapsed = time.perf_counter() - start_time
 
-    checkpoint_path = output_dir / "legal_action_scorer.pt"
-    best_checkpoint_path = output_dir / "legal_action_scorer_best.pt"
-    metrics_path = output_dir / "legal_action_scorer_metrics.json"
+    model_kind = _model_kind_for_architecture(args.architecture)
+    checkpoint_name, best_checkpoint_name, metrics_name = _checkpoint_filenames(args.architecture)
+    checkpoint_path = output_dir / checkpoint_name
+    best_checkpoint_path = output_dir / best_checkpoint_name
+    metrics_path = output_dir / metrics_name
     train_payload = _train_config_payload(args)
-    _save_checkpoint(checkpoint_path, artifacts.model, train_payload)
+    _save_checkpoint(checkpoint_path, artifacts.model, train_payload, model_kind)
     print(f"[legal-train] wrote final checkpoint: {checkpoint_path}")
 
     best_checkpoint_written = False
     if artifacts.best_model_state_dict is not None and artifacts.best_epoch_index is not None:
-        best_model = LegalActionScorerModel(artifacts.model.config)
+        best_model = artifacts.model.__class__(artifacts.model.config)
         best_model.load_state_dict(artifacts.best_model_state_dict)
-        _save_checkpoint(best_checkpoint_path, best_model, train_payload)
+        _save_checkpoint(best_checkpoint_path, best_model, train_payload, model_kind)
         best_checkpoint_written = True
         print(
             f"[legal-train] wrote best validation checkpoint: {best_checkpoint_path}"
@@ -302,6 +532,14 @@ def main() -> None:
             "max_game_model_loop_fallback_triggers": args.max_game_model_loop_fallback_triggers,
             "search_distill_loss_weight": args.search_distill_loss_weight,
             "search_distill_temperature": args.search_distill_temperature,
+            "root_visit_loss_weight": args.root_visit_loss_weight,
+            "preference_loss_weight": args.preference_loss_weight,
+            "preference_margin": args.preference_margin,
+            "architecture": args.architecture,
+            "model_kind": model_kind,
+            "preference_rows_policy_weight": args.preference_rows_policy_weight,
+            "preference_rows_distill_weight": args.preference_rows_distill_weight,
+            "preference_rows_preference_weight": args.preference_rows_preference_weight,
         },
         "checkpoints": {
             "final_checkpoint_path": checkpoint_path.name,

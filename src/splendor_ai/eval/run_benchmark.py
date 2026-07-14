@@ -11,8 +11,11 @@ from typing import Callable
 
 from splendor_ai.bots import (
     CheckpointPolicyBot,
+    CheckpointValueEvaluator,
     GreedyHeuristicBot,
+    LegalActionAttentionScorerBot,
     LegalActionScorerBot,
+    LegalActionSetScorerBot,
     LoopFallbackConfig,
     PolicyGuidedSearchBot,
     RandomLegalBot,
@@ -22,8 +25,20 @@ from splendor_ai.bots.base import Bot
 
 from .match import GameResult, MatchConfig, play_game
 
-MODEL_BOT_NAMES = ("CheckpointPolicyBot", "LegalActionScorerBot", "PolicyGuidedSearchBot")
-MODEL_KIND_CHOICES = ("flat_policy", "legal_action_scorer", "policy_guided_search")
+MODEL_BOT_NAMES = (
+    "CheckpointPolicyBot",
+    "LegalActionAttentionScorerBot",
+    "LegalActionScorerBot",
+    "LegalActionSetScorerBot",
+    "PolicyGuidedSearchBot",
+)
+MODEL_KIND_CHOICES = (
+    "flat_policy",
+    "legal_action_attention_scorer",
+    "legal_action_scorer",
+    "legal_action_set_scorer",
+    "policy_guided_search",
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -73,6 +88,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-swap-seats",
         action="store_true",
         help="Disable alternating seats across games.",
+    )
+    parser.add_argument(
+        "--paired-seeds",
+        action="store_true",
+        help=(
+            "For direct checkpoint-vs-checkpoint matches, play each seed twice "
+            "with seats reversed. Requires an even game count and seat swapping."
+        ),
     )
     parser.add_argument(
         "--output-path",
@@ -139,6 +162,52 @@ def build_parser() -> argparse.ArgumentParser:
         default=2_000.0,
         help="Heuristic-scale rank-prior weight for --model-kind policy_guided_search.",
     )
+    parser.add_argument(
+        "--search-value-checkpoint",
+        default=None,
+        help="Optional value checkpoint blended into search/PGS leaf evaluation.",
+    )
+    parser.add_argument(
+        "--search-value-device",
+        default="cpu",
+        help="Device used by --search-value-checkpoint.",
+    )
+    parser.add_argument(
+        "--search-value-weight",
+        type=float,
+        default=0.0,
+        help="Leaf blend weight for the learned value model in search/PGS.",
+    )
+    parser.add_argument(
+        "--search-value-scale",
+        type=float,
+        default=15_000.0,
+        help="Multiplier mapping normalized value predictions to heuristic scale.",
+    )
+    parser.add_argument(
+        "--search-value-prediction-mode",
+        choices=("value", "outcome", "blend"),
+        default="value",
+        help="Use scalar value head, outcome P(win)-P(loss), or a blend for search leaves.",
+    )
+    parser.add_argument(
+        "--search-value-outcome-blend-weight",
+        type=float,
+        default=0.5,
+        help="Outcome contribution when --search-value-prediction-mode=blend.",
+    )
+    parser.add_argument(
+        "--search-value-min-turn-index",
+        type=int,
+        default=None,
+        help="Only blend learned value into search leaves at or after this turn index.",
+    )
+    parser.add_argument(
+        "--search-value-max-turn-index",
+        type=int,
+        default=None,
+        help="Only blend learned value into search leaves at or before this turn index.",
+    )
     return parser
 
 
@@ -161,6 +230,14 @@ def benchmark_checkpoint(
     search_reserve_branching: int = 3,
     search_take_branching: int = 3,
     policy_prior_weight: float = 2_000.0,
+    search_value_checkpoint: str | Path | None = None,
+    search_value_device: str = "cpu",
+    search_value_weight: float = 0.0,
+    search_value_scale: float = 15_000.0,
+    search_value_prediction_mode: str = "value",
+    search_value_outcome_blend_weight: float = 0.5,
+    search_value_min_turn_index: int | None = None,
+    search_value_max_turn_index: int | None = None,
 ) -> dict[str, object]:
     checkpoint = Path(checkpoint_path)
     fallback_config = loop_fallback or LoopFallbackConfig()
@@ -190,6 +267,16 @@ def benchmark_checkpoint(
         "policy_guided_search": {
             "prior_weight": policy_prior_weight,
         },
+        "value_search": {
+            "checkpoint": str(search_value_checkpoint) if search_value_checkpoint is not None else None,
+            "device": search_value_device,
+            "weight": search_value_weight,
+            "scale": search_value_scale,
+            "prediction_mode": search_value_prediction_mode,
+            "outcome_blend_weight": search_value_outcome_blend_weight,
+            "min_turn_index": search_value_min_turn_index,
+            "max_turn_index": search_value_max_turn_index,
+        },
         "opponents": [],
     }
 
@@ -213,6 +300,14 @@ def benchmark_checkpoint(
             search_reserve_branching=search_reserve_branching,
             search_take_branching=search_take_branching,
             policy_prior_weight=policy_prior_weight,
+            search_value_checkpoint=search_value_checkpoint,
+            search_value_device=search_value_device,
+            search_value_weight=search_value_weight,
+            search_value_scale=search_value_scale,
+            search_value_prediction_mode=search_value_prediction_mode,
+            search_value_outcome_blend_weight=search_value_outcome_blend_weight,
+            search_value_min_turn_index=search_value_min_turn_index,
+            search_value_max_turn_index=search_value_max_turn_index,
         )
         payload["opponents"].append(opponent_payload)
 
@@ -231,6 +326,7 @@ def benchmark_head_to_head(
     repetition_limit: int = 4,
     no_progress_limit: int = 60,
     swap_seats: bool = True,
+    paired_seeds: bool = False,
     log_every: int = 5,
     loop_fallback: LoopFallbackConfig | None = None,
     search_depth: int = 2,
@@ -239,7 +335,19 @@ def benchmark_head_to_head(
     search_reserve_branching: int = 3,
     search_take_branching: int = 3,
     policy_prior_weight: float = 2_000.0,
+    search_value_checkpoint: str | Path | None = None,
+    search_value_device: str = "cpu",
+    search_value_weight: float = 0.0,
+    search_value_scale: float = 15_000.0,
+    search_value_prediction_mode: str = "value",
+    search_value_outcome_blend_weight: float = 0.5,
+    search_value_min_turn_index: int | None = None,
+    search_value_max_turn_index: int | None = None,
 ) -> dict[str, object]:
+    if paired_seeds and (games <= 0 or games % 2):
+        raise ValueError("paired_seeds requires a positive even game count")
+    if paired_seeds and not swap_seats:
+        raise ValueError("paired_seeds requires seat swapping")
     candidate_checkpoint = Path(candidate_checkpoint_path)
     baseline_checkpoint = Path(baseline_checkpoint_path)
     fallback_config = loop_fallback or LoopFallbackConfig()
@@ -255,6 +363,7 @@ def benchmark_head_to_head(
         "repetition_limit": repetition_limit,
         "no_progress_limit": no_progress_limit,
         "swap_seats": swap_seats,
+        "paired_seeds": paired_seeds,
         "loop_fallback": {
             "enabled": fallback_config.enabled,
             "min_state_visits": fallback_config.min_state_visits,
@@ -271,6 +380,16 @@ def benchmark_head_to_head(
         "policy_guided_search": {
             "prior_weight": policy_prior_weight,
         },
+        "value_search": {
+            "checkpoint": str(search_value_checkpoint) if search_value_checkpoint is not None else None,
+            "device": search_value_device,
+            "weight": search_value_weight,
+            "scale": search_value_scale,
+            "prediction_mode": search_value_prediction_mode,
+            "outcome_blend_weight": search_value_outcome_blend_weight,
+            "min_turn_index": search_value_min_turn_index,
+            "max_turn_index": search_value_max_turn_index,
+        },
     }
     payload["matchup"] = _benchmark_head_to_head(
         candidate_checkpoint_path=candidate_checkpoint,
@@ -284,6 +403,7 @@ def benchmark_head_to_head(
         repetition_limit=repetition_limit,
         no_progress_limit=no_progress_limit,
         swap_seats=swap_seats,
+        paired_seeds=paired_seeds,
         log_every=log_every,
         loop_fallback=fallback_config,
         search_depth=search_depth,
@@ -292,6 +412,14 @@ def benchmark_head_to_head(
         search_reserve_branching=search_reserve_branching,
         search_take_branching=search_take_branching,
         policy_prior_weight=policy_prior_weight,
+        search_value_checkpoint=search_value_checkpoint,
+        search_value_device=search_value_device,
+        search_value_weight=search_value_weight,
+        search_value_scale=search_value_scale,
+        search_value_prediction_mode=search_value_prediction_mode,
+        search_value_outcome_blend_weight=search_value_outcome_blend_weight,
+        search_value_min_turn_index=search_value_min_turn_index,
+        search_value_max_turn_index=search_value_max_turn_index,
     )
     return payload
 
@@ -521,6 +649,14 @@ def _benchmark_opponent(
     search_reserve_branching: int,
     search_take_branching: int,
     policy_prior_weight: float,
+    search_value_checkpoint: str | Path | None,
+    search_value_device: str,
+    search_value_weight: float,
+    search_value_scale: float,
+    search_value_prediction_mode: str,
+    search_value_outcome_blend_weight: float,
+    search_value_min_turn_index: int | None,
+    search_value_max_turn_index: int | None,
 ) -> dict[str, object]:
     opponent_factory = _opponent_factory(
         opponent_name,
@@ -553,6 +689,14 @@ def _benchmark_opponent(
         search_reserve_branching=search_reserve_branching,
         search_take_branching=search_take_branching,
         policy_prior_weight=policy_prior_weight,
+        search_value_checkpoint=search_value_checkpoint,
+        search_value_device=search_value_device,
+        search_value_weight=search_value_weight,
+        search_value_scale=search_value_scale,
+        search_value_prediction_mode=search_value_prediction_mode,
+        search_value_outcome_blend_weight=search_value_outcome_blend_weight,
+        search_value_min_turn_index=search_value_min_turn_index,
+        search_value_max_turn_index=search_value_max_turn_index,
     )
     for game_index in range(games):
         swap = swap_seats and game_index % 2 == 1
@@ -618,6 +762,7 @@ def _benchmark_head_to_head(
     repetition_limit: int,
     no_progress_limit: int,
     swap_seats: bool,
+    paired_seeds: bool,
     log_every: int,
     loop_fallback: LoopFallbackConfig,
     search_depth: int,
@@ -626,6 +771,14 @@ def _benchmark_head_to_head(
     search_reserve_branching: int,
     search_take_branching: int,
     policy_prior_weight: float,
+    search_value_checkpoint: str | Path | None,
+    search_value_device: str,
+    search_value_weight: float,
+    search_value_scale: float,
+    search_value_prediction_mode: str,
+    search_value_outcome_blend_weight: float,
+    search_value_min_turn_index: int | None,
+    search_value_max_turn_index: int | None,
 ) -> dict[str, object]:
     played_games: list[GameResult] = []
     candidate_wins = 0
@@ -640,6 +793,7 @@ def _benchmark_head_to_head(
         f"[head-to-head] candidate={candidate_checkpoint_path} kind={candidate_model_kind}"
         f" baseline={baseline_checkpoint_path} baseline_kind={baseline_model_kind}"
         f" games={games} device={device} swap_seats={swap_seats}"
+        f" paired_seeds={paired_seeds}"
     )
     candidate_bot = _model_bot_for_checkpoint(
         checkpoint_path=candidate_checkpoint_path,
@@ -652,6 +806,14 @@ def _benchmark_head_to_head(
         search_reserve_branching=search_reserve_branching,
         search_take_branching=search_take_branching,
         policy_prior_weight=policy_prior_weight,
+        search_value_checkpoint=search_value_checkpoint,
+        search_value_device=search_value_device,
+        search_value_weight=search_value_weight,
+        search_value_scale=search_value_scale,
+        search_value_prediction_mode=search_value_prediction_mode,
+        search_value_outcome_blend_weight=search_value_outcome_blend_weight,
+        search_value_min_turn_index=search_value_min_turn_index,
+        search_value_max_turn_index=search_value_max_turn_index,
     )
     baseline_bot = _model_bot_for_checkpoint(
         checkpoint_path=baseline_checkpoint_path,
@@ -664,6 +826,14 @@ def _benchmark_head_to_head(
         search_reserve_branching=search_reserve_branching,
         search_take_branching=search_take_branching,
         policy_prior_weight=policy_prior_weight,
+        search_value_checkpoint=search_value_checkpoint,
+        search_value_device=search_value_device,
+        search_value_weight=search_value_weight,
+        search_value_scale=search_value_scale,
+        search_value_prediction_mode=search_value_prediction_mode,
+        search_value_outcome_blend_weight=search_value_outcome_blend_weight,
+        search_value_min_turn_index=search_value_min_turn_index,
+        search_value_max_turn_index=search_value_max_turn_index,
     )
 
     for game_index in range(games):
@@ -675,7 +845,7 @@ def _benchmark_head_to_head(
         game = play_game(
             bot_seat_0=seat0,
             bot_seat_1=seat1,
-            seed=seed_start + game_index,
+            seed=seed_start + (game_index // 2 if paired_seeds else game_index),
             max_turns=max_turns,
             repetition_limit=repetition_limit,
             no_progress_limit=no_progress_limit,
@@ -744,6 +914,9 @@ def _opponent_factory(
             max_reserve_actions=search_reserve_branching,
             max_take_actions=search_take_branching,
             seed=seed,
+            information_legal=True,
+            determinizations=1,
+            determinization_seed=seed,
         )
     raise ValueError(f"Unsupported opponent: {opponent_name}")
 
@@ -759,12 +932,31 @@ def _model_bot_for_checkpoint(
     search_reserve_branching: int = 3,
     search_take_branching: int = 3,
     policy_prior_weight: float = 2_000.0,
+    search_value_checkpoint: str | Path | None = None,
+    search_value_device: str = "cpu",
+    search_value_weight: float = 0.0,
+    search_value_scale: float = 15_000.0,
+    search_value_prediction_mode: str = "value",
+    search_value_outcome_blend_weight: float = 0.5,
+    search_value_min_turn_index: int | None = None,
+    search_value_max_turn_index: int | None = None,
 ) -> Bot:
     if model_kind == "flat_policy":
         return CheckpointPolicyBot(checkpoint_path, device=device, loop_fallback=loop_fallback)
     if model_kind == "legal_action_scorer":
         return LegalActionScorerBot(checkpoint_path, device=device)
+    if model_kind == "legal_action_attention_scorer":
+        return LegalActionAttentionScorerBot(checkpoint_path, device=device)
+    if model_kind == "legal_action_set_scorer":
+        return LegalActionSetScorerBot(checkpoint_path, device=device)
     if model_kind == "policy_guided_search":
+        value_evaluator = _build_value_evaluator(
+            checkpoint_path=search_value_checkpoint,
+            device=search_value_device,
+            value_scale=search_value_scale,
+            prediction_mode=search_value_prediction_mode,
+            outcome_blend_weight=search_value_outcome_blend_weight,
+        )
         return PolicyGuidedSearchBot(
             checkpoint_path=checkpoint_path,
             device=device,
@@ -775,8 +967,33 @@ def _model_bot_for_checkpoint(
             max_reserve_actions=search_reserve_branching,
             max_take_actions=search_take_branching,
             seed=0,
+            value_evaluator=value_evaluator,
+            value_weight=search_value_weight,
+            value_min_turn_index=search_value_min_turn_index,
+            value_max_turn_index=search_value_max_turn_index,
+            information_legal=True,
+            determinizations=1,
+            determinization_seed=0,
         )
     raise ValueError(f"Unsupported model kind: {model_kind}")
+
+
+def _build_value_evaluator(
+    checkpoint_path: str | Path | None,
+    device: str,
+    value_scale: float,
+    prediction_mode: str = "value",
+    outcome_blend_weight: float = 0.5,
+) -> CheckpointValueEvaluator | None:
+    if checkpoint_path is None:
+        return None
+    return CheckpointValueEvaluator(
+        checkpoint_path=checkpoint_path,
+        device=device,
+        value_scale=value_scale,
+        prediction_mode=prediction_mode,
+        outcome_blend_weight=outcome_blend_weight,
+    )
 
 
 def main() -> None:
@@ -808,6 +1025,14 @@ def main() -> None:
             search_reserve_branching=args.search_reserve_branching,
             search_take_branching=args.search_take_branching,
             policy_prior_weight=args.policy_prior_weight,
+            search_value_checkpoint=args.search_value_checkpoint,
+            search_value_device=args.search_value_device,
+            search_value_weight=args.search_value_weight,
+            search_value_scale=args.search_value_scale,
+            search_value_prediction_mode=args.search_value_prediction_mode,
+            search_value_outcome_blend_weight=args.search_value_outcome_blend_weight,
+            search_value_min_turn_index=args.search_value_min_turn_index,
+            search_value_max_turn_index=args.search_value_max_turn_index,
         )
     else:
         output_path = (
@@ -827,6 +1052,7 @@ def main() -> None:
             repetition_limit=args.repetition_limit,
             no_progress_limit=args.no_progress_limit,
             swap_seats=not args.no_swap_seats,
+            paired_seeds=args.paired_seeds,
             log_every=args.log_every,
             loop_fallback=loop_fallback,
             search_depth=args.search_depth,
@@ -835,6 +1061,14 @@ def main() -> None:
             search_reserve_branching=args.search_reserve_branching,
             search_take_branching=args.search_take_branching,
             policy_prior_weight=args.policy_prior_weight,
+            search_value_checkpoint=args.search_value_checkpoint,
+            search_value_device=args.search_value_device,
+            search_value_weight=args.search_value_weight,
+            search_value_scale=args.search_value_scale,
+            search_value_prediction_mode=args.search_value_prediction_mode,
+            search_value_outcome_blend_weight=args.search_value_outcome_blend_weight,
+            search_value_min_turn_index=args.search_value_min_turn_index,
+            search_value_max_turn_index=args.search_value_max_turn_index,
         )
     written_path = write_benchmark_payload(output_path, payload)
     print(f"[benchmark] wrote results: {written_path}")

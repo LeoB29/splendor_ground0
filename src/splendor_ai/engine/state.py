@@ -6,6 +6,15 @@ from dataclasses import dataclass, field
 
 from .constants import ALL_TOKEN_TYPES, TOKEN_COLORS
 
+RESERVE_SOURCE_VISIBLE = "visible"
+RESERVE_SOURCE_DECK = "deck"
+RESERVE_SOURCE_LEGACY_UNKNOWN = "legacy_unknown"
+RESERVE_SOURCES = (
+    RESERVE_SOURCE_VISIBLE,
+    RESERVE_SOURCE_DECK,
+    RESERVE_SOURCE_LEGACY_UNKNOWN,
+)
+
 
 def empty_token_bank() -> dict[str, int]:
     return {color: 0 for color in ALL_TOKEN_TYPES}
@@ -38,12 +47,30 @@ class PlayerState:
     bonuses: dict[str, int] = field(default_factory=empty_bonus_bank)
     score: int = 0
     reserved_cards: list[Card] = field(default_factory=list)
+    reserved_card_sources: list[str] = field(default_factory=list)
     purchased_cards: list[Card] = field(default_factory=list)
     nobles: list[Noble] = field(default_factory=list)
 
     @property
     def token_count(self) -> int:
         return sum(self.tokens.values())
+
+    def reserve_card(self, card: Card, source: str) -> None:
+        if source not in RESERVE_SOURCES:
+            raise ValueError(f"Unknown reserve source: {source}")
+        self.reserved_cards.append(card)
+        self.reserved_card_sources.append(source)
+
+    def reserved_card_source(self, index: int) -> str:
+        if index < len(self.reserved_card_sources):
+            return self.reserved_card_sources[index]
+        return RESERVE_SOURCE_LEGACY_UNKNOWN
+
+    def pop_reserved_card(self, index: int) -> Card:
+        card = self.reserved_cards.pop(index)
+        if index < len(self.reserved_card_sources):
+            self.reserved_card_sources.pop(index)
+        return card
 
 
 @dataclass(slots=True)
@@ -77,6 +104,7 @@ class SplendorState:
                     bonuses=dict(player.bonuses),
                     score=player.score,
                     reserved_cards=list(player.reserved_cards),
+                    reserved_card_sources=list(player.reserved_card_sources),
                     purchased_cards=list(player.purchased_cards),
                     nobles=list(player.nobles),
                 )

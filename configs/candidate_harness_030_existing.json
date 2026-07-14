@@ -1,0 +1,148 @@
+{
+  "env": {
+    "PYTHONPATH": "src"
+  },
+  "variants": [
+    {
+      "name": "030_existing_constrained_preference",
+      "train": {
+        "name": "train_existing_030",
+        "command": ["python", "-c", "print('existing 030 checkpoint')"],
+        "output_path": "outputs/legal_action_scorer_030_constrained_pref/legal_action_attention_scorer_best.pt",
+        "skip_if_outputs_exist": [
+          "outputs/legal_action_scorer_030_constrained_pref/legal_action_attention_scorer_best.pt"
+        ]
+      },
+      "diagnostics": [
+        {
+          "name": "broad_pgs_drift",
+          "module": "splendor_ai.training.run_policy_drift",
+          "args": [
+            "--before-checkpoint", "outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt",
+            "--after-checkpoint", "outputs/legal_action_scorer_030_constrained_pref/legal_action_attention_scorer_best.pt",
+            "--replay-path", "data/corpus_pgs016_early_token_reserve_028/replays.jsonl",
+            "--output-path", "outputs/analysis/policy_drift_022_030_pgs028.json",
+            "--log-every", "500"
+          ],
+          "output_path": "outputs/analysis/policy_drift_022_030_pgs028.json",
+          "skip_if_outputs_exist": [
+            "outputs/analysis/policy_drift_022_030_pgs028.json"
+          ],
+          "gates": [
+            {
+              "name": "broad_top_action_agreement_at_least_95pct",
+              "path": "overall.top_action_agreement_rate",
+              "op": ">=",
+              "value": 0.95
+            }
+          ]
+        },
+        {
+          "name": "protected_regression_drift",
+          "module": "splendor_ai.training.run_policy_drift",
+          "args": [
+            "--before-checkpoint", "outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt",
+            "--after-checkpoint", "outputs/legal_action_scorer_030_constrained_pref/legal_action_attention_scorer_best.pt",
+            "--replay-path", "data/corpus_030_constrained/anti_regression_022_rows.jsonl",
+            "--output-path", "outputs/analysis/policy_drift_022_030_regression_anchors.json",
+            "--log-every", "0"
+          ],
+          "output_path": "outputs/analysis/policy_drift_022_030_regression_anchors.json",
+          "skip_if_outputs_exist": [
+            "outputs/analysis/policy_drift_022_030_regression_anchors.json"
+          ],
+          "gates": [
+            {
+              "name": "protected_top_action_agreement_at_least_98pct",
+              "path": "overall.top_action_agreement_rate",
+              "op": ">=",
+              "value": 0.98
+            }
+          ]
+        },
+        {
+          "name": "selected_preference_uptake",
+          "module": "splendor_ai.training.run_policy_diff_against_teacher",
+          "args": [
+            "--before-checkpoint", "outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt",
+            "--before-model-kind", "legal_action_attention_scorer",
+            "--after-checkpoint", "outputs/legal_action_scorer_030_constrained_pref/legal_action_attention_scorer_best.pt",
+            "--after-model-kind", "legal_action_attention_scorer",
+            "--replay-path", "data/corpus_030_constrained/preference_rows.jsonl",
+            "--output-path", "outputs/analysis/policy_diff_022_030_constrained49.json",
+            "--teacher-source", "stored",
+            "--log-every", "0"
+          ],
+          "output_path": "outputs/analysis/policy_diff_022_030_constrained49.json",
+          "skip_if_outputs_exist": [
+            "outputs/analysis/policy_diff_022_030_constrained49.json"
+          ],
+          "gates": [
+            {
+              "name": "selected_teacher_uptake_at_least_2pct",
+              "path": "overall.after_teacher_match_rate",
+              "op": ">=",
+              "value": 0.02
+            },
+            {
+              "name": "selected_rows_retain_at_least_90pct_agreement",
+              "path": "overall.before_after_top_action_agreement_rate",
+              "op": ">=",
+              "value": 0.90
+            }
+          ]
+        }
+      ],
+      "benchmarks": [
+        {
+          "name": "vs_022_initial_100",
+          "command": ["python", "-c", "print('existing direct benchmark')"],
+          "output_path": "outputs/benchmarks/legal_action_scorer_030_vs_022_seed28500_100.json",
+          "skip_if_outputs_exist": [
+            "outputs/benchmarks/legal_action_scorer_030_vs_022_seed28500_100.json"
+          ],
+          "gates": [
+            {
+              "name": "initial_direct_not_losing",
+              "path": "matchup.candidate_wins",
+              "op": ">=",
+              "value": 50
+            }
+          ]
+        },
+        {
+          "name": "vs_022_confirmation_200",
+          "command": ["python", "-c", "print('existing direct confirmation')"],
+          "output_path": "outputs/benchmarks/legal_action_scorer_030_vs_022_seed28900_200.json",
+          "skip_if_outputs_exist": [
+            "outputs/benchmarks/legal_action_scorer_030_vs_022_seed28900_200.json"
+          ],
+          "gates": [
+            {
+              "name": "confirmation_direct_not_losing",
+              "path": "matchup.candidate_wins",
+              "op": ">=",
+              "value": 100
+            }
+          ]
+        },
+        {
+          "name": "vs_search_confirmation_200",
+          "command": ["python", "-c", "print('existing search confirmation')"],
+          "output_path": "outputs/benchmarks/legal_action_scorer_030_vs_search_seed29100_200.json",
+          "skip_if_outputs_exist": [
+            "outputs/benchmarks/legal_action_scorer_030_vs_search_seed29100_200.json"
+          ],
+          "gates": [
+            {
+              "name": "match_022_search_wins_on_same_seeds",
+              "path": "opponents.0.model_wins",
+              "op": ">=",
+              "value": 86
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,11 @@
 from splendor_ai.engine.actions import ActionType
 from splendor_ai.engine.env import SplendorEnv
-from splendor_ai.engine.state import Card, Noble
+from splendor_ai.engine.state import (
+    Card,
+    Noble,
+    RESERVE_SOURCE_DECK,
+    RESERVE_SOURCE_VISIBLE,
+)
 
 
 def _first_action(actions, action_type: ActionType):
@@ -98,6 +103,7 @@ def test_step_reserve_visible_moves_card_to_reserved_and_refills_market() -> Non
     next_state = env.step(state, action)
 
     assert next_state.players[0].reserved_cards[0].card_id == original_market[0].card_id
+    assert next_state.players[0].reserved_card_source(0) == RESERVE_SOURCE_VISIBLE
     assert len(next_state.visible_tier_cards[1]) == 4
     assert next_state.visible_tier_cards[1][-1].card_id == original_hidden_top.card_id
     assert next_state.players[0].tokens["gold"] == 1
@@ -120,6 +126,7 @@ def test_step_reserve_deck_takes_hidden_card_without_changing_visible_market() -
 
     assert [card.card_id for card in next_state.visible_tier_cards[2]] == visible_before
     assert next_state.players[0].reserved_cards[0].card_id == hidden_top.card_id
+    assert next_state.players[0].reserved_card_source(0) == RESERVE_SOURCE_DECK
     assert next_state.deck_counts[2] == len(state.hidden_tier_decks[2]) - 1
 
 
@@ -178,6 +185,7 @@ def test_step_buy_reserved_removes_reserved_card_and_awards_points() -> None:
     next_state = env.step(state, action)
 
     assert next_state.players[0].reserved_cards == []
+    assert next_state.players[0].reserved_card_sources == []
     assert next_state.players[0].score == 2
     assert next_state.players[0].bonuses["black"] == 1
 

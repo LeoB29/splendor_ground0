@@ -1,0 +1,91 @@
+{
+  "env": {
+    "PYTHONPATH": "src"
+  },
+  "variants": [
+    {
+      "name": "034_existing_rollout_credit_anchored",
+      "train": {
+        "name": "train_existing_034",
+        "command": ["python", "-c", "print('existing 034 checkpoint')"],
+        "output_path": "outputs/legal_action_scorer_034_rollout_credit_anchored/legal_action_attention_scorer.pt",
+        "skip_if_outputs_exist": [
+          "outputs/legal_action_scorer_034_rollout_credit_anchored/legal_action_attention_scorer.pt"
+        ]
+      },
+      "diagnostics": [
+        {
+          "name": "rollout_target_uptake",
+          "command": ["python", "-c", "print('existing rollout diagnostic')"],
+          "output_path": "outputs/analysis/policy_diff_022_034_rollout_credit68.json",
+          "skip_if_outputs_exist": [
+            "outputs/analysis/policy_diff_022_034_rollout_credit68.json"
+          ],
+          "gates": [
+            {
+              "name": "rollout_best_match_improves",
+              "path": "overall.after_teacher_match_rate",
+              "op": ">",
+              "value": 0.3235
+            }
+          ]
+        },
+        {
+          "name": "broad_drift",
+          "command": ["python", "-c", "print('existing drift diagnostic')"],
+          "output_path": "outputs/analysis/policy_drift_022_034_pgs028.json",
+          "skip_if_outputs_exist": [
+            "outputs/analysis/policy_drift_022_034_pgs028.json"
+          ],
+          "gates": [
+            {
+              "name": "broad_agreement_at_least_95pct",
+              "path": "overall.top_action_agreement_rate",
+              "op": ">=",
+              "value": 0.95
+            }
+          ]
+        },
+        {
+          "name": "protected_drift",
+          "command": ["python", "-c", "print('existing protected drift')"],
+          "output_path": "outputs/analysis/policy_drift_022_034_regression_anchors.json",
+          "skip_if_outputs_exist": [
+            "outputs/analysis/policy_drift_022_034_regression_anchors.json"
+          ],
+          "gates": [
+            {
+              "name": "protected_agreement_at_least_98pct",
+              "path": "overall.top_action_agreement_rate",
+              "op": ">=",
+              "value": 0.98
+            }
+          ]
+        },
+        {
+          "name": "conversion",
+          "command": ["python", "-c", "print('existing conversion diagnostic')"],
+          "output_path": "outputs/analysis/conversion_diagnostics_022_034_diff10.json",
+          "skip_if_outputs_exist": [
+            "outputs/analysis/conversion_diagnostics_022_034_diff10.json"
+          ],
+          "gates": [
+            {
+              "name": "final_score_drop_no_worse_than_one",
+              "path": "paired_first_two_labels.end_metric_delta_after_minus_before.final_score_mean",
+              "op": ">=",
+              "value": -1.0
+            },
+            {
+              "name": "bought_points_drop_no_worse_than_one",
+              "path": "paired_first_two_labels.end_metric_delta_after_minus_before.bought_card_points_mean",
+              "op": ">=",
+              "value": -1.0
+            }
+          ]
+        }
+      ],
+      "benchmarks": []
+    }
+  ]
+}

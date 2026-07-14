@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from splendor_ai.bots import ShallowSearchBot
+from splendor_ai.bots import CheckpointLegalActionPriorScorer, ShallowSearchBot
 from splendor_ai.encoding import ActionCodec, encode_public_observation_tensor
 from splendor_ai.engine.actions import ActionType
 from splendor_ai.engine.env import SplendorEnv
@@ -41,11 +41,17 @@ class TargetedSearchCorpusConfig:
     search_buy_branching: int = 6
     search_reserve_branching: int = 3
     search_take_branching: int = 3
+    policy_prior_checkpoint_path: Path | None = None
+    policy_prior_device: str = "cpu"
+    policy_prior_weight: float = 0.0
     seed: int = 0
     min_search_margin: float = 100.0
     include_missing_model_action: bool = True
     target_action_types: tuple[str, ...] = _DEFAULT_TARGET_ACTION_TYPES
     late_buy_turn_min: int = 50
+    player_id_filter: tuple[int, ...] | None = None
+    phase_filter: tuple[str, ...] | None = None
+    training_weight: float | None = None
     max_examples: int = 20
 
 
@@ -56,7 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument(
         "--model-kind",
-        choices=("flat_policy", "legal_action_scorer"),
+        choices=(
+            "flat_policy",
+            "legal_action_scorer",
+            "legal_action_attention_scorer",
+            "legal_action_set_scorer",
+        ),
         default="legal_action_scorer",
     )
     parser.add_argument("--replay-path", action="append", required=True)
@@ -70,6 +81,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--search-buy-branching", type=int, default=6)
     parser.add_argument("--search-reserve-branching", type=int, default=3)
     parser.add_argument("--search-take-branching", type=int, default=3)
+    parser.add_argument(
+        "--policy-prior-checkpoint",
+        default=None,
+        help="Optional legal-action scorer checkpoint used as a policy-guided search prior.",
+    )
+    parser.add_argument("--policy-prior-device", default="cpu")
+    parser.add_argument(
+        "--policy-prior-weight",
+        type=float,
+        default=0.0,
+        help="Heuristic-scale rank-prior weight for policy-guided search ranking.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--min-search-margin", type=float, default=100.0)
     parser.add_argument("--include-missing-model-action", action="store_true", default=False)
@@ -84,6 +107,27 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=50,
         help="Only keep BUY_* search corrections from this turn onward.",
+    )
+    parser.add_argument(
+        "--player-id-filter",
+        nargs="*",
+        type=int,
+        choices=(0, 1),
+        default=None,
+        help="Only analyze replay rows for these player ids.",
+    )
+    parser.add_argument(
+        "--phase-filter",
+        nargs="*",
+        choices=("early", "mid", "late"),
+        default=None,
+        help="Only analyze replay rows in these turn-index phases.",
+    )
+    parser.add_argument(
+        "--training-weight",
+        type=float,
+        default=None,
+        help="Optional sample weight written to every targeted correction row.",
     )
     parser.add_argument("--max-examples", type=int, default=20)
     return parser
@@ -106,11 +150,29 @@ def main() -> None:
             search_buy_branching=args.search_buy_branching,
             search_reserve_branching=args.search_reserve_branching,
             search_take_branching=args.search_take_branching,
+            policy_prior_checkpoint_path=(
+                Path(args.policy_prior_checkpoint)
+                if args.policy_prior_checkpoint is not None
+                else None
+            ),
+            policy_prior_device=args.policy_prior_device,
+            policy_prior_weight=args.policy_prior_weight,
             seed=args.seed,
             min_search_margin=args.min_search_margin,
             include_missing_model_action=args.include_missing_model_action,
             target_action_types=tuple(args.target_action_types),
             late_buy_turn_min=args.late_buy_turn_min,
+            player_id_filter=(
+                tuple(args.player_id_filter)
+                if args.player_id_filter is not None and len(args.player_id_filter) > 0
+                else None
+            ),
+            phase_filter=(
+                tuple(args.phase_filter)
+                if args.phase_filter is not None and len(args.phase_filter) > 0
+                else None
+            ),
+            training_weight=args.training_weight,
             max_examples=args.max_examples,
         )
     )
@@ -127,13 +189,21 @@ def build_targeted_search_corpus(config: TargetedSearchCorpusConfig) -> dict[str
         raise ValueError("At least one replay path is required.")
     if config.min_search_margin < 0.0:
         raise ValueError("min_search_margin must be non-negative.")
+    if config.policy_prior_weight < 0.0:
+        raise ValueError("policy_prior_weight must be non-negative.")
+    if config.training_weight is not None and config.training_weight <= 0.0:
+        raise ValueError("training_weight must be positive when set.")
     unknown_action_types = set(config.target_action_types) - {action_type.name for action_type in ActionType}
     if unknown_action_types:
         raise ValueError(f"Unknown target action types: {sorted(unknown_action_types)}")
+    unknown_phases = set(config.phase_filter or ()) - {"early", "mid", "late"}
+    if unknown_phases:
+        raise ValueError(f"Unknown phases: {sorted(unknown_phases)}")
 
     env = SplendorEnv()
     codec = ActionCodec()
     model_scorer = _load_policy_scorer(config)
+    action_prior = _build_action_prior(config)
     config.output_path.parent.mkdir(parents=True, exist_ok=True)
     config.summary_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -141,6 +211,8 @@ def build_targeted_search_corpus(config: TargetedSearchCorpusConfig) -> dict[str
         "rows_seen": 0,
         "rows_analyzed": 0,
         "rows_written": 0,
+        "rows_skipped_by_player_id": 0,
+        "rows_skipped_by_phase": 0,
         "rows_missing_snapshot": 0,
         "rows_without_legal_actions": 0,
         "rows_without_search_candidate": 0,
@@ -150,6 +222,7 @@ def build_targeted_search_corpus(config: TargetedSearchCorpusConfig) -> dict[str
         "rows_missing_model_search_value": 0,
         "written_by_search_action_type": {},
         "written_by_phase": {},
+        "written_by_seat": {},
     }
     examples: list[dict[str, Any]] = []
 
@@ -164,6 +237,14 @@ def build_targeted_search_corpus(config: TargetedSearchCorpusConfig) -> dict[str
                         continue
                     counters["rows_seen"] += 1
                     payload = json.loads(stripped)
+                    player_id = int(payload.get("player_id", -1))
+                    if config.player_id_filter is not None and player_id not in config.player_id_filter:
+                        counters["rows_skipped_by_player_id"] += 1
+                        continue
+                    phase = _phase_for_turn(int(payload.get("turn_index", 0)))
+                    if config.phase_filter is not None and phase not in config.phase_filter:
+                        counters["rows_skipped_by_phase"] += 1
+                        continue
                     snapshot = payload.get("state_snapshot")
                     if not isinstance(snapshot, dict):
                         counters["rows_missing_snapshot"] += 1
@@ -173,7 +254,11 @@ def build_targeted_search_corpus(config: TargetedSearchCorpusConfig) -> dict[str
                     if not legal_actions:
                         counters["rows_without_legal_actions"] += 1
                         continue
-                    search_bot = _build_search_bot(config, counters["rows_seen"])
+                    search_bot = _build_search_bot(
+                        config,
+                        counters["rows_seen"],
+                        action_prior=action_prior,
+                    )
                     search_scores = search_bot.rank_actions(env, state, legal_actions)
                     if not search_scores:
                         counters["rows_without_search_candidate"] += 1
@@ -200,6 +285,7 @@ def build_targeted_search_corpus(config: TargetedSearchCorpusConfig) -> dict[str
                         phase = _phase_for_turn(int(target_payload.get("turn_index", 0)))
                         _increment(counters["written_by_search_action_type"], search_type)
                         _increment(counters["written_by_phase"], phase)
+                        _increment(counters["written_by_seat"], str(target_payload.get("player_id")))
                         _store_example(examples, target_payload, config.max_examples)
 
                     if config.log_every > 0 and counters["rows_seen"] % config.log_every == 0:
@@ -220,6 +306,11 @@ def build_targeted_search_corpus(config: TargetedSearchCorpusConfig) -> dict[str
             "replay_paths": [str(path) for path in config.replay_paths],
             "output_path": str(config.output_path),
             "summary_path": str(config.summary_path),
+            "policy_prior_checkpoint_path": (
+                str(config.policy_prior_checkpoint_path)
+                if config.policy_prior_checkpoint_path is not None
+                else None
+            ),
         },
     }
     config.summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -279,6 +370,12 @@ def _targeted_payload_for_row(
             "legal_action_indices": legal_action_indices,
             "observation_vector": list(observation.vector),
             "target_source": "targeted_search_disagreement",
+            "target_search_source": (
+                "policy_guided_search"
+                if config.policy_prior_checkpoint_path is not None
+                and config.policy_prior_weight > 0.0
+                else "shallow_search"
+            ),
             "target_source_replay_path": str(replay_path),
             "original_action_index": payload.get("action_index"),
             "original_action_payload": payload.get("action_payload"),
@@ -299,10 +396,25 @@ def _targeted_payload_for_row(
             ],
         }
     )
+    if config.training_weight is not None:
+        target_payload["training_weight"] = config.training_weight
     return target_payload
 
 
-def _build_search_bot(config: TargetedSearchCorpusConfig, row_offset: int) -> ShallowSearchBot:
+def _build_action_prior(config: TargetedSearchCorpusConfig) -> CheckpointLegalActionPriorScorer | None:
+    if config.policy_prior_checkpoint_path is not None and config.policy_prior_weight > 0.0:
+        return CheckpointLegalActionPriorScorer(
+            checkpoint_path=config.policy_prior_checkpoint_path,
+            device=config.policy_prior_device,
+        )
+    return None
+
+
+def _build_search_bot(
+    config: TargetedSearchCorpusConfig,
+    row_offset: int,
+    action_prior: CheckpointLegalActionPriorScorer | None = None,
+) -> ShallowSearchBot:
     return ShallowSearchBot(
         depth=config.search_depth,
         max_branching=config.search_max_branching,
@@ -310,6 +422,8 @@ def _build_search_bot(config: TargetedSearchCorpusConfig, row_offset: int) -> Sh
         max_reserve_actions=config.search_reserve_branching,
         max_take_actions=config.search_take_branching,
         seed=config.seed + row_offset,
+        action_prior=action_prior,
+        action_prior_weight=config.policy_prior_weight,
     )
 
 

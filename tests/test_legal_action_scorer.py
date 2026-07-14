@@ -8,8 +8,12 @@ from splendor_ai.bots import RandomLegalBot
 from splendor_ai.encoding import ACTION_FEATURE_SIZE, OBSERVATION_SIZE
 from splendor_ai.training import (
     LegalActionReplayDataset,
+    LegalActionAttentionScorerConfig,
+    LegalActionAttentionScorerModel,
     LegalActionScorerConfig,
     LegalActionScorerModel,
+    LegalActionSetScorerConfig,
+    LegalActionSetScorerModel,
     collect_game_replay,
     collate_legal_action_replay_samples,
     export_replay_games_jsonl,
@@ -107,6 +111,81 @@ def test_legal_action_scorer_model_forward_and_masking() -> None:
     )
 
     action_scores, value = model(observation, legal_action_features)
+    masked_scores = masked_legal_action_scores(action_scores, legal_action_mask)
+
+    assert action_scores.shape == (2, 5)
+    assert value.shape == (2,)
+    assert torch.isfinite(action_scores).all()
+    assert torch.all(value <= 1.0)
+    assert torch.all(value >= -1.0)
+    assert math.isfinite(float(masked_scores[0, 0]))
+    assert masked_scores[0, 3] < -1e30
+
+
+def test_legal_action_set_scorer_model_uses_masked_action_set_context() -> None:
+    model = LegalActionSetScorerModel(
+        LegalActionSetScorerConfig(
+            observation_size=256,
+            action_feature_size=ACTION_FEATURE_SIZE,
+            state_hidden_size=32,
+            action_hidden_size=16,
+            set_context_hidden_size=12,
+            scorer_hidden_size=24,
+            state_depth=2,
+            action_depth=2,
+            set_context_depth=1,
+            dropout=0.0,
+        )
+    )
+    observation = torch.zeros((2, 256), dtype=torch.float32)
+    legal_action_features = torch.zeros((2, 5, ACTION_FEATURE_SIZE), dtype=torch.float32)
+    legal_action_mask = torch.tensor(
+        [
+            [True, True, True, False, False],
+            [True, True, True, True, True],
+        ],
+        dtype=torch.bool,
+    )
+
+    action_scores, value = model(observation, legal_action_features, legal_action_mask)
+    masked_scores = masked_legal_action_scores(action_scores, legal_action_mask)
+
+    assert action_scores.shape == (2, 5)
+    assert value.shape == (2,)
+    assert torch.isfinite(action_scores).all()
+    assert torch.all(value <= 1.0)
+    assert torch.all(value >= -1.0)
+    assert math.isfinite(float(masked_scores[0, 0]))
+    assert masked_scores[0, 3] < -1e30
+
+
+def test_legal_action_attention_scorer_model_forward_and_masking() -> None:
+    model = LegalActionAttentionScorerModel(
+        LegalActionAttentionScorerConfig(
+            observation_size=256,
+            action_feature_size=ACTION_FEATURE_SIZE,
+            state_hidden_size=32,
+            action_hidden_size=16,
+            scorer_hidden_size=24,
+            state_depth=2,
+            action_depth=2,
+            attention_layers=1,
+            attention_heads=4,
+            attention_feedforward_size=32,
+            dropout=0.0,
+        )
+    )
+    observation = torch.zeros((2, 256), dtype=torch.float32)
+    legal_action_features = torch.zeros((2, 5, ACTION_FEATURE_SIZE), dtype=torch.float32)
+    legal_action_mask = torch.tensor(
+        [
+            [True, True, True, False, False],
+            [True, True, True, True, True],
+        ],
+        dtype=torch.bool,
+    )
+
+    action_scores, value = model(observation, legal_action_features, legal_action_mask)
     masked_scores = masked_legal_action_scores(action_scores, legal_action_mask)
 
     assert action_scores.shape == (2, 5)

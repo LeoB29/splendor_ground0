@@ -6,7 +6,12 @@ import sys
 import pytest
 import torch
 
-from splendor_ai.bots import CheckpointPolicyBot, LegalActionScorerBot, PolicyGuidedSearchBot
+from splendor_ai.bots import (
+    CheckpointPolicyBot,
+    InformationSetPuctBot,
+    LegalActionScorerBot,
+    PolicyGuidedSearchBot,
+)
 from splendor_ai.training.model import (
     LegalActionScorerConfig,
     LegalActionScorerModel,
@@ -146,6 +151,60 @@ def test_checkpoint_bot_factory_loads_cached_policy_guided_search_bot(tmp_path) 
     assert first_bot.policy_prior_weight == 1500
 
 
+def test_puct_bot_factory_loads_cached_information_set_bot(tmp_path) -> None:
+    checkpoint_path = _write_legal_action_scorer_checkpoint(tmp_path)
+    args = build_parser().parse_args(
+        [
+            "--output-dir",
+            str(tmp_path / "corpus"),
+            "--seat0-bot",
+            "puct",
+            "--checkpoint-path",
+            str(checkpoint_path),
+            "--puct-simulations",
+            "8",
+            "--puct-inference-batch-size",
+            "4",
+            "--puct-n-step-leaf-depth",
+            "2",
+            "--puct-n-step-leaf-candidate-limit",
+            "6",
+            "--puct-n-step-leaf-weight",
+            "0.5",
+            "--puct-n-step-leaf-delta-clip",
+            "0.2",
+            "--puct-n-step-leaf-min-turn-index",
+            "40",
+            "--puct-n-step-leaf-min-max-score",
+            "10",
+            "--puct-rollout-leaf-count",
+            "2",
+            "--puct-rollout-leaf-max-depth",
+            "5",
+            "--puct-rollout-leaf-policy",
+            "random",
+        ]
+    )
+
+    factory = _build_bot_factory("puct", seed=0, args=args)
+    first_bot = factory()
+    second_bot = factory()
+
+    assert isinstance(first_bot, InformationSetPuctBot)
+    assert first_bot is second_bot
+    assert first_bot.puct_config.simulations == 8
+    assert first_bot.puct_config.inference_batch_size == 4
+    assert first_bot.puct_config.n_step_leaf_depth == 2
+    assert first_bot.puct_config.n_step_leaf_candidate_limit == 6
+    assert first_bot.puct_config.n_step_leaf_weight == 0.5
+    assert first_bot.puct_config.n_step_leaf_delta_clip == 0.2
+    assert first_bot.puct_config.n_step_leaf_min_turn_index == 40
+    assert first_bot.puct_config.n_step_leaf_min_max_score == 10
+    assert first_bot.puct_config.rollout_leaf_count == 2
+    assert first_bot.puct_config.rollout_leaf_max_depth == 5
+    assert first_bot.puct_config.rollout_leaf_policy == "random"
+
+
 def test_checkpoint_bot_factory_uses_seat_specific_checkpoint_settings(tmp_path) -> None:
     flat_checkpoint_path = _write_checkpoint(tmp_path)
     scorer_checkpoint_path = _write_legal_action_scorer_checkpoint(tmp_path)
@@ -205,6 +264,16 @@ def test_summary_metadata_records_checkpoint_configuration(tmp_path) -> None:
             "--source-type",
             "league",
             "--disable-checkpoint-loop-fallback",
+            "--search-value-checkpoint",
+            "value.pt",
+            "--search-value-weight",
+            "0.25",
+            "--search-value-scale",
+            "1234",
+            "--search-value-prediction-mode",
+            "outcome",
+            "--search-value-min-turn-index",
+            "40",
         ]
     )
 
@@ -225,6 +294,24 @@ def test_summary_metadata_records_checkpoint_configuration(tmp_path) -> None:
     assert metadata["checkpoint"]["device"] == "cpu"
     assert metadata["checkpoint"]["policy_prior_weight"] == 2000.0
     assert metadata["checkpoint"]["loop_fallback"]["enabled"] is False
+    assert metadata["search"]["value_checkpoint"] == "value.pt"
+    assert metadata["search"]["value_weight"] == 0.25
+    assert metadata["search"]["value_scale"] == 1234
+    assert metadata["search"]["value_prediction_mode"] == "outcome"
+    assert metadata["search"]["value_outcome_blend_weight"] == 0.5
+    assert metadata["search"]["value_min_turn_index"] == 40
+    assert metadata["search"]["value_max_turn_index"] is None
+    assert metadata["puct"]["n_step_leaf_depth"] == 0
+    assert metadata["puct"]["n_step_leaf_width"] == 1
+    assert metadata["puct"]["n_step_leaf_candidate_limit"] == 8
+    assert metadata["puct"]["n_step_leaf_weight"] == 1.0
+    assert metadata["puct"]["n_step_leaf_delta_clip"] is None
+    assert metadata["puct"]["n_step_leaf_min_turn_index"] is None
+    assert metadata["puct"]["n_step_leaf_max_turn_index"] is None
+    assert metadata["puct"]["n_step_leaf_min_max_score"] is None
+    assert metadata["puct"]["rollout_leaf_count"] == 0
+    assert metadata["puct"]["rollout_leaf_max_depth"] == 12
+    assert metadata["puct"]["rollout_leaf_policy"] == "random"
 
 
 def test_summary_metadata_records_seat_specific_checkpoint_configuration(tmp_path) -> None:

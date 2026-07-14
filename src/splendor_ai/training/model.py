@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import torch
@@ -28,6 +29,35 @@ class LegalActionScorerConfig:
     scorer_hidden_size: int = 256
     state_depth: int = 3
     action_depth: int = 2
+    dropout: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class LegalActionSetScorerConfig:
+    observation_size: int = OBSERVATION_SIZE
+    action_feature_size: int = ACTION_FEATURE_SIZE
+    state_hidden_size: int = 256
+    action_hidden_size: int = 128
+    set_context_hidden_size: int = 128
+    scorer_hidden_size: int = 256
+    state_depth: int = 3
+    action_depth: int = 2
+    set_context_depth: int = 2
+    dropout: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class LegalActionAttentionScorerConfig:
+    observation_size: int = OBSERVATION_SIZE
+    action_feature_size: int = ACTION_FEATURE_SIZE
+    state_hidden_size: int = 256
+    action_hidden_size: int = 128
+    scorer_hidden_size: int = 256
+    state_depth: int = 3
+    action_depth: int = 2
+    attention_layers: int = 2
+    attention_heads: int = 4
+    attention_feedforward_size: int = 256
     dropout: float = 0.0
 
 
@@ -115,6 +145,7 @@ class LegalActionScorerModel(nn.Module):
         self,
         observation: torch.Tensor,
         legal_action_features: torch.Tensor,
+        legal_action_mask: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if observation.ndim != 2:
             raise ValueError("observation must have shape [batch, observation_size].")
@@ -151,6 +182,249 @@ class LegalActionScorerModel(nn.Module):
         return action_scores, value
 
 
+class LegalActionSetScorerModel(nn.Module):
+    """Legal-action scorer with pooled context from the full legal action set."""
+
+    def __init__(self, config: LegalActionSetScorerConfig | None = None) -> None:
+        super().__init__()
+        self.config = config or LegalActionSetScorerConfig()
+
+        self.state_encoder = _make_mlp(
+            input_size=self.config.observation_size,
+            hidden_size=self.config.state_hidden_size,
+            output_size=self.config.state_hidden_size,
+            depth=self.config.state_depth,
+            dropout=self.config.dropout,
+            final_activation=True,
+            final_layer_norm=True,
+        )
+        self.action_encoder = _make_mlp(
+            input_size=self.config.action_feature_size,
+            hidden_size=self.config.action_hidden_size,
+            output_size=self.config.action_hidden_size,
+            depth=self.config.action_depth,
+            dropout=self.config.dropout,
+            final_activation=True,
+            final_layer_norm=True,
+        )
+        self.set_context_encoder = _make_mlp(
+            input_size=(2 * self.config.action_hidden_size) + 1,
+            hidden_size=self.config.set_context_hidden_size,
+            output_size=self.config.set_context_hidden_size,
+            depth=self.config.set_context_depth,
+            dropout=self.config.dropout,
+            final_activation=True,
+            final_layer_norm=True,
+        )
+        self.score_head = nn.Sequential(
+            nn.Linear(
+                self.config.state_hidden_size
+                + self.config.action_hidden_size
+                + self.config.set_context_hidden_size,
+                self.config.scorer_hidden_size,
+            ),
+            nn.GELU(),
+            nn.Linear(self.config.scorer_hidden_size, 1),
+        )
+        self.value_head = nn.Sequential(
+            nn.Linear(self.config.state_hidden_size, self.config.state_hidden_size // 2),
+            nn.GELU(),
+            nn.Linear(self.config.state_hidden_size // 2, 1),
+            nn.Tanh(),
+        )
+
+    def forward(
+        self,
+        observation: torch.Tensor,
+        legal_action_features: torch.Tensor,
+        legal_action_mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if observation.ndim != 2:
+            raise ValueError("observation must have shape [batch, observation_size].")
+        if legal_action_features.ndim != 3:
+            raise ValueError(
+                "legal_action_features must have shape [batch, legal_actions, action_feature_size]."
+            )
+        if observation.shape[0] != legal_action_features.shape[0]:
+            raise ValueError("observation and legal_action_features batch sizes must match.")
+        if observation.shape[1] != self.config.observation_size:
+            raise ValueError("Unexpected observation feature size.")
+        if legal_action_features.shape[2] != self.config.action_feature_size:
+            raise ValueError("Unexpected action feature size.")
+
+        batch_size, legal_action_count, _ = legal_action_features.shape
+        if legal_action_mask is None:
+            legal_action_mask = torch.ones(
+                (batch_size, legal_action_count),
+                dtype=torch.bool,
+                device=legal_action_features.device,
+            )
+        if legal_action_mask.shape != (batch_size, legal_action_count):
+            raise ValueError("legal_action_mask must have shape [batch, legal_actions].")
+
+        state_hidden = self.state_encoder(observation)
+        flat_action_features = legal_action_features.reshape(
+            batch_size * legal_action_count,
+            self.config.action_feature_size,
+        )
+        action_hidden = self.action_encoder(flat_action_features).reshape(
+            batch_size,
+            legal_action_count,
+            self.config.action_hidden_size,
+        )
+        set_context = self._encode_set_context(action_hidden, legal_action_mask)
+
+        expanded_state = state_hidden.unsqueeze(1).expand(
+            batch_size,
+            legal_action_count,
+            self.config.state_hidden_size,
+        )
+        expanded_set_context = set_context.unsqueeze(1).expand(
+            batch_size,
+            legal_action_count,
+            self.config.set_context_hidden_size,
+        )
+        score_input = torch.cat([expanded_state, action_hidden, expanded_set_context], dim=-1)
+        action_scores = self.score_head(score_input).squeeze(-1)
+        value = self.value_head(state_hidden).squeeze(-1)
+        return action_scores, value
+
+    def _encode_set_context(
+        self,
+        action_hidden: torch.Tensor,
+        legal_action_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        mask = legal_action_mask.unsqueeze(-1)
+        counts = mask.sum(dim=1).clamp_min(1).to(dtype=action_hidden.dtype)
+        mean_hidden = (action_hidden * mask.to(dtype=action_hidden.dtype)).sum(dim=1) / counts
+        masked_for_max = action_hidden.masked_fill(~mask, torch.finfo(action_hidden.dtype).min)
+        max_hidden = masked_for_max.max(dim=1).values
+        max_hidden = torch.where(torch.isfinite(max_hidden), max_hidden, torch.zeros_like(max_hidden))
+        count_feature = torch.log1p(counts) / math.log(65.0)
+        context_input = torch.cat([mean_hidden, max_hidden, count_feature], dim=-1)
+        return self.set_context_encoder(context_input)
+
+
+class LegalActionAttentionScorerModel(nn.Module):
+    """Legal-action scorer that contextualizes actions with masked self-attention."""
+
+    def __init__(self, config: LegalActionAttentionScorerConfig | None = None) -> None:
+        super().__init__()
+        self.config = config or LegalActionAttentionScorerConfig()
+        if self.config.action_hidden_size % self.config.attention_heads != 0:
+            raise ValueError("action_hidden_size must be divisible by attention_heads.")
+
+        self.state_encoder = _make_mlp(
+            input_size=self.config.observation_size,
+            hidden_size=self.config.state_hidden_size,
+            output_size=self.config.state_hidden_size,
+            depth=self.config.state_depth,
+            dropout=self.config.dropout,
+            final_activation=True,
+            final_layer_norm=True,
+        )
+        self.action_encoder = _make_mlp(
+            input_size=self.config.action_feature_size,
+            hidden_size=self.config.action_hidden_size,
+            output_size=self.config.action_hidden_size,
+            depth=self.config.action_depth,
+            dropout=self.config.dropout,
+            final_activation=True,
+            final_layer_norm=True,
+        )
+        self.state_to_action_context = nn.Linear(
+            self.config.state_hidden_size,
+            self.config.action_hidden_size,
+        )
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.config.action_hidden_size,
+            nhead=self.config.attention_heads,
+            dim_feedforward=self.config.attention_feedforward_size,
+            dropout=self.config.dropout,
+            activation="gelu",
+            batch_first=True,
+        )
+        self.action_set_encoder = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=self.config.attention_layers,
+            enable_nested_tensor=False,
+        )
+        self.action_set_layer_norm = nn.LayerNorm(self.config.action_hidden_size)
+        self.score_head = nn.Sequential(
+            nn.Linear(
+                self.config.state_hidden_size + self.config.action_hidden_size,
+                self.config.scorer_hidden_size,
+            ),
+            nn.GELU(),
+            nn.Linear(self.config.scorer_hidden_size, 1),
+        )
+        self.value_head = nn.Sequential(
+            nn.Linear(self.config.state_hidden_size, self.config.state_hidden_size // 2),
+            nn.GELU(),
+            nn.Linear(self.config.state_hidden_size // 2, 1),
+            nn.Tanh(),
+        )
+
+    def forward(
+        self,
+        observation: torch.Tensor,
+        legal_action_features: torch.Tensor,
+        legal_action_mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if observation.ndim != 2:
+            raise ValueError("observation must have shape [batch, observation_size].")
+        if legal_action_features.ndim != 3:
+            raise ValueError(
+                "legal_action_features must have shape [batch, legal_actions, action_feature_size]."
+            )
+        if observation.shape[0] != legal_action_features.shape[0]:
+            raise ValueError("observation and legal_action_features batch sizes must match.")
+        if observation.shape[1] != self.config.observation_size:
+            raise ValueError("Unexpected observation feature size.")
+        if legal_action_features.shape[2] != self.config.action_feature_size:
+            raise ValueError("Unexpected action feature size.")
+
+        batch_size, legal_action_count, _ = legal_action_features.shape
+        if legal_action_mask is None:
+            legal_action_mask = torch.ones(
+                (batch_size, legal_action_count),
+                dtype=torch.bool,
+                device=legal_action_features.device,
+            )
+        if legal_action_mask.shape != (batch_size, legal_action_count):
+            raise ValueError("legal_action_mask must have shape [batch, legal_actions].")
+
+        state_hidden = self.state_encoder(observation)
+        flat_action_features = legal_action_features.reshape(
+            batch_size * legal_action_count,
+            self.config.action_feature_size,
+        )
+        action_hidden = self.action_encoder(flat_action_features).reshape(
+            batch_size,
+            legal_action_count,
+            self.config.action_hidden_size,
+        )
+        state_context = self.state_to_action_context(state_hidden).unsqueeze(1)
+        contextual_input = action_hidden + state_context
+        attention_mask = ~legal_action_mask
+        contextual_actions = self.action_set_encoder(
+            contextual_input,
+            src_key_padding_mask=attention_mask,
+        )
+        contextual_actions = self.action_set_layer_norm(contextual_actions)
+        contextual_actions = contextual_actions.masked_fill(~legal_action_mask.unsqueeze(-1), 0.0)
+
+        expanded_state = state_hidden.unsqueeze(1).expand(
+            batch_size,
+            legal_action_count,
+            self.config.state_hidden_size,
+        )
+        score_input = torch.cat([expanded_state, contextual_actions], dim=-1)
+        action_scores = self.score_head(score_input).squeeze(-1)
+        value = self.value_head(state_hidden).squeeze(-1)
+        return action_scores, value
+
+
 class ValueMLP(nn.Module):
     """State-value model for evaluating a position from the acting player's view."""
 
@@ -172,13 +446,21 @@ class ValueMLP(nn.Module):
             nn.Linear(self.config.hidden_size // 2, 1),
             nn.Tanh(),
         )
+        self.outcome_head = nn.Linear(self.config.hidden_size, 3)
 
     def forward(self, observation: torch.Tensor) -> torch.Tensor:
+        hidden = self.encode(observation)
+        return self.value_head(hidden).squeeze(-1)
+
+    def encode(self, observation: torch.Tensor) -> torch.Tensor:
         if observation.ndim != 2:
             raise ValueError("observation must have shape [batch, observation_size].")
         if observation.shape[1] != self.config.observation_size:
             raise ValueError("Unexpected observation feature size.")
-        return self.value_head(self.trunk(observation)).squeeze(-1)
+        return self.trunk(observation)
+
+    def outcome_logits(self, observation: torch.Tensor) -> torch.Tensor:
+        return self.outcome_head(self.encode(observation))
 
 
 def masked_policy_logits(policy_logits: torch.Tensor, legal_action_mask: torch.Tensor) -> torch.Tensor:

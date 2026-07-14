@@ -100,6 +100,11 @@ def test_record_row_counts_action_type_disagreement(tmp_path) -> None:
     assert counters["disagreements"] == 1
     assert counters["by_model_action_type"]
     assert counters["by_search_action_type"]
+    assert counters["by_seat"]
+    assert counters["by_seat_phase"]
+    assert counters["by_score_margin"]
+    assert counters["by_seat_model_action_type"]
+    assert counters["by_seat_search_action_type"]
     assert counters["action_type_matrix"]
 
 
@@ -132,6 +137,12 @@ def test_run_policy_search_disagreement_cli_writes_summary(tmp_path) -> None:
             "1",
             "--search-take-branching",
             "1",
+            "--search-policy-prior-checkpoint",
+            str(checkpoint_path),
+            "--search-policy-prior-weight",
+            "100",
+            "--min-turn-index",
+            "0",
             "--log-every",
             "0",
         ],
@@ -146,4 +157,9 @@ def test_run_policy_search_disagreement_cli_writes_summary(tmp_path) -> None:
     assert summary["rows_seen"] == 2
     assert summary["rows_analyzed"] > 0
     assert "agreement_rate" in summary["overall"]
+    assert "by_seat" in summary
+    assert "by_score_margin" in summary
+    assert "by_seat_model_action_type" in summary
+    assert "by_seat_search_action_type" in summary
     assert "action_type_matrix" in summary
+    assert summary["config"]["search_policy_prior_checkpoint_path"] == str(checkpoint_path)

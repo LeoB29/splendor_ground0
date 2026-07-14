@@ -35,12 +35,22 @@ class LegalActionReplaySample:
     observation: torch.Tensor
     legal_action_features: torch.Tensor
     target_action_row: int
+    preference_competitor_row: int
+    preference_mask: bool
     action_index: int
     legal_action_indices: tuple[int, ...]
     value_target: float
     search_value_target: torch.Tensor
     search_value_mask: torch.Tensor
+    root_visit_target: torch.Tensor
+    root_visit_mask: bool
     sample_weight: float
+    policy_sample_weight: float
+    distill_sample_weight: float
+    preference_sample_weight: float
+    trajectory_advantage: float
+    behavior_log_probability: float
+    trajectory_mask: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +66,13 @@ class ValueReplaySample:
 class ReplaySourceSummary:
     path: str
     samples: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReplayStepMetadata:
+    source_path: Path
+    game_seed: int
+    turn_index: int
 
 
 class SupervisedReplayDataset(Dataset[ReplaySample]):
@@ -179,6 +196,9 @@ class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
         winner_action_weight: float = 1.0,
         loser_action_weight: float = 1.0,
         draw_action_weight: float = 1.0,
+        preference_rows_policy_weight: float = 1.0,
+        preference_rows_distill_weight: float = 1.0,
+        preference_rows_preference_weight: float = 1.0,
         observation_size: int | None = None,
         action_feature_size: int | None = None,
     ) -> None:
@@ -191,6 +211,13 @@ class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
         ):
             if not math.isfinite(weight) or weight <= 0.0:
                 raise ValueError(f"{name} must be a positive finite value.")
+        for name, weight in (
+            ("preference_rows_policy_weight", preference_rows_policy_weight),
+            ("preference_rows_distill_weight", preference_rows_distill_weight),
+            ("preference_rows_preference_weight", preference_rows_preference_weight),
+        ):
+            if not math.isfinite(weight) or weight < 0.0:
+                raise ValueError(f"{name} must be a finite non-negative value.")
         self._paths = _normalize_paths(path)
         self._include_stalled_games = include_stalled_games
         self._include_timed_out_games = include_timed_out_games
@@ -201,6 +228,9 @@ class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
         self._winner_action_weight = winner_action_weight
         self._loser_action_weight = loser_action_weight
         self._draw_action_weight = draw_action_weight
+        self._preference_rows_policy_weight = preference_rows_policy_weight
+        self._preference_rows_distill_weight = preference_rows_distill_weight
+        self._preference_rows_preference_weight = preference_rows_preference_weight
         self._observation_size = observation_size
         self._action_feature_size = action_feature_size
         self._samples = SupervisedReplayDataset._load_samples(
@@ -242,6 +272,17 @@ class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
                 "Replay target action_index is not legal in the reconstructed state: "
                 f"{action_index}"
             ) from exc
+        preference_competitor_row = 0
+        preference_mask = False
+        model_top_action_index = payload.get("model_top_action_index")
+        if model_top_action_index is not None:
+            try:
+                competitor_action_row = legal_action_indices.index(int(model_top_action_index))
+            except (TypeError, ValueError):
+                competitor_action_row = None
+            if competitor_action_row is not None and competitor_action_row != target_action_row:
+                preference_competitor_row = competitor_action_row
+                preference_mask = True
 
         player_id = int(payload.get("player_id", state.current_player))
         observation = encode_public_observation_tensor(state, player_id)
@@ -279,24 +320,93 @@ class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
                 continue
             search_value_target[search_action_row] = search_value
             search_value_mask[search_action_row] = True
+        root_visit_target = torch.zeros(
+            len(legal_action_indices),
+            dtype=torch.float32,
+        )
+        for root_visit in payload.get("root_visit_distribution", []):
+            if not isinstance(root_visit, dict):
+                continue
+            try:
+                root_action_index = int(root_visit["action_index"])
+                root_action_row = legal_action_indices.index(root_action_index)
+                root_probability = float(
+                    root_visit.get("probability", root_visit.get("visits", 0.0))
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            if math.isfinite(root_probability) and root_probability > 0.0:
+                root_visit_target[root_action_row] += root_probability
+        root_visit_total = float(root_visit_target.sum().item())
+        root_visit_mask = root_visit_total > 0.0
+        if root_visit_mask:
+            root_visit_target /= root_visit_total
         sample_weight = float(payload.get("training_weight", 1.0)) * self._outcome_sample_weight(payload)
         if not math.isfinite(sample_weight) or sample_weight <= 0.0:
             raise ValueError(f"Replay row has invalid training_weight: {sample_weight}")
+        policy_sample_weight = sample_weight
+        distill_sample_weight = sample_weight
+        preference_sample_weight = 0.0
+        if preference_mask:
+            policy_sample_weight = sample_weight * self._preference_rows_policy_weight
+            distill_sample_weight = sample_weight * self._preference_rows_distill_weight
+            preference_sample_weight = sample_weight * self._preference_rows_preference_weight
+        trajectory_advantage_raw = payload.get("trajectory_advantage")
+        behavior_log_probability_raw = payload.get("behavior_log_probability")
+        trajectory_mask = (
+            trajectory_advantage_raw is not None
+            and behavior_log_probability_raw is not None
+        )
+        trajectory_advantage = (
+            float(trajectory_advantage_raw) if trajectory_mask else 0.0
+        )
+        behavior_log_probability = (
+            float(behavior_log_probability_raw) if trajectory_mask else 0.0
+        )
+        if trajectory_mask and (
+            not math.isfinite(trajectory_advantage)
+            or not math.isfinite(behavior_log_probability)
+        ):
+            raise ValueError("Trajectory advantage and behavior log probability must be finite.")
 
         return LegalActionReplaySample(
             observation=torch.tensor(observation_vector, dtype=torch.float32),
             legal_action_features=torch.stack(action_feature_rows, dim=0),
             target_action_row=target_action_row,
+            preference_competitor_row=preference_competitor_row,
+            preference_mask=preference_mask,
             action_index=action_index,
             legal_action_indices=legal_action_indices,
             value_target=float(payload["final_value"]),
             search_value_target=search_value_target,
             search_value_mask=search_value_mask,
+            root_visit_target=root_visit_target,
+            root_visit_mask=root_visit_mask,
             sample_weight=sample_weight,
+            policy_sample_weight=policy_sample_weight,
+            distill_sample_weight=distill_sample_weight,
+            preference_sample_weight=preference_sample_weight,
+            trajectory_advantage=trajectory_advantage,
+            behavior_log_probability=behavior_log_probability,
+            trajectory_mask=trajectory_mask,
         )
 
     def source_path_for_index(self, index: int) -> Path:
         return Path(str(self._samples[index]["_source_path"]))
+
+    def replay_step_metadata_for_index(self, index: int) -> ReplayStepMetadata:
+        payload = self._samples[index]
+        return ReplayStepMetadata(
+            source_path=Path(str(payload["_source_path"])),
+            game_seed=int(payload["game_seed"]),
+            turn_index=int(payload["turn_index"]),
+        )
+
+    def state_for_index(self, index: int):
+        snapshot = self._samples[index].get("state_snapshot")
+        if not isinstance(snapshot, dict):
+            raise ValueError("LegalActionReplayDataset requires replay rows with state_snapshot.")
+        return deserialize_state_snapshot(snapshot)
 
     def validation_group_key_for_index(self, index: int, split_unit: str) -> tuple[object, ...]:
         payload = self._samples[index]
@@ -326,9 +436,21 @@ class ValueReplayDataset(Dataset[ValueReplaySample]):
         include_timed_out_games: bool = True,
         max_model_loop_fallback_triggers: int | None = None,
         margin_scale: float = 15.0,
+        min_turn_index: int | None = None,
+        max_turn_index: int | None = None,
     ) -> None:
         if margin_scale <= 0.0:
             raise ValueError("margin_scale must be positive.")
+        if min_turn_index is not None and min_turn_index < 0:
+            raise ValueError("min_turn_index must be non-negative.")
+        if max_turn_index is not None and max_turn_index < 0:
+            raise ValueError("max_turn_index must be non-negative.")
+        if (
+            min_turn_index is not None
+            and max_turn_index is not None
+            and min_turn_index > max_turn_index
+        ):
+            raise ValueError("min_turn_index cannot exceed max_turn_index.")
         self._paths = _normalize_paths(path)
         self._margin_scale = margin_scale
         self._samples = SupervisedReplayDataset._load_samples(
@@ -337,6 +459,18 @@ class ValueReplayDataset(Dataset[ValueReplaySample]):
             include_timed_out_games=include_timed_out_games,
             max_model_loop_fallback_triggers=max_model_loop_fallback_triggers,
         )
+        if min_turn_index is not None:
+            self._samples = [
+                payload
+                for payload in self._samples
+                if int(payload.get("turn_index", 0)) >= min_turn_index
+            ]
+        if max_turn_index is not None:
+            self._samples = [
+                payload
+                for payload in self._samples
+                if int(payload.get("turn_index", 0)) <= max_turn_index
+            ]
 
     @property
     def paths(self) -> tuple[Path, ...]:
@@ -432,6 +566,14 @@ def collate_legal_action_replay_samples(
         [sample.action_index for sample in samples],
         dtype=torch.long,
     )
+    preference_competitor_rows = torch.tensor(
+        [sample.preference_competitor_row for sample in samples],
+        dtype=torch.long,
+    )
+    preference_masks = torch.tensor(
+        [sample.preference_mask for sample in samples],
+        dtype=torch.bool,
+    )
     value_targets = torch.tensor(
         [sample.value_target for sample in samples],
         dtype=torch.float32,
@@ -439,6 +581,30 @@ def collate_legal_action_replay_samples(
     sample_weights = torch.tensor(
         [sample.sample_weight for sample in samples],
         dtype=torch.float32,
+    )
+    policy_sample_weights = torch.tensor(
+        [sample.policy_sample_weight for sample in samples],
+        dtype=torch.float32,
+    )
+    distill_sample_weights = torch.tensor(
+        [sample.distill_sample_weight for sample in samples],
+        dtype=torch.float32,
+    )
+    preference_sample_weights = torch.tensor(
+        [sample.preference_sample_weight for sample in samples],
+        dtype=torch.float32,
+    )
+    trajectory_advantages = torch.tensor(
+        [sample.trajectory_advantage for sample in samples],
+        dtype=torch.float32,
+    )
+    behavior_log_probabilities = torch.tensor(
+        [sample.behavior_log_probability for sample in samples],
+        dtype=torch.float32,
+    )
+    trajectory_masks = torch.tensor(
+        [sample.trajectory_mask for sample in samples],
+        dtype=torch.bool,
     )
 
     max_legal_actions = max(
@@ -462,6 +628,14 @@ def collate_legal_action_replay_samples(
         (len(samples), max_legal_actions),
         dtype=torch.bool,
     )
+    root_visit_targets = torch.zeros(
+        (len(samples), max_legal_actions),
+        dtype=torch.float32,
+    )
+    root_visit_masks = torch.tensor(
+        [sample.root_visit_mask for sample in samples],
+        dtype=torch.bool,
+    )
 
     for row_index, sample in enumerate(samples):
         legal_count, sample_feature_size = sample.legal_action_features.shape
@@ -471,15 +645,26 @@ def collate_legal_action_replay_samples(
         legal_action_mask[row_index, :legal_count] = True
         search_value_targets[row_index, :legal_count] = sample.search_value_target
         search_value_mask[row_index, :legal_count] = sample.search_value_mask
+        root_visit_targets[row_index, :legal_count] = sample.root_visit_target
 
     return {
         "observation": observations,
         "legal_action_features": action_features,
         "target_action_row": target_action_rows,
+        "preference_competitor_row": preference_competitor_rows,
+        "preference_mask": preference_masks,
         "action_index": action_indices,
         "legal_action_mask": legal_action_mask,
         "value_target": value_targets,
         "search_value_target": search_value_targets,
         "search_value_mask": search_value_mask,
+        "root_visit_target": root_visit_targets,
+        "root_visit_mask": root_visit_masks,
         "sample_weight": sample_weights,
+        "policy_sample_weight": policy_sample_weights,
+        "distill_sample_weight": distill_sample_weights,
+        "preference_sample_weight": preference_sample_weights,
+        "trajectory_advantage": trajectory_advantages,
+        "behavior_log_probability": behavior_log_probabilities,
+        "trajectory_mask": trajectory_masks,
     }

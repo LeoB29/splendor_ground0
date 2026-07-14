@@ -20,14 +20,19 @@ from splendor_ai.engine.constants import ALL_TOKEN_TYPES, TOKEN_COLORS
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import SplendorState
 from splendor_ai.training.model import (
+    LegalActionAttentionScorerConfig,
+    LegalActionAttentionScorerModel,
     LegalActionScorerConfig,
     LegalActionScorerModel,
+    LegalActionSetScorerConfig,
+    LegalActionSetScorerModel,
     ValueMLP,
     ValueModelConfig,
     masked_legal_action_scores,
 )
 
 from .heuristic_bot import GreedyHeuristicBot
+from .hidden_information import determinize_for_observer
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,30 +77,64 @@ class CheckpointValueEvaluator:
         checkpoint_path: str | Path,
         device: str = "cpu",
         value_scale: float = 15_000.0,
+        prediction_mode: str = "value",
+        outcome_blend_weight: float = 0.5,
     ) -> None:
+        if prediction_mode not in {"value", "outcome", "blend"}:
+            raise ValueError("prediction_mode must be 'value', 'outcome', or 'blend'.")
+        if not 0.0 <= outcome_blend_weight <= 1.0:
+            raise ValueError("outcome_blend_weight must be in the range [0.0, 1.0].")
         self.checkpoint_path = Path(checkpoint_path)
         self._device = device
         self._value_scale = value_scale
+        self._prediction_mode = prediction_mode
+        self._outcome_blend_weight = outcome_blend_weight
         checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
         self._model = ValueMLP(ValueModelConfig(**checkpoint.get("model_config", {})))
-        self._model.load_state_dict(checkpoint["model_state_dict"])
+        self._model.load_state_dict(checkpoint["model_state_dict"], strict=False)
         self._model.to(device)
         self._model.eval()
 
     def evaluate_state(self, state: SplendorState, player_id: int) -> float:
-        observation = encode_public_observation_tensor(state, player_id)
-        observation_vector = fit_feature_vector(
-            observation.vector,
-            self._model.config.observation_size,
-        )
+        return self.evaluate_states([(state, player_id)])[0]
+
+    def evaluate_states(
+        self,
+        states_and_players: list[tuple[SplendorState, int]],
+    ) -> list[float]:
+        if not states_and_players:
+            return []
+        observation_vectors = [
+            fit_feature_vector(
+                encode_public_observation_tensor(state, player_id).vector,
+                self._model.config.observation_size,
+            )
+            for state, player_id in states_and_players
+        ]
         observation_tensor = torch.tensor(
-            [observation_vector],
+            observation_vectors,
             dtype=torch.float32,
             device=self._device,
         )
         with torch.no_grad():
-            value = float(self._model(observation_tensor).detach().cpu().item())
-        return value * self._value_scale
+            values = self._model(observation_tensor)
+            if self._prediction_mode == "value":
+                normalized_values = values
+            else:
+                logits = self._model.outcome_logits(observation_tensor)
+                probabilities = torch.softmax(logits, dim=1)
+                outcome_values = probabilities[:, 2] - probabilities[:, 0]
+                if self._prediction_mode == "outcome":
+                    normalized_values = outcome_values
+                else:
+                    normalized_values = (
+                        (1.0 - self._outcome_blend_weight) * values
+                        + self._outcome_blend_weight * outcome_values
+                    )
+        return [
+            float(value) * self._value_scale
+            for value in normalized_values.detach().cpu().tolist()
+        ]
 
 
 class CheckpointLegalActionPriorScorer:
@@ -105,9 +144,19 @@ class CheckpointLegalActionPriorScorer:
         self.checkpoint_path = Path(checkpoint_path)
         self._device = device
         checkpoint = torch.load(self.checkpoint_path, map_location=device, weights_only=True)
-        self._model = LegalActionScorerModel(
-            LegalActionScorerConfig(**checkpoint.get("model_config", {}))
-        )
+        model_kind = checkpoint.get("model_kind", "legal_action_scorer")
+        if model_kind == "legal_action_attention_scorer":
+            self._model = LegalActionAttentionScorerModel(
+                LegalActionAttentionScorerConfig(**checkpoint.get("model_config", {}))
+            )
+        elif model_kind == "legal_action_set_scorer":
+            self._model = LegalActionSetScorerModel(
+                LegalActionSetScorerConfig(**checkpoint.get("model_config", {}))
+            )
+        else:
+            self._model = LegalActionScorerModel(
+                LegalActionScorerConfig(**checkpoint.get("model_config", {}))
+            )
         self._model.load_state_dict(checkpoint["model_state_dict"])
         self._model.to(device)
         self._model.eval()
@@ -119,42 +168,92 @@ class CheckpointLegalActionPriorScorer:
     ) -> dict[Action, float]:
         if not legal_actions:
             return {}
-        observation = encode_public_observation_tensor(state, state.current_player)
-        observation_vector = fit_feature_vector(
-            observation.vector,
-            self._model.config.observation_size,
-        )
-        action_features = encode_legal_action_features(
-            state=state,
-            legal_actions=legal_actions,
-            player_id=state.current_player,
-        )
-        action_feature_vectors = [
-            fit_feature_vector(features.vector, self._model.config.action_feature_size)
-            for features in action_features
-        ]
+        return self.score_action_batches([(state, legal_actions)])[0]
+
+    def score_action_batches(
+        self,
+        state_action_batches: list[tuple[SplendorState, list[Action]]],
+    ) -> list[dict[Action, float]]:
+        if not state_action_batches:
+            return []
+        if any(not legal_actions for _state, legal_actions in state_action_batches):
+            raise ValueError("Each state in an action batch must have legal actions.")
+        observation_vectors = []
+        action_vectors_by_state = []
+        for state, legal_actions in state_action_batches:
+            observation = encode_public_observation_tensor(
+                state,
+                state.current_player,
+            )
+            observation_vectors.append(
+                fit_feature_vector(
+                    observation.vector,
+                    self._model.config.observation_size,
+                )
+            )
+            action_features = encode_legal_action_features(
+                state=state,
+                legal_actions=legal_actions,
+                player_id=state.current_player,
+            )
+            action_vectors_by_state.append(
+                [
+                    fit_feature_vector(
+                        features.vector,
+                        self._model.config.action_feature_size,
+                    )
+                    for features in action_features
+                ]
+            )
+        max_actions = max(len(vectors) for vectors in action_vectors_by_state)
+        padded_action_vectors = []
+        masks = []
+        for action_vectors in action_vectors_by_state:
+            padding_count = max_actions - len(action_vectors)
+            padded_action_vectors.append(
+                action_vectors
+                + [
+                    [0.0] * self._model.config.action_feature_size
+                    for _ in range(padding_count)
+                ]
+            )
+            masks.append(
+                [True] * len(action_vectors) + [False] * padding_count
+            )
         observation_tensor = torch.tensor(
-            [observation_vector],
+            observation_vectors,
             dtype=torch.float32,
             device=self._device,
         )
         action_feature_tensor = torch.tensor(
-            [action_feature_vectors],
+            padded_action_vectors,
             dtype=torch.float32,
             device=self._device,
         )
-        legal_action_mask = torch.ones(
-            (1, len(legal_actions)),
+        legal_action_mask = torch.tensor(
+            masks,
             dtype=torch.bool,
             device=self._device,
         )
         with torch.no_grad():
-            action_scores, _value = self._model(observation_tensor, action_feature_tensor)
-            masked_scores = masked_legal_action_scores(action_scores, legal_action_mask)[0].detach().cpu()
-        return {
-            action: float(masked_scores[row_index].item())
-            for row_index, action in enumerate(legal_actions)
-        }
+            action_scores, _value = self._model(
+                observation_tensor,
+                action_feature_tensor,
+                legal_action_mask,
+            )
+            masked_scores = masked_legal_action_scores(
+                action_scores,
+                legal_action_mask,
+            ).detach().cpu()
+        return [
+            {
+                action: float(masked_scores[batch_index, row_index].item())
+                for row_index, action in enumerate(legal_actions)
+            }
+            for batch_index, (_state, legal_actions) in enumerate(
+                state_action_batches
+            )
+        ]
 
 
 class ShallowSearchBot:
@@ -182,8 +281,13 @@ class ShallowSearchBot:
         seed: int | None = None,
         value_evaluator: StateValueEvaluator | None = None,
         value_weight: float = 0.0,
+        value_min_turn_index: int | None = None,
+        value_max_turn_index: int | None = None,
         action_prior: ActionPriorScorer | None = None,
         action_prior_weight: float = 0.0,
+        information_legal: bool = False,
+        determinizations: int = 1,
+        determinization_seed: int = 0,
     ) -> None:
         if depth < 1:
             raise ValueError("Search depth must be at least 1.")
@@ -193,8 +297,20 @@ class ShallowSearchBot:
             raise ValueError("Per-action-type branching caps must be non-negative.")
         if not 0.0 <= value_weight <= 1.0:
             raise ValueError("value_weight must be in the range [0.0, 1.0].")
+        if value_min_turn_index is not None and value_min_turn_index < 0:
+            raise ValueError("value_min_turn_index must be non-negative.")
+        if value_max_turn_index is not None and value_max_turn_index < 0:
+            raise ValueError("value_max_turn_index must be non-negative.")
+        if (
+            value_min_turn_index is not None
+            and value_max_turn_index is not None
+            and value_min_turn_index > value_max_turn_index
+        ):
+            raise ValueError("value_min_turn_index cannot exceed value_max_turn_index.")
         if action_prior_weight < 0.0:
             raise ValueError("action_prior_weight must be non-negative.")
+        if determinizations <= 0:
+            raise ValueError("determinizations must be positive.")
         self._depth = depth
         self._max_branching = max_branching
         self._max_buy_actions = max_buy_actions
@@ -210,8 +326,13 @@ class ShallowSearchBot:
         self._heuristic = GreedyHeuristicBot(seed=seed)
         self._value_evaluator = value_evaluator
         self._value_weight = value_weight
+        self._value_min_turn_index = value_min_turn_index
+        self._value_max_turn_index = value_max_turn_index
         self._action_prior = action_prior
         self._action_prior_weight = action_prior_weight
+        self._information_legal = information_legal
+        self._determinizations = determinizations
+        self._determinization_seed = determinization_seed
         self._transposition_cache: dict[tuple[int, int, tuple[object, ...]], float] = {}
         self._observed_state_counts: dict[tuple[object, ...], int] = {}
         self._post_action_state_counts: dict[tuple[object, ...], int] = {}
@@ -229,6 +350,13 @@ class ShallowSearchBot:
 
         self._reset_game_tracking_if_needed(state)
         root_player = state.current_player
+        if self._information_legal:
+            return self._choose_determinized_action(
+                env=env,
+                state=state,
+                actions=actions,
+                root_player=root_player,
+            )
         self._transposition_cache = {}
         root_signature = self._heuristic.state_signature(state)
         self._observed_state_counts[root_signature] = self._observed_state_counts.get(root_signature, 0) + 1
@@ -273,6 +401,63 @@ class ShallowSearchBot:
         self._post_action_state_counts[next_signature] = self._post_action_state_counts.get(next_signature, 0) + 1
         self._last_turn_index = state.turn_index
         return chosen_candidate.action
+
+    def _choose_determinized_action(
+        self,
+        env: SplendorEnv,
+        state: SplendorState,
+        actions: list[Action],
+        root_player: int,
+    ) -> Action:
+        values_by_action: dict[Action, list[float]] = {
+            action: [] for action in actions
+        }
+        for sample_index in range(self._determinizations):
+            determinized = determinize_for_observer(
+                state,
+                observer_id=root_player,
+                rng=random.Random(
+                    self._determinization_seed
+                    + state.turn_index * 1_000_003
+                    + sample_index
+                ),
+            )
+            for score in self.rank_actions(
+                env,
+                determinized,
+                actions,
+            ):
+                values_by_action[score.action].append(score.value)
+        complete_values = {
+            action: sum(values) / len(values)
+            for action, values in values_by_action.items()
+            if len(values) == self._determinizations
+        }
+        if not complete_values:
+            maximum_coverage = max(len(values) for values in values_by_action.values())
+            complete_values = {
+                action: sum(values) / len(values)
+                for action, values in values_by_action.items()
+                if len(values) == maximum_coverage and values
+            }
+        best_value = max(complete_values.values())
+        best_actions = [
+            action
+            for action, value in complete_values.items()
+            if value == best_value
+        ]
+        chosen_action = self._rng.choice(best_actions)
+        root_signature = self._heuristic.state_signature(state)
+        self._observed_state_counts[root_signature] = (
+            self._observed_state_counts.get(root_signature, 0) + 1
+        )
+        next_state = env.step(state, chosen_action)
+        next_signature = self._heuristic.state_signature(next_state)
+        self._post_action_state_counts[next_signature] = (
+            self._post_action_state_counts.get(next_signature, 0) + 1
+        )
+        self._last_turn_index = state.turn_index
+        return chosen_action
 
     def rank_actions(
         self,
@@ -404,6 +589,10 @@ class ShallowSearchBot:
     def _evaluate_leaf(self, state: SplendorState, root_player: int) -> float:
         heuristic_value = self._heuristic.evaluate_state(state, root_player)
         if self._value_evaluator is None or self._value_weight == 0.0 or state.terminal:
+            return heuristic_value
+        if self._value_min_turn_index is not None and state.turn_index < self._value_min_turn_index:
+            return heuristic_value
+        if self._value_max_turn_index is not None and state.turn_index > self._value_max_turn_index:
             return heuristic_value
         neural_value = self._value_evaluator.evaluate_state(state, root_player)
         return (1.0 - self._value_weight) * heuristic_value + self._value_weight * neural_value

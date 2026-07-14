@@ -29,6 +29,11 @@ class ReplayStep:
     final_value: float
     winner: int | None
     state_snapshot: dict[str, Any] | None = None
+    behavior_probability: float | None = None
+    behavior_log_probability: float | None = None
+    behavior_greedy_action: bool | None = None
+    behavior_support_size: int | None = None
+    root_visit_distribution: tuple[dict[str, float | int], ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +105,7 @@ def collect_game_replay(
         if chosen_action is None:
             raise RuntimeError("Bot returned no action in a non-terminal state.")
         action_index = action_codec.encode(state, chosen_action)
+        action_metadata = getattr(bots[player_id], "last_action_metadata", None) or {}
         pending_steps.append(
             {
                 "seed": seed,
@@ -112,6 +118,19 @@ def collect_game_replay(
                 "state_snapshot": serialize_state_snapshot(state)
                 if include_state_snapshots
                 else None,
+                "behavior_probability": action_metadata.get("behavior_probability"),
+                "behavior_log_probability": action_metadata.get(
+                    "behavior_log_probability"
+                ),
+                "behavior_greedy_action": action_metadata.get(
+                    "behavior_greedy_action"
+                ),
+                "behavior_support_size": action_metadata.get(
+                    "behavior_support_size"
+                ),
+                "root_visit_distribution": action_metadata.get(
+                    "root_visit_distribution"
+                ),
             }
         )
         next_state = env.step(state, chosen_action)
@@ -145,6 +164,39 @@ def collect_game_replay(
                 if step.get("state_snapshot") is not None
                 else None
             ),
+            behavior_probability=(
+                float(step["behavior_probability"])
+                if step.get("behavior_probability") is not None
+                else None
+            ),
+            behavior_log_probability=(
+                float(step["behavior_log_probability"])
+                if step.get("behavior_log_probability") is not None
+                else None
+            ),
+            behavior_greedy_action=(
+                bool(step["behavior_greedy_action"])
+                if step.get("behavior_greedy_action") is not None
+                else None
+            ),
+            behavior_support_size=(
+                int(step["behavior_support_size"])
+                if step.get("behavior_support_size") is not None
+                else None
+            ),
+            root_visit_distribution=(
+                tuple(
+                    {
+                        str(key): value
+                        for key, value in item.items()
+                        if isinstance(value, int | float)
+                    }
+                    for item in step["root_visit_distribution"]
+                    if isinstance(item, dict)
+                )
+                if isinstance(step.get("root_visit_distribution"), list)
+                else None
+            ),
         )
         for step in pending_steps
     )
@@ -175,6 +227,15 @@ def export_replay_games_jsonl(path: str | Path, games: list[ReplayGame] | tuple[
                 step_payload = asdict(step)
                 if step_payload["state_snapshot"] is None:
                     step_payload.pop("state_snapshot")
+                for optional_key in (
+                    "behavior_probability",
+                    "behavior_log_probability",
+                    "behavior_greedy_action",
+                    "behavior_support_size",
+                    "root_visit_distribution",
+                ):
+                    if step_payload[optional_key] is None:
+                        step_payload.pop(optional_key)
                 payload = {
                     "game_seed": game.seed,
                     "game_turns": game.turns,
@@ -314,11 +375,23 @@ def _bot_metadata(bot: Bot) -> dict[str, Any]:
             metadata["model_kind"] = "flat_policy"
         elif bot_class == "LegalActionScorerBot":
             metadata["model_kind"] = "legal_action_scorer"
+        elif bot_class == "LegalActionAttentionScorerBot":
+            metadata["model_kind"] = "legal_action_attention_scorer"
+        elif bot_class == "LegalActionAttentionSamplingBot":
+            metadata["model_kind"] = "legal_action_attention_scorer"
+        elif bot_class == "LegalActionSetScorerBot":
+            metadata["model_kind"] = "legal_action_set_scorer"
         elif bot_class == "PolicyGuidedSearchBot":
             metadata["model_kind"] = "policy_guided_search"
+        elif bot_class == "InformationSetPuctBot":
+            metadata["model_kind"] = "information_set_puct"
+            metadata["puct_config"] = asdict(bot.puct_config)
     fallback_config = getattr(bot, "loop_fallback_config", None)
     if fallback_config is not None:
         metadata["loop_fallback"] = asdict(fallback_config)
+    sampling_config = getattr(bot, "sampling_config", None)
+    if sampling_config is not None:
+        metadata["sampling"] = dict(sampling_config)
     return metadata
 
 
@@ -352,6 +425,10 @@ def serialize_state_snapshot(state: SplendorState) -> dict[str, Any]:
                 "bonuses": dict(player.bonuses),
                 "score": player.score,
                 "reserved_card_ids": [card.card_id for card in player.reserved_cards],
+                "reserved_card_sources": [
+                    player.reserved_card_source(index)
+                    for index in range(len(player.reserved_cards))
+                ],
                 "purchased_card_ids": [card.card_id for card in player.purchased_cards],
                 "noble_ids": [noble.noble_id for noble in player.nobles],
             }
@@ -395,6 +472,18 @@ def deserialize_state_snapshot(snapshot: dict[str, Any]) -> SplendorState:
                     _lookup_card(cards_by_id, card_id)
                     for card_id in player_payload.get("reserved_card_ids", [])
                 ],
+                reserved_card_sources=list(
+                    player_payload.get(
+                        "reserved_card_sources",
+                        [
+                            "legacy_unknown"
+                            for _ in player_payload.get(
+                                "reserved_card_ids",
+                                [],
+                            )
+                        ],
+                    )
+                ),
                 purchased_cards=[
                     _lookup_card(cards_by_id, card_id)
                     for card_id in player_payload.get("purchased_card_ids", [])

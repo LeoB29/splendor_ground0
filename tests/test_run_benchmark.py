@@ -5,6 +5,7 @@ from splendor_ai.eval.run_benchmark import (
     _opponent_factory,
     _model_bot_for_checkpoint,
     benchmark_checkpoint,
+    benchmark_head_to_head,
     build_parser,
     default_head_to_head_output_path,
     default_output_path,
@@ -146,6 +147,39 @@ def test_summarize_head_to_head_counts_candidate_by_seat_with_swapped_seats() ->
     assert payload["games_detail"][2]["winner_role"] is None
 
 
+def test_head_to_head_paired_seeds_reuses_each_seed_after_a_seat_swap(monkeypatch, tmp_path) -> None:
+    seen_seeds = []
+
+    monkeypatch.setattr(
+        "splendor_ai.eval.run_benchmark._model_bot_for_checkpoint",
+        lambda **_: object(),
+    )
+
+    def fake_play_game(*, seed, **_):
+        seen_seeds.append(seed)
+        return GameResult(
+            seed=seed,
+            turns=1,
+            winner=None,
+            final_scores=(0, 0),
+            bot_seats=("candidate", "baseline"),
+        )
+
+    monkeypatch.setattr("splendor_ai.eval.run_benchmark.play_game", fake_play_game)
+
+    payload = benchmark_head_to_head(
+        candidate_checkpoint_path=tmp_path / "candidate.pt",
+        baseline_checkpoint_path=tmp_path / "baseline.pt",
+        games=4,
+        seed_start=70,
+        paired_seeds=True,
+        log_every=0,
+    )
+
+    assert payload["paired_seeds"] is True
+    assert seen_seeds == [70, 70, 71, 71]
+
+
 def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_path) -> None:
     captured = []
 
@@ -157,6 +191,14 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
         def __init__(self, checkpoint_path, device):
             captured.append(("scorer", checkpoint_path, device))
 
+    class FakeAttentionScorerBot:
+        def __init__(self, checkpoint_path, device):
+            captured.append(("attention_scorer", checkpoint_path, device))
+
+    class FakeSetScorerBot:
+        def __init__(self, checkpoint_path, device):
+            captured.append(("set_scorer", checkpoint_path, device))
+
     class FakePolicyGuidedSearchBot:
         def __init__(
             self,
@@ -167,9 +209,16 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
             max_branching,
             max_buy_actions,
             max_reserve_actions,
-            max_take_actions,
-            seed,
-        ):
+                max_take_actions,
+                seed,
+                value_evaluator=None,
+                value_weight=0.0,
+                value_min_turn_index=None,
+                value_max_turn_index=None,
+                information_legal=False,
+                determinizations=1,
+                determinization_seed=0,
+            ):
             captured.append(
                 (
                     "policy_guided_search",
@@ -182,11 +231,23 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
                     max_reserve_actions,
                     max_take_actions,
                     seed,
+                        value_evaluator,
+                        value_weight,
+                        value_min_turn_index,
+                        value_max_turn_index,
+                        information_legal,
+                        determinizations,
+                        determinization_seed,
                 )
             )
 
     monkeypatch.setattr("splendor_ai.eval.run_benchmark.CheckpointPolicyBot", FakeFlatBot)
     monkeypatch.setattr("splendor_ai.eval.run_benchmark.LegalActionScorerBot", FakeScorerBot)
+    monkeypatch.setattr(
+        "splendor_ai.eval.run_benchmark.LegalActionAttentionScorerBot",
+        FakeAttentionScorerBot,
+    )
+    monkeypatch.setattr("splendor_ai.eval.run_benchmark.LegalActionSetScorerBot", FakeSetScorerBot)
     monkeypatch.setattr("splendor_ai.eval.run_benchmark.PolicyGuidedSearchBot", FakePolicyGuidedSearchBot)
 
     checkpoint_path = tmp_path / "checkpoint.pt"
@@ -202,6 +263,18 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
         device="cpu",
         loop_fallback=object(),
     )
+    set_scorer_bot = _model_bot_for_checkpoint(
+        checkpoint_path=checkpoint_path,
+        model_kind="legal_action_set_scorer",
+        device="cpu",
+        loop_fallback=object(),
+    )
+    attention_scorer_bot = _model_bot_for_checkpoint(
+        checkpoint_path=checkpoint_path,
+        model_kind="legal_action_attention_scorer",
+        device="cpu",
+        loop_fallback=object(),
+    )
     guided_bot = _model_bot_for_checkpoint(
         checkpoint_path=checkpoint_path,
         model_kind="policy_guided_search",
@@ -213,14 +286,20 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
         search_reserve_branching=4,
         search_take_branching=2,
         policy_prior_weight=1500.0,
+        search_value_weight=0.25,
+        search_value_min_turn_index=40,
     )
 
     assert isinstance(flat_bot, FakeFlatBot)
     assert isinstance(scorer_bot, FakeScorerBot)
+    assert isinstance(set_scorer_bot, FakeSetScorerBot)
+    assert isinstance(attention_scorer_bot, FakeAttentionScorerBot)
     assert isinstance(guided_bot, FakePolicyGuidedSearchBot)
     assert captured[0][0] == "flat"
     assert captured[1] == ("scorer", checkpoint_path, "cpu")
-    assert captured[2] == (
+    assert captured[2] == ("set_scorer", checkpoint_path, "cpu")
+    assert captured[3] == ("attention_scorer", checkpoint_path, "cpu")
+    assert captured[4] == (
         "policy_guided_search",
         checkpoint_path,
         "cpu",
@@ -231,6 +310,13 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
         4,
         2,
         0,
+        None,
+        0.25,
+            40,
+            None,
+            True,
+            1,
+            0,
     )
 
 
@@ -255,6 +341,17 @@ def test_parser_accepts_search_opponent() -> None:
             "policy_guided_search",
             "--policy-prior-weight",
             "1500",
+            "--search-value-checkpoint",
+            "value.pt",
+            "--search-value-weight",
+            "0.25",
+            "--search-value-scale",
+            "1234",
+            "--search-value-prediction-mode",
+            "outcome",
+            "--search-value-min-turn-index",
+            "40",
+            "--paired-seeds",
         ]
     )
 
@@ -266,6 +363,12 @@ def test_parser_accepts_search_opponent() -> None:
     assert args.search_reserve_branching == 4
     assert args.search_take_branching == 2
     assert args.policy_prior_weight == 1500
+    assert args.search_value_checkpoint == "value.pt"
+    assert args.search_value_weight == 0.25
+    assert args.search_value_scale == 1234
+    assert args.search_value_prediction_mode == "outcome"
+    assert args.search_value_min_turn_index == 40
+    assert args.paired_seeds is True
 
 
 def test_opponent_factory_builds_search_bot_with_requested_settings(monkeypatch) -> None:
@@ -280,6 +383,9 @@ def test_opponent_factory_builds_search_bot_with_requested_settings(monkeypatch)
             max_reserve_actions,
             max_take_actions,
             seed,
+            information_legal,
+            determinizations,
+            determinization_seed,
         ):
             captured.append(
                 {
@@ -289,6 +395,9 @@ def test_opponent_factory_builds_search_bot_with_requested_settings(monkeypatch)
                     "max_reserve_actions": max_reserve_actions,
                     "max_take_actions": max_take_actions,
                     "seed": seed,
+                    "information_legal": information_legal,
+                    "determinizations": determinizations,
+                    "determinization_seed": determinization_seed,
                 }
             )
 
@@ -312,9 +421,12 @@ def test_opponent_factory_builds_search_bot_with_requested_settings(monkeypatch)
             "max_branching": 12,
             "max_buy_actions": 7,
             "max_reserve_actions": 4,
-            "max_take_actions": 2,
-            "seed": 123,
-        }
+                "max_take_actions": 2,
+                "seed": 123,
+                "information_legal": True,
+                "determinizations": 1,
+                "determinization_seed": 123,
+            }
     ]
 
 
@@ -339,6 +451,11 @@ def test_benchmark_checkpoint_records_search_settings(monkeypatch, tmp_path) -> 
         search_buy_branching=7,
         search_reserve_branching=4,
         search_take_branching=2,
+        search_value_checkpoint="value.pt",
+        search_value_weight=0.25,
+        search_value_scale=1234.0,
+        search_value_prediction_mode="outcome",
+        search_value_min_turn_index=40,
     )
 
     assert payload["search"] == {
@@ -349,6 +466,16 @@ def test_benchmark_checkpoint_records_search_settings(monkeypatch, tmp_path) -> 
         "take_branching": 2,
     }
     assert payload["policy_guided_search"] == {"prior_weight": 2000.0}
+    assert payload["value_search"] == {
+        "checkpoint": "value.pt",
+        "device": "cpu",
+        "weight": 0.25,
+        "scale": 1234.0,
+        "prediction_mode": "outcome",
+        "outcome_blend_weight": 0.5,
+        "min_turn_index": 40,
+        "max_turn_index": None,
+    }
     assert payload["opponents"][0]["opponent"] == "search"
 
 

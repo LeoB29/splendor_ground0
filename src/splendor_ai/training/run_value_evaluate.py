@@ -27,9 +27,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--margin-scale", type=float, default=15.0)
+    parser.add_argument("--outcome-loss-weight", type=float, default=0.0)
     parser.add_argument("--exclude-stalled-games", action="store_true")
     parser.add_argument("--exclude-timeout-games", action="store_true")
     parser.add_argument("--max-game-model-loop-fallback-triggers", type=int, default=None)
+    parser.add_argument("--min-turn-index", type=int, default=None)
+    parser.add_argument("--max-turn-index", type=int, default=None)
     return parser
 
 
@@ -38,7 +41,7 @@ def main() -> None:
     checkpoint_path = Path(args.checkpoint)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     model = ValueMLP(ValueModelConfig(**checkpoint.get("model_config", {})))
-    model.load_state_dict(checkpoint["model_state_dict"])
+    model.load_state_dict(checkpoint["model_state_dict"], strict=False)
     replay_paths = tuple(Path(path) for path in args.replay_path)
     dataset = ValueReplayDataset(
         replay_paths,
@@ -46,18 +49,28 @@ def main() -> None:
         include_timed_out_games=not args.exclude_timeout_games,
         max_model_loop_fallback_triggers=args.max_game_model_loop_fallback_triggers,
         margin_scale=args.margin_scale,
+        min_turn_index=args.min_turn_index,
+        max_turn_index=args.max_turn_index,
     )
     dataloader = create_value_replay_dataloader(
         dataset,
         batch_size=args.batch_size,
         shuffle=False,
     )
-    metric = evaluate_value_epoch(model, dataloader, device=args.device)
+    metric = evaluate_value_epoch(
+        model,
+        dataloader,
+        device=args.device,
+        outcome_loss_weight=args.outcome_loss_weight,
+    )
     payload = {
         "checkpoint": str(checkpoint_path),
         "replay_paths": [str(path) for path in replay_paths],
         "samples": len(dataset),
         "margin_scale": args.margin_scale,
+        "outcome_loss_weight": args.outcome_loss_weight,
+        "min_turn_index": args.min_turn_index,
+        "max_turn_index": args.max_turn_index,
         "metric": asdict(metric),
     }
     if args.output_path is not None:
@@ -68,9 +81,12 @@ def main() -> None:
     print(
         "Value evaluation:"
         f" samples={metric.samples}"
+        f" total={metric.total_loss:.4f}"
         f" mse={metric.mse_loss:.4f}"
+        f" outcome_loss={metric.outcome_loss:.4f}"
         f" mae={metric.mae:.4f}"
         f" sign_acc={metric.sign_accuracy:.4f}"
+        f" outcome_acc={metric.outcome_class_accuracy:.4f}"
         f" outcome_sign_acc={metric.outcome_sign_accuracy:.4f}"
         f" pearson={metric.pearson_correlation:.4f}"
     )

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from splendor_ai.engine.state import SplendorState
+from splendor_ai.engine.state import RESERVE_SOURCE_VISIBLE
 
 _TOKEN_ORDER = ("white", "blue", "green", "red", "black", "gold")
 _BONUS_ORDER = ("white", "blue", "green", "red", "black")
@@ -117,7 +118,19 @@ def encode_public_observation(state: SplendorState, player_id: int) -> dict[str,
             "bonuses": dict(opponent.bonuses),
             "score": opponent.score,
             "reserved_count": len(opponent.reserved_cards),
-            "reserved_cards": [card.card_id for card in opponent.reserved_cards],
+            "reserved_cards": [
+                (
+                    card.card_id
+                    if opponent.reserved_card_source(index)
+                    == RESERVE_SOURCE_VISIBLE
+                    else None
+                )
+                for index, card in enumerate(opponent.reserved_cards)
+            ],
+            "reserved_sources": [
+                opponent.reserved_card_source(index)
+                for index in range(len(opponent.reserved_cards))
+            ],
             "purchased_cards": [card.card_id for card in opponent.purchased_cards],
         },
     }
@@ -192,7 +205,13 @@ def encode_public_observation_tensor(
 
     opponent_reserved_values: list[float] = []
     for reserved_index in range(_RESERVED_SLOTS):
-        card = opponent.reserved_cards[reserved_index] if reserved_index < len(opponent.reserved_cards) else None
+        card = (
+            opponent.reserved_cards[reserved_index]
+            if reserved_index < len(opponent.reserved_cards)
+            and opponent.reserved_card_source(reserved_index)
+            == RESERVE_SOURCE_VISIBLE
+            else None
+        )
         opponent_reserved_values.extend(_encode_card_slot(card))
     push("opponent_reserved", opponent_reserved_values)
 

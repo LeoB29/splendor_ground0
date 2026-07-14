@@ -180,3 +180,16 @@ def test_buy_action_features_include_chosen_noble() -> None:
         0.0,
     )
     assert _section(features, "derived")[1] == 3.0 / 8.0
+
+
+def test_legal_action_batch_features_match_individual_encoding() -> None:
+    env = SplendorEnv(seed=8)
+    state = env.initial_state()
+    legal_actions = env.legal_actions(state)
+
+    batched = encode_legal_action_features(state, legal_actions)
+    individual = [
+        encode_action_features(state, action) for action in legal_actions
+    ]
+
+    assert batched == individual

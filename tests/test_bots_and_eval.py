@@ -1,8 +1,19 @@
-from splendor_ai.bots import GreedyHeuristicBot, RandomLegalBot, ShallowSearchBot
+from dataclasses import asdict
+
+import torch
+
+from splendor_ai.bots import (
+    CheckpointValueEvaluator,
+    GreedyHeuristicBot,
+    RandomLegalBot,
+    ShallowSearchBot,
+)
 from splendor_ai.engine.actions import ActionType
 from splendor_ai.engine.state import Card
+from splendor_ai.engine.state import RESERVE_SOURCE_DECK
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.eval import MatchConfig, play_game, play_match
+from splendor_ai.training.model import ValueMLP, ValueModelConfig
 
 
 def test_greedy_bot_prefers_immediate_scoring_buy() -> None:
@@ -255,6 +266,110 @@ def test_search_bot_can_blend_value_evaluator_at_leaf() -> None:
     blended_value = value_bot._evaluate_leaf(state, state.current_player)
 
     assert blended_value == 0.75 * heuristic_value + 25.0
+
+
+def test_checkpoint_value_evaluator_can_use_outcome_head(tmp_path) -> None:
+    model = ValueMLP(ValueModelConfig(hidden_size=8, depth=1))
+    for parameter in model.parameters():
+        parameter.data.zero_()
+    model.outcome_head.bias.data = torch.tensor([-1.0, 0.0, 1.0])
+    checkpoint_path = tmp_path / "value.pt"
+    torch.save(
+        {
+            "model_kind": "value_mlp",
+            "model_state_dict": model.state_dict(),
+            "model_config": asdict(model.config),
+        },
+        checkpoint_path,
+    )
+    state = SplendorEnv(seed=0).initial_state()
+    evaluator = CheckpointValueEvaluator(
+        checkpoint_path=checkpoint_path,
+        prediction_mode="outcome",
+        value_scale=100.0,
+    )
+
+    value = evaluator.evaluate_state(state, player_id=0)
+    probabilities = torch.softmax(torch.tensor([-1.0, 0.0, 1.0]), dim=0)
+    expected = float((probabilities[2] - probabilities[0]).item()) * 100.0
+
+    assert abs(value - expected) < 1e-5
+
+
+def test_search_bot_can_gate_value_evaluator_by_turn_index() -> None:
+    env = SplendorEnv(seed=0)
+    state = env.initial_state()
+
+    class ConstantValueEvaluator:
+        def evaluate_state(self, state, player_id):
+            return 100.0
+
+    gated_bot = ShallowSearchBot(
+        seed=0,
+        value_evaluator=ConstantValueEvaluator(),
+        value_weight=0.25,
+        value_min_turn_index=40,
+    )
+
+    heuristic_value = gated_bot._heuristic.evaluate_state(state, state.current_player)
+    assert gated_bot._evaluate_leaf(state, state.current_player) == heuristic_value
+
+    state.turn_index = 40
+    assert gated_bot._evaluate_leaf(state, state.current_player) == 0.75 * heuristic_value + 25.0
+
+
+def test_information_legal_search_ignores_true_deck_order() -> None:
+    env = SplendorEnv(seed=12)
+    state_a = env.initial_state()
+    state_b = state_a.copy_shallow()
+    for tier in (1, 2, 3):
+        state_b.hidden_tier_decks[tier].reverse()
+    bot_a = ShallowSearchBot(
+        seed=13,
+        information_legal=True,
+        determinizations=3,
+        determinization_seed=14,
+    )
+    bot_b = ShallowSearchBot(
+        seed=13,
+        information_legal=True,
+        determinizations=3,
+        determinization_seed=14,
+    )
+
+    action_a = bot_a.choose_action(env, state_a, env.legal_actions(state_a))
+    action_b = bot_b.choose_action(env, state_b, env.legal_actions(state_b))
+
+    assert action_a == action_b
+
+
+def test_information_legal_search_ignores_opponent_private_reserve_identity() -> None:
+    env = SplendorEnv(seed=15)
+    state_a = env.initial_state()
+    private_card = state_a.hidden_tier_decks[1].pop()
+    state_a.deck_counts[1] -= 1
+    state_a.players[1].reserve_card(private_card, RESERVE_SOURCE_DECK)
+    state_b = state_a.copy_shallow()
+    replacement = state_b.hidden_tier_decks[1][0]
+    state_b.hidden_tier_decks[1][0] = state_b.players[1].reserved_cards[0]
+    state_b.players[1].reserved_cards[0] = replacement
+    bot_a = ShallowSearchBot(
+        seed=16,
+        information_legal=True,
+        determinizations=3,
+        determinization_seed=17,
+    )
+    bot_b = ShallowSearchBot(
+        seed=16,
+        information_legal=True,
+        determinizations=3,
+        determinization_seed=17,
+    )
+
+    action_a = bot_a.choose_action(env, state_a, env.legal_actions(state_a))
+    action_b = bot_b.choose_action(env, state_b, env.legal_actions(state_b))
+
+    assert action_a == action_b
 
 
 def test_search_bot_can_use_action_prior_for_ordering() -> None:

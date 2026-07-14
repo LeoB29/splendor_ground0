@@ -11,7 +11,7 @@ from typing import Any
 
 import torch
 
-from splendor_ai.bots import ShallowSearchBot
+from splendor_ai.bots import CheckpointLegalActionPriorScorer, ShallowSearchBot
 from splendor_ai.encoding import (
     ActionCodec,
     encode_legal_action_features,
@@ -22,8 +22,12 @@ from splendor_ai.engine.actions import Action
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import SplendorState
 from splendor_ai.training.model import (
+    LegalActionAttentionScorerConfig,
+    LegalActionAttentionScorerModel,
     LegalActionScorerConfig,
     LegalActionScorerModel,
+    LegalActionSetScorerConfig,
+    LegalActionSetScorerModel,
     PolicyValueMLP,
     PolicyValueModelConfig,
     masked_legal_action_scores,
@@ -53,7 +57,13 @@ class DisagreementConfig:
     search_buy_branching: int = 6
     search_reserve_branching: int = 3
     search_take_branching: int = 3
+    search_policy_prior_checkpoint_path: Path | None = None
+    search_policy_prior_device: str = "cpu"
+    search_policy_prior_weight: float = 0.0
     seed: int = 0
+    player_id_filter: tuple[int, ...] | None = None
+    phase_filter: tuple[str, ...] | None = None
+    min_turn_index: int | None = None
     examples_limit: int = 20
 
 
@@ -64,7 +74,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument(
         "--model-kind",
-        choices=("flat_policy", "legal_action_scorer"),
+        choices=(
+            "flat_policy",
+            "legal_action_scorer",
+            "legal_action_attention_scorer",
+            "legal_action_set_scorer",
+        ),
         default="legal_action_scorer",
     )
     parser.add_argument(
@@ -82,7 +97,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--search-buy-branching", type=int, default=6)
     parser.add_argument("--search-reserve-branching", type=int, default=3)
     parser.add_argument("--search-take-branching", type=int, default=3)
+    parser.add_argument("--search-policy-prior-checkpoint", default=None)
+    parser.add_argument("--search-policy-prior-device", default="cpu")
+    parser.add_argument("--search-policy-prior-weight", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--player-id-filter",
+        nargs="*",
+        type=int,
+        choices=(0, 1),
+        default=None,
+    )
+    parser.add_argument(
+        "--phase-filter",
+        nargs="*",
+        choices=("early", "mid", "late"),
+        default=None,
+    )
+    parser.add_argument("--min-turn-index", type=int, default=None)
     parser.add_argument(
         "--examples-limit",
         type=int,
@@ -108,7 +140,25 @@ def main() -> None:
             search_buy_branching=args.search_buy_branching,
             search_reserve_branching=args.search_reserve_branching,
             search_take_branching=args.search_take_branching,
+            search_policy_prior_checkpoint_path=(
+                Path(args.search_policy_prior_checkpoint)
+                if args.search_policy_prior_checkpoint is not None
+                else None
+            ),
+            search_policy_prior_device=args.search_policy_prior_device,
+            search_policy_prior_weight=args.search_policy_prior_weight,
             seed=args.seed,
+            player_id_filter=(
+                tuple(args.player_id_filter)
+                if args.player_id_filter is not None and len(args.player_id_filter) > 0
+                else None
+            ),
+            phase_filter=(
+                tuple(args.phase_filter)
+                if args.phase_filter is not None and len(args.phase_filter) > 0
+                else None
+            ),
+            min_turn_index=args.min_turn_index,
             examples_limit=args.examples_limit,
         )
     )
@@ -127,13 +177,29 @@ def analyze_policy_search_disagreement(config: DisagreementConfig) -> dict[str, 
         raise ValueError("At least one replay path is required.")
     if config.examples_limit < 0:
         raise ValueError("examples_limit must be non-negative.")
+    if config.search_policy_prior_weight < 0.0:
+        raise ValueError("search_policy_prior_weight must be non-negative.")
+    if (
+        config.search_policy_prior_checkpoint_path is None
+        and config.search_policy_prior_weight > 0.0
+    ):
+        raise ValueError(
+            "search_policy_prior_checkpoint_path is required when search_policy_prior_weight is positive."
+        )
+    unknown_phases = set(config.phase_filter or ()) - {"early", "mid", "late"}
+    if unknown_phases:
+        raise ValueError(f"Unknown phases: {sorted(unknown_phases)}")
 
     env = SplendorEnv()
     codec = ActionCodec()
     model_scorer = _load_policy_scorer(config)
+    search_action_prior = _build_search_action_prior(config)
     counters = _empty_counters()
     examples: list[dict[str, Any]] = []
     rows_seen = 0
+    rows_skipped_by_player_id = 0
+    rows_skipped_by_phase = 0
+    rows_skipped_by_turn = 0
     rows_missing_snapshot = 0
     rows_without_legal_actions = 0
     rows_without_search_candidate = 0
@@ -148,6 +214,18 @@ def analyze_policy_search_disagreement(config: DisagreementConfig) -> dict[str, 
                     continue
                 rows_seen += 1
                 payload = json.loads(stripped)
+                player_id = int(payload.get("player_id", -1))
+                if config.player_id_filter is not None and player_id not in config.player_id_filter:
+                    rows_skipped_by_player_id += 1
+                    continue
+                turn_index = int(payload.get("turn_index", 0))
+                if config.min_turn_index is not None and turn_index < config.min_turn_index:
+                    rows_skipped_by_turn += 1
+                    continue
+                phase = _phase_for_turn(turn_index)
+                if config.phase_filter is not None and phase not in config.phase_filter:
+                    rows_skipped_by_phase += 1
+                    continue
                 snapshot = payload.get("state_snapshot")
                 if not isinstance(snapshot, dict):
                     rows_missing_snapshot += 1
@@ -157,7 +235,11 @@ def analyze_policy_search_disagreement(config: DisagreementConfig) -> dict[str, 
                 if not legal_actions:
                     rows_without_legal_actions += 1
                     continue
-                search_bot = _build_search_bot(config, row_offset=rows_seen)
+                search_bot = _build_search_bot(
+                    config,
+                    row_offset=rows_seen,
+                    action_prior=search_action_prior,
+                )
                 search_scores = search_bot.rank_actions(env, state, legal_actions)
                 if not search_scores:
                     rows_without_search_candidate += 1
@@ -196,6 +278,9 @@ def analyze_policy_search_disagreement(config: DisagreementConfig) -> dict[str, 
         config=config,
         counters=counters,
         rows_seen=rows_seen,
+        rows_skipped_by_player_id=rows_skipped_by_player_id,
+        rows_skipped_by_phase=rows_skipped_by_phase,
+        rows_skipped_by_turn=rows_skipped_by_turn,
         rows_missing_snapshot=rows_missing_snapshot,
         rows_without_legal_actions=rows_without_legal_actions,
         rows_without_search_candidate=rows_without_search_candidate,
@@ -263,13 +348,22 @@ class _FlatPolicyScorer(_PolicyScorer):
 
 
 class _LegalActionScorer(_PolicyScorer):
-    def __init__(self, checkpoint_path: Path, device: str) -> None:
+    def __init__(self, checkpoint_path: Path, device: str, model_kind: str = "legal_action_scorer") -> None:
         self._device = device
         self._codec = ActionCodec()
         checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
-        self._model = LegalActionScorerModel(
-            LegalActionScorerConfig(**checkpoint.get("model_config", {}))
-        )
+        if model_kind == "legal_action_attention_scorer":
+            self._model = LegalActionAttentionScorerModel(
+                LegalActionAttentionScorerConfig(**checkpoint.get("model_config", {}))
+            )
+        elif model_kind == "legal_action_set_scorer":
+            self._model = LegalActionSetScorerModel(
+                LegalActionSetScorerConfig(**checkpoint.get("model_config", {}))
+            )
+        else:
+            self._model = LegalActionScorerModel(
+                LegalActionScorerConfig(**checkpoint.get("model_config", {}))
+            )
         self._model.load_state_dict(checkpoint["model_state_dict"])
         self._model.to(device)
         self._model.eval()
@@ -310,7 +404,11 @@ class _LegalActionScorer(_PolicyScorer):
         )
         action_indices = [self._codec.encode(state, action) for action in legal_actions]
         with torch.no_grad():
-            action_scores, _value = self._model(observation_tensor, action_feature_tensor)
+            action_scores, _value = self._model(
+                observation_tensor,
+                action_feature_tensor,
+                legal_action_mask,
+            )
             masked_scores = masked_legal_action_scores(action_scores, legal_action_mask)[0].detach().cpu()
         scores = [
             ModelActionScore(
@@ -326,12 +424,34 @@ class _LegalActionScorer(_PolicyScorer):
 def _load_policy_scorer(config: DisagreementConfig) -> _PolicyScorer:
     if config.model_kind == "flat_policy":
         return _FlatPolicyScorer(config.checkpoint, config.device)
-    if config.model_kind == "legal_action_scorer":
-        return _LegalActionScorer(config.checkpoint, config.device)
+    if config.model_kind in {
+        "legal_action_scorer",
+        "legal_action_attention_scorer",
+        "legal_action_set_scorer",
+    }:
+        return _LegalActionScorer(config.checkpoint, config.device, config.model_kind)
     raise ValueError(f"Unsupported model kind: {config.model_kind}")
 
 
-def _build_search_bot(config: DisagreementConfig, row_offset: int) -> ShallowSearchBot:
+def _build_search_action_prior(
+    config: DisagreementConfig,
+) -> CheckpointLegalActionPriorScorer | None:
+    if (
+        config.search_policy_prior_checkpoint_path is not None
+        and config.search_policy_prior_weight > 0.0
+    ):
+        return CheckpointLegalActionPriorScorer(
+            checkpoint_path=config.search_policy_prior_checkpoint_path,
+            device=config.search_policy_prior_device,
+        )
+    return None
+
+
+def _build_search_bot(
+    config: DisagreementConfig,
+    row_offset: int,
+    action_prior: CheckpointLegalActionPriorScorer | None = None,
+) -> ShallowSearchBot:
     return ShallowSearchBot(
         depth=config.search_depth,
         max_branching=config.search_max_branching,
@@ -339,6 +459,10 @@ def _build_search_bot(config: DisagreementConfig, row_offset: int) -> ShallowSea
         max_reserve_actions=config.search_reserve_branching,
         max_take_actions=config.search_take_branching,
         seed=config.seed + row_offset,
+        action_prior=action_prior,
+        action_prior_weight=(
+            config.search_policy_prior_weight if action_prior is not None else 0.0
+        ),
     )
 
 
@@ -352,6 +476,11 @@ def _empty_counters() -> dict[str, Any]:
         "by_model_action_type": {},
         "by_search_action_type": {},
         "by_phase": {},
+        "by_seat": {},
+        "by_seat_phase": {},
+        "by_score_margin": {},
+        "by_seat_model_action_type": {},
+        "by_seat_search_action_type": {},
         "action_type_matrix": {},
     }
 
@@ -374,6 +503,9 @@ def _record_row(
     model_action_type = model_top.action.action_type.name
     search_action_type = search_top.action.action_type.name
     phase = _phase_for_turn(int(payload.get("turn_index", 0)))
+    player_id = int(payload.get("player_id", state.current_player))
+    seat = f"seat{player_id}"
+    score_margin = state.players[player_id].score - state.players[1 - player_id].score
     search_value_by_index = {
         codec.encode(state, score.action): score.value
         for score in search_scores
@@ -406,6 +538,21 @@ def _record_row(
     _record_bucket(counters["by_model_action_type"], model_action_type, agreement, search_margin)
     _record_bucket(counters["by_search_action_type"], search_action_type, agreement, search_margin)
     _record_bucket(counters["by_phase"], phase, agreement, search_margin)
+    _record_bucket(counters["by_seat"], seat, agreement, search_margin)
+    _record_bucket(counters["by_seat_phase"], f"{seat}:{phase}", agreement, search_margin)
+    _record_bucket(counters["by_score_margin"], _score_margin_bucket(score_margin), agreement, search_margin)
+    _record_bucket(
+        counters["by_seat_model_action_type"],
+        f"{seat}:{model_action_type}",
+        agreement,
+        search_margin,
+    )
+    _record_bucket(
+        counters["by_seat_search_action_type"],
+        f"{seat}:{search_action_type}",
+        agreement,
+        search_margin,
+    )
     matrix = counters["action_type_matrix"]
     matrix.setdefault(model_action_type, {})
     matrix[model_action_type][search_action_type] = matrix[model_action_type].get(search_action_type, 0) + 1
@@ -458,11 +605,14 @@ def _maybe_store_example(
         "game_seed": payload.get("game_seed"),
         "turn_index": payload.get("turn_index"),
         "player_id": payload.get("player_id"),
+        "seat": f"seat{payload.get('player_id')}",
         "phase": _phase_for_turn(int(payload.get("turn_index", 0))),
         "scores": [
             state.players[0].score,
             state.players[1].score,
         ],
+        "score_margin": state.players[int(payload.get("player_id", state.current_player))].score
+        - state.players[1 - int(payload.get("player_id", state.current_player))].score,
         "model_action_index": model_top.action_index,
         "model_action_type": model_top.action.action_type.name,
         "model_score": model_top.score,
@@ -485,6 +635,9 @@ def _build_summary(
     config: DisagreementConfig,
     counters: dict[str, Any],
     rows_seen: int,
+    rows_skipped_by_player_id: int,
+    rows_skipped_by_phase: int,
+    rows_skipped_by_turn: int,
     rows_missing_snapshot: int,
     rows_without_legal_actions: int,
     rows_without_search_candidate: int,
@@ -497,6 +650,9 @@ def _build_summary(
         "replay_paths": [str(path) for path in config.replay_paths],
         "rows_seen": rows_seen,
         "rows_analyzed": rows_analyzed,
+        "rows_skipped_by_player_id": rows_skipped_by_player_id,
+        "rows_skipped_by_phase": rows_skipped_by_phase,
+        "rows_skipped_by_turn": rows_skipped_by_turn,
         "rows_missing_snapshot": rows_missing_snapshot,
         "rows_without_legal_actions": rows_without_legal_actions,
         "rows_without_search_candidate": rows_without_search_candidate,
@@ -511,6 +667,11 @@ def _build_summary(
         "by_model_action_type": _finalize_buckets(counters["by_model_action_type"]),
         "by_search_action_type": _finalize_buckets(counters["by_search_action_type"]),
         "by_phase": _finalize_buckets(counters["by_phase"]),
+        "by_seat": _finalize_buckets(counters["by_seat"]),
+        "by_seat_phase": _finalize_buckets(counters["by_seat_phase"]),
+        "by_score_margin": _finalize_buckets(counters["by_score_margin"]),
+        "by_seat_model_action_type": _finalize_buckets(counters["by_seat_model_action_type"]),
+        "by_seat_search_action_type": _finalize_buckets(counters["by_seat_search_action_type"]),
         "action_type_matrix": counters["action_type_matrix"],
         "examples": examples,
         "config": {
@@ -518,6 +679,11 @@ def _build_summary(
             "checkpoint": str(config.checkpoint),
             "replay_paths": [str(path) for path in config.replay_paths],
             "output_path": str(config.output_path),
+            "search_policy_prior_checkpoint_path": (
+                str(config.search_policy_prior_checkpoint_path)
+                if config.search_policy_prior_checkpoint_path is not None
+                else None
+            ),
         },
     }
 
@@ -556,6 +722,18 @@ def _phase_for_turn(turn_index: int) -> str:
     if turn_index < 50:
         return "mid"
     return "late"
+
+
+def _score_margin_bucket(score_margin: int) -> str:
+    if score_margin <= -5:
+        return "behind_5plus"
+    if score_margin < 0:
+        return "behind_1_4"
+    if score_margin == 0:
+        return "tied"
+    if score_margin < 5:
+        return "ahead_1_4"
+    return "ahead_5plus"
 
 
 if __name__ == "__main__":

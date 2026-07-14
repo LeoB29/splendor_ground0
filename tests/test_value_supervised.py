@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+from dataclasses import asdict
 
 import torch
 
@@ -13,10 +14,12 @@ from splendor_ai.training import (
     ValueReplayDataset,
     collect_game_replay,
     compute_value_loss,
+    compute_value_losses,
     export_replay_games_jsonl,
     fit_value,
     split_value_replay_dataset,
 )
+from splendor_ai.training.run_value_diagnostics import run_value_diagnostics
 
 
 def _write_replay(tmp_path, max_turns: int = 8):
@@ -64,18 +67,54 @@ def test_value_replay_dataset_uses_current_player_score_margin(tmp_path) -> None
     assert sample.outcome_target in (-1.0, 0.0, 1.0)
 
 
+def test_value_replay_dataset_can_filter_by_turn_index(tmp_path) -> None:
+    replay_path = _write_replay(tmp_path, max_turns=10)
+    all_rows = [
+        json.loads(line)
+        for line in replay_path.read_text(encoding="utf-8").splitlines()
+    ]
+    expected = [
+        row
+        for row in all_rows
+        if 2 <= int(row["turn_index"]) <= 5
+    ]
+
+    dataset = ValueReplayDataset(
+        replay_path,
+        min_turn_index=2,
+        max_turn_index=5,
+    )
+
+    assert len(dataset) == len(expected)
+    assert all(2 <= dataset[index].turn_index <= 5 for index in range(len(dataset)))
+
+
 def test_value_model_and_loss_return_finite_values() -> None:
     model = ValueMLP(ValueModelConfig(hidden_size=16, depth=1))
     observation = torch.zeros((3, OBSERVATION_SIZE), dtype=torch.float32)
     target = torch.tensor([1.0, 0.0, -1.0], dtype=torch.float32)
+    outcome_target = torch.tensor([1.0, 0.0, -1.0], dtype=torch.float32)
 
     prediction = model(observation)
+    outcome_logits = model.outcome_logits(observation)
     loss = compute_value_loss(prediction, target)
+    value_loss, outcome_loss, total_loss = compute_value_losses(
+        value_pred=prediction,
+        value_target=target,
+        outcome_logits=outcome_logits,
+        outcome_target=outcome_target,
+        outcome_loss_weight=0.5,
+    )
 
     assert prediction.shape == (3,)
+    assert outcome_logits.shape == (3, 3)
     assert torch.all(prediction <= 1.0)
     assert torch.all(prediction >= -1.0)
     assert torch.isfinite(loss)
+    assert torch.isfinite(value_loss)
+    assert torch.isfinite(outcome_loss)
+    assert torch.isfinite(total_loss)
+    assert total_loss > value_loss
 
 
 def test_fit_value_runs_on_replay(tmp_path) -> None:
@@ -149,6 +188,10 @@ def test_run_value_supervised_cli_writes_checkpoint_and_metrics(tmp_path) -> Non
             "0.5",
             "--validation-split-unit",
             "game",
+            "--min-turn-index",
+            "1",
+            "--outcome-loss-weight",
+            "0.5",
             "--log-every-batches",
             "0",
         ],
@@ -161,7 +204,45 @@ def test_run_value_supervised_cli_writes_checkpoint_and_metrics(tmp_path) -> Non
     assert "Value training complete" in result.stdout
     assert (output_dir / "value_model.pt").exists()
     metrics = json.loads((output_dir / "value_model_metrics.json").read_text(encoding="utf-8"))
-    assert metrics["dataset"]["total_samples"] == len(ValueReplayDataset(replay_path))
+    assert metrics["dataset"]["total_samples"] == len(
+        ValueReplayDataset(replay_path, min_turn_index=1)
+    )
     assert metrics["dataset"]["validation_split_unit"] == "game"
+    assert metrics["dataset"]["min_turn_index"] == 1
+    assert metrics["dataset"]["outcome_loss_weight"] == 0.5
+    assert "outcome_loss" in metrics["epochs"][0]["train"]
+    assert "outcome_class_accuracy" in metrics["epochs"][0]["train"]
     assert metrics["dataset"]["validation_samples"] > 0
     assert metrics["checkpoints"]["final_checkpoint_path"] == "value_model.pt"
+
+
+def test_run_value_diagnostics_writes_bucketed_report(tmp_path) -> None:
+    replay_path = _write_replays(tmp_path, max_turns=8, count=3)
+    model = ValueMLP(ValueModelConfig(hidden_size=16, depth=1))
+    checkpoint_path = tmp_path / "value_model.pt"
+    torch.save(
+        {
+            "model_kind": "value_mlp",
+            "model_state_dict": model.state_dict(),
+            "model_config": asdict(model.config),
+        },
+        checkpoint_path,
+    )
+    output_path = tmp_path / "diagnostics.json"
+
+    payload = run_value_diagnostics(
+        checkpoint_path=checkpoint_path,
+        replay_paths=(replay_path,),
+        output_path=output_path,
+        split="validation",
+        validation_fraction=0.5,
+        validation_seed=0,
+        validation_split_unit="game",
+    )
+
+    assert output_path.exists()
+    assert payload["samples"] > 0
+    assert "phase" in payload["buckets"]
+    assert payload["overall"]["samples"] == payload["samples"]
+    assert "outcome_class_accuracy" in payload["overall"]
+    assert "mean_win_probability" in payload["overall"]

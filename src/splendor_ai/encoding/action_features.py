@@ -60,10 +60,18 @@ class ActionFeatureTensor:
     sections: dict[str, tuple[int, int]]
 
 
+@dataclass(slots=True)
+class _ActionSetContext:
+    player_affordable_before: int
+    opponent_affordable_before: int
+    affordable_after_by_tokens: dict[tuple[int, ...], int]
+
+
 def encode_action_features(
     state: SplendorState,
     action: Action,
     player_id: int | None = None,
+    _action_set_context: _ActionSetContext | None = None,
 ) -> ActionFeatureTensor:
     """Encode one legal action as state-aware numeric features.
 
@@ -108,6 +116,7 @@ def encode_action_features(
             target_card=target_card,
             chosen_noble=chosen_noble,
             player_id=acting_player_id,
+            action_set_context=_action_set_context,
         ),
     )
 
@@ -121,8 +130,25 @@ def encode_legal_action_features(
 ) -> list[ActionFeatureTensor]:
     """Encode all legal actions for a position in their supplied order."""
 
+    acting_player_id = state.current_player if player_id is None else player_id
+    context = _ActionSetContext(
+        player_affordable_before=_visible_affordable_count(
+            state,
+            acting_player_id,
+        ),
+        opponent_affordable_before=_visible_affordable_count(
+            state,
+            1 - acting_player_id,
+        ),
+        affordable_after_by_tokens={},
+    )
     return [
-        encode_action_features(state=state, action=action, player_id=player_id)
+        encode_action_features(
+            state=state,
+            action=action,
+            player_id=acting_player_id,
+            _action_set_context=context,
+        )
         for action in legal_actions
     ]
 
@@ -226,6 +252,7 @@ def _encode_opponent_context_features(
     target_card: Card | None,
     chosen_noble: Noble | None,
     player_id: int,
+    action_set_context: _ActionSetContext | None = None,
 ) -> list[float]:
     player = state.players[player_id]
     opponent = state.players[1 - player_id]
@@ -237,13 +264,38 @@ def _encode_opponent_context_features(
     for color in action.spend_tokens:
         after_player_tokens[color] -= 1
 
-    player_affordable_before = _visible_affordable_count(state, player_id)
-    player_affordable_after = _visible_affordable_count(
-        state,
-        player_id,
-        token_override=after_player_tokens,
+    player_affordable_before = (
+        action_set_context.player_affordable_before
+        if action_set_context is not None
+        else _visible_affordable_count(state, player_id)
     )
-    opponent_affordable_before = _visible_affordable_count(state, 1 - player_id)
+    token_signature = tuple(
+        int(after_player_tokens.get(color, 0)) for color in TOKEN_ORDER
+    )
+    if action_set_context is None:
+        player_affordable_after = _visible_affordable_count(
+            state,
+            player_id,
+            token_override=after_player_tokens,
+        )
+    else:
+        player_affordable_after = (
+            action_set_context.affordable_after_by_tokens.get(token_signature)
+        )
+        if player_affordable_after is None:
+            player_affordable_after = _visible_affordable_count(
+                state,
+                player_id,
+                token_override=after_player_tokens,
+            )
+            action_set_context.affordable_after_by_tokens[token_signature] = (
+                player_affordable_after
+            )
+    opponent_affordable_before = (
+        action_set_context.opponent_affordable_before
+        if action_set_context is not None
+        else _visible_affordable_count(state, 1 - player_id)
+    )
     target_missing_player = _missing_to_card(target_card, player.bonuses, player.tokens)
     target_missing_opponent = _missing_to_card(target_card, opponent.bonuses, opponent.tokens)
     opponent_can_buy_target = target_card is not None and target_missing_opponent == 0

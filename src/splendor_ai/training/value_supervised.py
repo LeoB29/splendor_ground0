@@ -20,10 +20,13 @@ from .supervised import BatchProgress, SupervisedTrainConfig, split_replay_datas
 
 @dataclass(frozen=True, slots=True)
 class ValueTrainMetrics:
+    total_loss: float
     mse_loss: float
+    outcome_loss: float
     mae: float
     sign_accuracy: float
     outcome_sign_accuracy: float
+    outcome_class_accuracy: float
     pearson_correlation: float
     samples: int
     batches: int
@@ -110,6 +113,8 @@ def create_value_replay_dataloader(
     include_timed_out_games: bool = True,
     max_model_loop_fallback_triggers: int | None = None,
     margin_scale: float = 15.0,
+    min_turn_index: int | None = None,
+    max_turn_index: int | None = None,
 ) -> DataLoader:
     if isinstance(path, Dataset):
         dataset = path
@@ -120,6 +125,8 @@ def create_value_replay_dataloader(
             include_timed_out_games=include_timed_out_games,
             max_model_loop_fallback_triggers=max_model_loop_fallback_triggers,
             margin_scale=margin_scale,
+            min_turn_index=min_turn_index,
+            max_turn_index=max_turn_index,
         )
     return DataLoader(
         dataset,
@@ -136,6 +143,23 @@ def compute_value_loss(
     return nn.functional.mse_loss(value_pred, value_target)
 
 
+def compute_value_losses(
+    value_pred: torch.Tensor,
+    value_target: torch.Tensor,
+    outcome_logits: torch.Tensor | None = None,
+    outcome_target: torch.Tensor | None = None,
+    outcome_loss_weight: float = 0.0,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    value_loss = compute_value_loss(value_pred, value_target)
+    if outcome_loss_weight == 0.0 or outcome_logits is None or outcome_target is None:
+        zero = value_loss.new_tensor(0.0)
+        return value_loss, zero, value_loss
+    outcome_classes = _outcome_classes(outcome_target).to(device=outcome_logits.device)
+    outcome_loss = nn.functional.cross_entropy(outcome_logits, outcome_classes)
+    total_loss = value_loss + outcome_loss_weight * outcome_loss
+    return value_loss, outcome_loss, total_loss
+
+
 def train_value_epoch(
     model: ValueMLP,
     dataloader: DataLoader,
@@ -143,6 +167,7 @@ def train_value_epoch(
     device: str = "cpu",
     epoch_index: int = 1,
     total_epochs: int = 1,
+    outcome_loss_weight: float = 0.0,
     log_every_batches: int = 0,
     progress_callback: Callable[[BatchProgress], None] | None = None,
 ) -> ValueTrainMetrics:
@@ -152,6 +177,7 @@ def train_value_epoch(
     predictions: list[torch.Tensor] = []
     targets: list[torch.Tensor] = []
     outcomes: list[torch.Tensor] = []
+    outcome_logits_batches: list[torch.Tensor] = []
     batch_count = 0
 
     for batch_index, batch in enumerate(dataloader, start=1):
@@ -161,13 +187,21 @@ def train_value_epoch(
 
         optimizer.zero_grad(set_to_none=True)
         value_pred = model(observation)
-        loss = compute_value_loss(value_pred, value_target)
+        outcome_logits = model.outcome_logits(observation)
+        _value_loss, _outcome_loss, loss = compute_value_losses(
+            value_pred=value_pred,
+            value_target=value_target,
+            outcome_logits=outcome_logits,
+            outcome_target=outcome_target,
+            outcome_loss_weight=outcome_loss_weight,
+        )
         loss.backward()
         optimizer.step()
 
         predictions.append(value_pred.detach().cpu())
         targets.append(value_target.detach().cpu())
         outcomes.append(outcome_target.detach().cpu())
+        outcome_logits_batches.append(outcome_logits.detach().cpu())
         batch_count += 1
 
         if progress_callback is not None and (
@@ -179,7 +213,9 @@ def train_value_epoch(
                 torch.cat(predictions),
                 torch.cat(targets),
                 torch.cat(outcomes),
+                torch.cat(outcome_logits_batches),
                 batch_count,
+                outcome_loss_weight=outcome_loss_weight,
             )
             progress_callback(
                 BatchProgress(
@@ -191,7 +227,7 @@ def train_value_epoch(
                     elapsed_seconds=time.perf_counter() - start_time,
                     policy_loss=0.0,
                     value_loss=metrics.mse_loss,
-                    total_loss=metrics.mse_loss,
+                    total_loss=metrics.total_loss,
                     policy_accuracy=metrics.sign_accuracy,
                     samples=metrics.samples,
                 )
@@ -199,18 +235,27 @@ def train_value_epoch(
 
     if batch_count == 0:
         raise ValueError("Training dataloader produced zero batches.")
-    return _metrics_from_tensors(torch.cat(predictions), torch.cat(targets), torch.cat(outcomes), batch_count)
+    return _metrics_from_tensors(
+        torch.cat(predictions),
+        torch.cat(targets),
+        torch.cat(outcomes),
+        torch.cat(outcome_logits_batches),
+        batch_count,
+        outcome_loss_weight=outcome_loss_weight,
+    )
 
 
 def evaluate_value_epoch(
     model: ValueMLP,
     dataloader: DataLoader,
     device: str = "cpu",
+    outcome_loss_weight: float = 0.0,
 ) -> ValueTrainMetrics:
     model.eval()
     predictions: list[torch.Tensor] = []
     targets: list[torch.Tensor] = []
     outcomes: list[torch.Tensor] = []
+    outcome_logits_batches: list[torch.Tensor] = []
     batch_count = 0
     with torch.no_grad():
         for batch in dataloader:
@@ -218,13 +263,22 @@ def evaluate_value_epoch(
             value_target = batch["value_target"].to(device)
             outcome_target = batch["outcome_target"].to(device)
             value_pred = model(observation)
+            outcome_logits = model.outcome_logits(observation)
             predictions.append(value_pred.detach().cpu())
             targets.append(value_target.detach().cpu())
             outcomes.append(outcome_target.detach().cpu())
+            outcome_logits_batches.append(outcome_logits.detach().cpu())
             batch_count += 1
     if batch_count == 0:
         raise ValueError("Validation dataloader produced zero batches.")
-    return _metrics_from_tensors(torch.cat(predictions), torch.cat(targets), torch.cat(outcomes), batch_count)
+    return _metrics_from_tensors(
+        torch.cat(predictions),
+        torch.cat(targets),
+        torch.cat(outcomes),
+        torch.cat(outcome_logits_batches),
+        batch_count,
+        outcome_loss_weight=outcome_loss_weight,
+    )
 
 
 def fit_value_dataloaders_with_artifacts(
@@ -234,6 +288,7 @@ def fit_value_dataloaders_with_artifacts(
     model: ValueMLP | None = None,
     log_every_batches: int = 0,
     batch_progress_callback: Callable[[BatchProgress], None] | None = None,
+    outcome_loss_weight: float = 0.0,
 ) -> FitValueArtifacts:
     cfg = config or SupervisedTrainConfig()
     model_instance = model or ValueMLP()
@@ -252,6 +307,7 @@ def fit_value_dataloaders_with_artifacts(
             device=cfg.device,
             epoch_index=epoch_index,
             total_epochs=cfg.epochs,
+            outcome_loss_weight=outcome_loss_weight,
             log_every_batches=log_every_batches,
             progress_callback=batch_progress_callback,
         )
@@ -261,9 +317,10 @@ def fit_value_dataloaders_with_artifacts(
                 model=model_instance,
                 dataloader=validation_dataloader,
                 device=cfg.device,
+                outcome_loss_weight=outcome_loss_weight,
             )
-            if best_validation_loss is None or validation_metrics.mse_loss < best_validation_loss:
-                best_validation_loss = validation_metrics.mse_loss
+            if best_validation_loss is None or validation_metrics.total_loss < best_validation_loss:
+                best_validation_loss = validation_metrics.total_loss
                 best_epoch_index = epoch_index
                 best_model_state_dict = _clone_model_state_dict(model_instance)
         metrics.append(ValueEpochMetrics(train=train_metrics, validation=validation_metrics))
@@ -282,6 +339,9 @@ def fit_value(
     model: ValueMLP | None = None,
     margin_scale: float = 15.0,
     validation_split_unit: str = "row",
+    min_turn_index: int | None = None,
+    max_turn_index: int | None = None,
+    outcome_loss_weight: float = 0.0,
 ) -> tuple[ValueMLP, tuple[ValueEpochMetrics, ...]]:
     cfg = config or SupervisedTrainConfig()
     dataset = ValueReplayDataset(
@@ -290,6 +350,8 @@ def fit_value(
         include_timed_out_games=cfg.include_timed_out_games,
         max_model_loop_fallback_triggers=cfg.max_model_loop_fallback_triggers,
         margin_scale=margin_scale,
+        min_turn_index=min_turn_index,
+        max_turn_index=max_turn_index,
     )
     train_dataset, validation_dataset = split_value_replay_dataset(
         dataset,
@@ -314,6 +376,7 @@ def fit_value(
         validation_dataloader=validation_dataloader,
         config=cfg,
         model=model,
+        outcome_loss_weight=outcome_loss_weight,
     )
     return artifacts.model, artifacts.metrics
 
@@ -322,19 +385,28 @@ def _metrics_from_tensors(
     predictions: torch.Tensor,
     targets: torch.Tensor,
     outcomes: torch.Tensor,
+    outcome_logits: torch.Tensor,
     batches: int,
+    outcome_loss_weight: float = 0.0,
 ) -> ValueTrainMetrics:
     errors = predictions - targets
     mse = float(torch.mean(errors.square()).item())
+    outcome_classes = _outcome_classes(outcomes)
+    outcome_loss = float(nn.functional.cross_entropy(outcome_logits, outcome_classes).item())
+    total_loss = mse + outcome_loss_weight * outcome_loss
     mae = float(torch.mean(errors.abs()).item())
     sign_accuracy = _sign_accuracy(predictions, targets)
     outcome_sign_accuracy = _sign_accuracy(predictions, outcomes)
+    outcome_class_accuracy = _outcome_class_accuracy(outcome_logits, outcomes)
     pearson = _pearson_correlation(predictions, targets)
     return ValueTrainMetrics(
+        total_loss=total_loss,
         mse_loss=mse,
+        outcome_loss=outcome_loss,
         mae=mae,
         sign_accuracy=sign_accuracy,
         outcome_sign_accuracy=outcome_sign_accuracy,
+        outcome_class_accuracy=outcome_class_accuracy,
         pearson_correlation=pearson,
         samples=int(targets.numel()),
         batches=batches,
@@ -348,6 +420,24 @@ def _sign_accuracy(predictions: torch.Tensor, targets: torch.Tensor) -> float:
     pred_sign = torch.sign(predictions[mask])
     target_sign = torch.sign(targets[mask])
     return float((pred_sign == target_sign).float().mean().item())
+
+
+def _outcome_classes(outcomes: torch.Tensor) -> torch.Tensor:
+    return torch.where(
+        outcomes < 0,
+        torch.zeros_like(outcomes, dtype=torch.long),
+        torch.where(
+            outcomes > 0,
+            torch.full_like(outcomes, 2, dtype=torch.long),
+            torch.ones_like(outcomes, dtype=torch.long),
+        ),
+    )
+
+
+def _outcome_class_accuracy(outcome_logits: torch.Tensor, outcomes: torch.Tensor) -> float:
+    outcome_classes = _outcome_classes(outcomes)
+    predictions = torch.argmax(outcome_logits, dim=1)
+    return float((predictions == outcome_classes).float().mean().item())
 
 
 def _pearson_correlation(predictions: torch.Tensor, targets: torch.Tensor) -> float:

@@ -1,0 +1,126 @@
+{
+  "env": {
+    "PYTHONPATH": "src"
+  },
+  "variants": [
+    {
+      "name": "027_existing_buy_pairwise_pref",
+      "train": {
+        "name": "train_existing_027",
+        "command": ["python", "-c", "print('existing 027 checkpoint')"],
+        "output_path": "outputs/legal_action_scorer_027_attention_buy_pairwise_pref/legal_action_attention_scorer_best.pt",
+        "skip_if_outputs_exist": [
+          "outputs/legal_action_scorer_027_attention_buy_pairwise_pref/legal_action_attention_scorer_best.pt"
+        ]
+      },
+      "diagnostics": [
+        {
+          "name": "buy_pref_169",
+          "module": "splendor_ai.training.run_policy_diff_against_teacher",
+          "args": [
+            "--before-checkpoint", "outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt",
+            "--before-model-kind", "legal_action_attention_scorer",
+            "--after-checkpoint", "outputs/legal_action_scorer_027_attention_buy_pairwise_pref/legal_action_attention_scorer_best.pt",
+            "--after-model-kind", "legal_action_attention_scorer",
+            "--replay-path", "data/corpus_pgs022_buy_pref_027/buy_preference_rows.jsonl",
+            "--output-path", "outputs/analysis/022_vs_027_policy_diff_buy_pref_169.json",
+            "--device", "cpu",
+            "--teacher-source", "stored",
+            "--log-every", "100",
+            "--examples-limit", "30"
+          ],
+          "output_path": "outputs/analysis/022_vs_027_policy_diff_buy_pref_169.json",
+          "skip_if_outputs_exist": [
+            "outputs/analysis/022_vs_027_policy_diff_buy_pref_169.json"
+          ],
+          "gates": [
+            {
+              "name": "buy_target_match_at_least_10pct",
+              "path": "overall.after_teacher_match_rate",
+              "op": ">=",
+              "value": 0.10
+            }
+          ]
+        },
+        {
+          "name": "broad_pgs_first8000_midlate",
+          "module": "splendor_ai.training.run_policy_diff_against_teacher",
+          "args": [
+            "--before-checkpoint", "outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt",
+            "--before-model-kind", "legal_action_attention_scorer",
+            "--after-checkpoint", "outputs/legal_action_scorer_027_attention_buy_pairwise_pref/legal_action_attention_scorer_best.pt",
+            "--after-model-kind", "legal_action_attention_scorer",
+            "--replay-path", "data/corpus_policy_guided_search_016_w3000_seat1_vs_search_500/seat1_teacher_weighted.jsonl",
+            "--output-path", "outputs/analysis/022_vs_027_policy_diff_pgs016_live_first8000_midlate.json",
+            "--device", "cpu",
+            "--teacher-source", "policy_guided_search",
+            "--teacher-policy-prior-checkpoint", "outputs/legal_action_scorer_016_policy_guided_mix/legal_action_scorer_best.pt",
+            "--teacher-policy-prior-weight", "3000",
+            "--teacher-policy-prior-device", "cpu",
+            "--search-depth", "2",
+            "--search-max-branching", "10",
+            "--search-buy-branching", "6",
+            "--search-reserve-branching", "3",
+            "--search-take-branching", "3",
+            "--player-id-filter", "1",
+            "--phase-filter", "mid", "late",
+            "--max-rows", "8000",
+            "--seed", "82000",
+            "--log-every", "500",
+            "--examples-limit", "30"
+          ],
+          "output_path": "outputs/analysis/022_vs_027_policy_diff_pgs016_live_first8000_midlate.json",
+          "skip_if_outputs_exist": [
+            "outputs/analysis/022_vs_027_policy_diff_pgs016_live_first8000_midlate.json"
+          ],
+          "gates": [
+            {
+              "name": "broad_teacher_alignment_no_drop",
+              "path": "overall.after_teacher_match_rate",
+              "op": ">=",
+              "value": 0.7376
+            },
+            {
+              "name": "buy_visible_alignment_improved",
+              "path": "by_teacher_action_type.BUY_VISIBLE.after_teacher_match_rate",
+              "op": ">=",
+              "value": 0.7569
+            }
+          ]
+        }
+      ],
+      "benchmarks": [
+        {
+          "name": "vs_022_100",
+          "module": "splendor_ai.eval.run_benchmark",
+          "args": [
+            "--checkpoint", "outputs/legal_action_scorer_027_attention_buy_pairwise_pref/legal_action_attention_scorer_best.pt",
+            "--model-kind", "legal_action_attention_scorer",
+            "--baseline-checkpoint", "outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt",
+            "--baseline-model-kind", "legal_action_attention_scorer",
+            "--device", "cpu",
+            "--games", "100",
+            "--seed-start", "87200",
+            "--max-turns", "400",
+            "--repetition-limit", "4",
+            "--no-progress-limit", "60",
+            "--output-path", "outputs/benchmarks/027_vs_022_seed87200_100.json",
+            "--log-every", "25"
+          ],
+          "output_path": "outputs/benchmarks/027_vs_022_seed87200_100.json",
+          "skip_if_outputs_exist": [
+            "outputs/benchmarks/027_vs_022_seed87200_100.json"
+          ],
+          "gates": [
+            {
+              "name": "candidate_not_losing_vs_022",
+              "path": "matchup.candidate_wins",
+              "op": ">=",
+              "value": 50
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

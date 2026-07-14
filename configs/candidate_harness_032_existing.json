@@ -1,0 +1,75 @@
+{
+  "env": {
+    "PYTHONPATH": "src"
+  },
+  "variants": [
+    {
+      "name": "032_existing_group_relative_ppo",
+      "train": {
+        "name": "train_existing_032",
+        "command": ["python", "-c", "print('existing 032 checkpoint')"],
+        "output_path": "outputs/legal_action_scorer_032_group_relative_ppo/legal_action_attention_scorer.pt",
+        "skip_if_outputs_exist": [
+          "outputs/legal_action_scorer_032_group_relative_ppo/legal_action_attention_scorer.pt"
+        ]
+      },
+      "diagnostics": [
+        {
+          "name": "broad_pgs_drift",
+          "command": ["python", "-c", "print('existing broad drift')"],
+          "output_path": "outputs/analysis/policy_drift_022_032_pgs028.json",
+          "skip_if_outputs_exist": [
+            "outputs/analysis/policy_drift_022_032_pgs028.json"
+          ],
+          "gates": [
+            {
+              "name": "broad_agreement_at_least_95pct",
+              "path": "overall.top_action_agreement_rate",
+              "op": ">=",
+              "value": 0.95
+            }
+          ]
+        },
+        {
+          "name": "protected_regression_drift",
+          "command": ["python", "-c", "print('existing protected drift')"],
+          "output_path": "outputs/analysis/policy_drift_022_032_regression_anchors.json",
+          "skip_if_outputs_exist": [
+            "outputs/analysis/policy_drift_022_032_regression_anchors.json"
+          ],
+          "gates": [
+            {
+              "name": "protected_agreement_at_least_98pct",
+              "path": "overall.top_action_agreement_rate",
+              "op": ">=",
+              "value": 0.98
+            }
+          ]
+        },
+        {
+          "name": "conversion_regression",
+          "command": ["python", "-c", "print('existing conversion diagnostic')"],
+          "output_path": "outputs/analysis/conversion_diagnostics_022_032_diff10.json",
+          "skip_if_outputs_exist": [
+            "outputs/analysis/conversion_diagnostics_022_032_diff10.json"
+          ],
+          "gates": [
+            {
+              "name": "final_score_drop_no_worse_than_one",
+              "path": "paired_first_two_labels.end_metric_delta_after_minus_before.final_score_mean",
+              "op": ">=",
+              "value": -1.0
+            },
+            {
+              "name": "bought_points_drop_no_worse_than_one",
+              "path": "paired_first_two_labels.end_metric_delta_after_minus_before.bought_card_points_mean",
+              "op": ">=",
+              "value": -1.0
+            }
+          ]
+        }
+      ],
+      "benchmarks": []
+    }
+  ]
+}

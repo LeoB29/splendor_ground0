@@ -57,6 +57,10 @@ def _player_signature(player) -> tuple[object, ...]:
         tuple((color, player.tokens[color]) for color in ALL_TOKEN_TYPES),
         tuple((color, player.bonuses[color]) for color in TOKEN_COLORS),
         tuple(card.card_id for card in player.reserved_cards),
+        tuple(
+            player.reserved_card_source(index)
+            for index in range(len(player.reserved_cards))
+        ),
         tuple(card.card_id for card in player.purchased_cards),
         tuple(noble.noble_id for noble in player.nobles),
     )

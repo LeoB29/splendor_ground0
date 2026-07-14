@@ -18,7 +18,9 @@ from .dataset import (
     collate_legal_action_replay_samples,
 )
 from .model import (
+    LegalActionAttentionScorerModel,
     LegalActionScorerModel,
+    LegalActionSetScorerModel,
     masked_legal_action_scores,
 )
 from .supervised import (
@@ -32,7 +34,7 @@ from .supervised import (
 
 @dataclass(frozen=True, slots=True)
 class FitLegalActionScorerArtifacts:
-    model: LegalActionScorerModel
+    model: LegalActionScorerModel | LegalActionSetScorerModel | LegalActionAttentionScorerModel
     metrics: tuple[EpochMetrics, ...]
     best_epoch_index: int | None = None
     best_model_state_dict: dict[str, torch.Tensor] | None = None
@@ -139,12 +141,23 @@ def compute_legal_action_supervised_losses(
     search_value_mask: torch.Tensor | None = None,
     search_distill_loss_weight: float = 0.0,
     search_distill_temperature: float = 1_000.0,
+    root_visit_target: torch.Tensor | None = None,
+    root_visit_mask: torch.Tensor | None = None,
+    root_visit_loss_weight: float = 0.0,
     sample_weight: torch.Tensor | None = None,
+    policy_sample_weight: torch.Tensor | None = None,
+    distill_sample_weight: torch.Tensor | None = None,
+    preference_competitor_row: torch.Tensor | None = None,
+    preference_mask: torch.Tensor | None = None,
+    preference_sample_weight: torch.Tensor | None = None,
+    preference_loss_weight: float = 0.0,
+    preference_margin: float = 1.0,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     masked_scores = masked_legal_action_scores(action_scores, legal_action_mask)
     policy_loss = _weighted_mean(
         nn.functional.cross_entropy(masked_scores, target_action_row, reduction="none"),
-        sample_weight,
+        policy_sample_weight if policy_sample_weight is not None else sample_weight,
+        allow_zero_weight=True,
     )
     value_loss = _weighted_mean(
         nn.functional.mse_loss(value_pred, value_target, reduction="none"),
@@ -156,9 +169,31 @@ def compute_legal_action_supervised_losses(
         search_value_target=search_value_target,
         search_value_mask=search_value_mask,
         temperature=search_distill_temperature,
-        sample_weight=sample_weight,
+        sample_weight=distill_sample_weight if distill_sample_weight is not None else sample_weight,
     )
-    total_loss = policy_loss + value_loss_weight * value_loss + search_distill_loss_weight * distill_loss
+    root_visit_loss = compute_root_visit_distillation_loss(
+        action_scores=action_scores,
+        legal_action_mask=legal_action_mask,
+        root_visit_target=root_visit_target,
+        root_visit_mask=root_visit_mask,
+        sample_weight=distill_sample_weight if distill_sample_weight is not None else sample_weight,
+    )
+    preference_loss = compute_pairwise_preference_loss(
+        action_scores=action_scores,
+        legal_action_mask=legal_action_mask,
+        target_action_row=target_action_row,
+        preference_competitor_row=preference_competitor_row,
+        preference_mask=preference_mask,
+        margin=preference_margin,
+        sample_weight=preference_sample_weight,
+    )
+    total_loss = (
+        policy_loss
+        + value_loss_weight * value_loss
+        + search_distill_loss_weight * distill_loss
+        + root_visit_loss_weight * root_visit_loss
+        + preference_loss_weight * preference_loss
+    )
     return policy_loss, value_loss, total_loss
 
 
@@ -192,10 +227,75 @@ def compute_search_score_distillation_loss(
     target_probs = target_probs.masked_fill(~row_mask, 0.0)
     per_sample_loss = -(target_probs.detach() * model_log_probs).sum(dim=1)
     valid_weights = None if sample_weight is None else sample_weight[valid_rows]
-    return _weighted_mean(per_sample_loss, valid_weights)
+    return _weighted_mean(per_sample_loss, valid_weights, allow_zero_weight=True)
 
 
-def _weighted_mean(loss: torch.Tensor, sample_weight: torch.Tensor | None) -> torch.Tensor:
+def compute_root_visit_distillation_loss(
+    action_scores: torch.Tensor,
+    legal_action_mask: torch.Tensor,
+    root_visit_target: torch.Tensor | None,
+    root_visit_mask: torch.Tensor | None,
+    sample_weight: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Cross-entropy against stored PUCT root-visit probabilities."""
+
+    if root_visit_target is None or root_visit_mask is None:
+        return action_scores.sum() * 0.0
+    if root_visit_target.shape != action_scores.shape:
+        raise ValueError("root_visit_target must match action_scores shape.")
+    valid_rows = root_visit_mask.to(device=action_scores.device, dtype=torch.bool)
+    valid_rows &= (root_visit_target.sum(dim=1) > 0.0).to(action_scores.device)
+    if not bool(valid_rows.any().item()):
+        return action_scores.sum() * 0.0
+    row_mask = legal_action_mask[valid_rows]
+    targets = root_visit_target[valid_rows].to(device=action_scores.device)
+    targets = targets.masked_fill(~row_mask, 0.0)
+    target_totals = targets.sum(dim=1, keepdim=True)
+    targets = targets / target_totals.clamp_min(torch.finfo(targets.dtype).eps)
+    logits = action_scores[valid_rows].masked_fill(~row_mask, -torch.inf)
+    log_probs = nn.functional.log_softmax(logits, dim=1).masked_fill(~row_mask, 0.0)
+    per_sample_loss = -(targets.detach() * log_probs).sum(dim=1)
+    valid_weights = None if sample_weight is None else sample_weight[valid_rows]
+    return _weighted_mean(per_sample_loss, valid_weights, allow_zero_weight=True)
+
+
+def compute_pairwise_preference_loss(
+    action_scores: torch.Tensor,
+    legal_action_mask: torch.Tensor,
+    target_action_row: torch.Tensor,
+    preference_competitor_row: torch.Tensor | None,
+    preference_mask: torch.Tensor | None,
+    margin: float = 1.0,
+    sample_weight: torch.Tensor | None = None,
+) -> torch.Tensor:
+    if preference_competitor_row is None or preference_mask is None:
+        return action_scores.sum() * 0.0
+    if margin < 0.0:
+        raise ValueError("preference margin must be non-negative.")
+    row_indices = torch.arange(action_scores.shape[0], device=action_scores.device)
+    target_rows = target_action_row.to(device=action_scores.device)
+    competitor_rows = preference_competitor_row.to(device=action_scores.device)
+    row_mask = preference_mask.to(device=action_scores.device, dtype=torch.bool)
+    valid_rows = (
+        row_mask
+        & legal_action_mask[row_indices, target_rows]
+        & legal_action_mask[row_indices, competitor_rows]
+        & (target_rows != competitor_rows)
+    )
+    if not bool(valid_rows.any().item()):
+        return action_scores.sum() * 0.0
+    teacher_scores = action_scores[valid_rows, target_rows[valid_rows]]
+    competitor_scores = action_scores[valid_rows, competitor_rows[valid_rows]]
+    per_sample_loss = nn.functional.softplus(competitor_scores - teacher_scores + margin)
+    valid_weights = None if sample_weight is None else sample_weight.to(action_scores.device)[valid_rows]
+    return _weighted_mean(per_sample_loss, valid_weights, allow_zero_weight=True)
+
+
+def _weighted_mean(
+    loss: torch.Tensor,
+    sample_weight: torch.Tensor | None,
+    allow_zero_weight: bool = False,
+) -> torch.Tensor:
     if sample_weight is None:
         return loss.mean()
     weights = sample_weight.to(device=loss.device, dtype=loss.dtype)
@@ -205,12 +305,14 @@ def _weighted_mean(loss: torch.Tensor, sample_weight: torch.Tensor | None) -> to
         )
     weight_sum = weights.sum()
     if float(weight_sum.detach().cpu()) <= 0.0:
+        if allow_zero_weight:
+            return loss.sum() * 0.0
         raise ValueError("sample_weight sum must be positive.")
     return (loss * weights).sum() / weight_sum
 
 
 def train_legal_action_scorer_epoch(
-    model: LegalActionScorerModel,
+    model: LegalActionScorerModel | LegalActionSetScorerModel | LegalActionAttentionScorerModel,
     dataloader: DataLoader,
     optimizer: torch.optim.Optimizer,
     device: str = "cpu",
@@ -221,6 +323,9 @@ def train_legal_action_scorer_epoch(
     progress_callback: Callable[[BatchProgress], None] | None = None,
     search_distill_loss_weight: float = 0.0,
     search_distill_temperature: float = 1_000.0,
+    root_visit_loss_weight: float = 0.0,
+    preference_loss_weight: float = 0.0,
+    preference_margin: float = 1.0,
 ) -> TrainMetrics:
     model.train()
     total_policy = 0.0
@@ -240,10 +345,21 @@ def train_legal_action_scorer_epoch(
         value_target = batch["value_target"].to(device)
         search_value_target = batch["search_value_target"].to(device)
         search_value_mask = batch["search_value_mask"].to(device)
+        root_visit_target = batch["root_visit_target"].to(device)
+        root_visit_mask = batch["root_visit_mask"].to(device)
         sample_weight = batch["sample_weight"].to(device)
+        policy_sample_weight = batch["policy_sample_weight"].to(device)
+        distill_sample_weight = batch["distill_sample_weight"].to(device)
+        preference_competitor_row = batch["preference_competitor_row"].to(device)
+        preference_mask = batch["preference_mask"].to(device)
+        preference_sample_weight = batch["preference_sample_weight"].to(device)
 
         optimizer.zero_grad(set_to_none=True)
-        action_scores, value_pred = model(observation, legal_action_features)
+        action_scores, value_pred = model(
+            observation,
+            legal_action_features,
+            legal_action_mask,
+        )
         policy_loss, value_loss, loss = compute_legal_action_supervised_losses(
             action_scores=action_scores,
             value_pred=value_pred,
@@ -255,7 +371,17 @@ def train_legal_action_scorer_epoch(
             search_value_mask=search_value_mask,
             search_distill_loss_weight=search_distill_loss_weight,
             search_distill_temperature=search_distill_temperature,
+            root_visit_target=root_visit_target,
+            root_visit_mask=root_visit_mask,
+            root_visit_loss_weight=root_visit_loss_weight,
             sample_weight=sample_weight,
+            policy_sample_weight=policy_sample_weight,
+            distill_sample_weight=distill_sample_weight,
+            preference_competitor_row=preference_competitor_row,
+            preference_mask=preference_mask,
+            preference_sample_weight=preference_sample_weight,
+            preference_loss_weight=preference_loss_weight,
+            preference_margin=preference_margin,
         )
         predictions = torch.argmax(
             masked_legal_action_scores(action_scores, legal_action_mask),
@@ -305,12 +431,15 @@ def train_legal_action_scorer_epoch(
 
 
 def evaluate_legal_action_scorer_epoch(
-    model: LegalActionScorerModel,
+    model: LegalActionScorerModel | LegalActionSetScorerModel | LegalActionAttentionScorerModel,
     dataloader: DataLoader,
     device: str = "cpu",
     value_loss_weight: float = 1.0,
     search_distill_loss_weight: float = 0.0,
     search_distill_temperature: float = 1_000.0,
+    root_visit_loss_weight: float = 0.0,
+    preference_loss_weight: float = 0.0,
+    preference_margin: float = 1.0,
 ) -> TrainMetrics:
     model.eval()
     total_policy = 0.0
@@ -329,9 +458,20 @@ def evaluate_legal_action_scorer_epoch(
             value_target = batch["value_target"].to(device)
             search_value_target = batch["search_value_target"].to(device)
             search_value_mask = batch["search_value_mask"].to(device)
+            root_visit_target = batch["root_visit_target"].to(device)
+            root_visit_mask = batch["root_visit_mask"].to(device)
             sample_weight = batch["sample_weight"].to(device)
+            policy_sample_weight = batch["policy_sample_weight"].to(device)
+            distill_sample_weight = batch["distill_sample_weight"].to(device)
+            preference_competitor_row = batch["preference_competitor_row"].to(device)
+            preference_mask = batch["preference_mask"].to(device)
+            preference_sample_weight = batch["preference_sample_weight"].to(device)
 
-            action_scores, value_pred = model(observation, legal_action_features)
+            action_scores, value_pred = model(
+                observation,
+                legal_action_features,
+                legal_action_mask,
+            )
             policy_loss, value_loss, loss = compute_legal_action_supervised_losses(
                 action_scores=action_scores,
                 value_pred=value_pred,
@@ -343,7 +483,17 @@ def evaluate_legal_action_scorer_epoch(
                 search_value_mask=search_value_mask,
                 search_distill_loss_weight=search_distill_loss_weight,
                 search_distill_temperature=search_distill_temperature,
+                root_visit_target=root_visit_target,
+                root_visit_mask=root_visit_mask,
+                root_visit_loss_weight=root_visit_loss_weight,
                 sample_weight=sample_weight,
+                policy_sample_weight=policy_sample_weight,
+                distill_sample_weight=distill_sample_weight,
+                preference_competitor_row=preference_competitor_row,
+                preference_mask=preference_mask,
+                preference_sample_weight=preference_sample_weight,
+                preference_loss_weight=preference_loss_weight,
+                preference_margin=preference_margin,
             )
             predictions = torch.argmax(
                 masked_legal_action_scores(action_scores, legal_action_mask),
@@ -374,11 +524,14 @@ def fit_legal_action_scorer_dataloaders_with_artifacts(
     train_dataloader: DataLoader,
     validation_dataloader: DataLoader | None = None,
     config: SupervisedTrainConfig | None = None,
-    model: LegalActionScorerModel | None = None,
+    model: LegalActionScorerModel | LegalActionSetScorerModel | LegalActionAttentionScorerModel | None = None,
     log_every_batches: int = 0,
     batch_progress_callback: Callable[[BatchProgress], None] | None = None,
     search_distill_loss_weight: float = 0.0,
     search_distill_temperature: float = 1_000.0,
+    root_visit_loss_weight: float = 0.0,
+    preference_loss_weight: float = 0.0,
+    preference_margin: float = 1.0,
 ) -> FitLegalActionScorerArtifacts:
     cfg = config or SupervisedTrainConfig()
     model_instance = model or LegalActionScorerModel()
@@ -406,6 +559,9 @@ def fit_legal_action_scorer_dataloaders_with_artifacts(
             progress_callback=batch_progress_callback,
             search_distill_loss_weight=search_distill_loss_weight,
             search_distill_temperature=search_distill_temperature,
+            root_visit_loss_weight=root_visit_loss_weight,
+            preference_loss_weight=preference_loss_weight,
+            preference_margin=preference_margin,
         )
         validation_metrics = None
         if validation_dataloader is not None:
@@ -416,6 +572,9 @@ def fit_legal_action_scorer_dataloaders_with_artifacts(
                 value_loss_weight=cfg.value_loss_weight,
                 search_distill_loss_weight=search_distill_loss_weight,
                 search_distill_temperature=search_distill_temperature,
+                root_visit_loss_weight=root_visit_loss_weight,
+                preference_loss_weight=preference_loss_weight,
+                preference_margin=preference_margin,
             )
             if best_validation_loss is None or validation_metrics.total_loss < best_validation_loss:
                 best_validation_loss = validation_metrics.total_loss
@@ -434,9 +593,12 @@ def fit_legal_action_scorer_dataloaders_with_artifacts(
 def fit_legal_action_scorer(
     replay_path: str | Path | tuple[str | Path, ...] | list[str | Path],
     config: SupervisedTrainConfig | None = None,
-    model: LegalActionScorerModel | None = None,
+    model: LegalActionScorerModel | LegalActionSetScorerModel | LegalActionAttentionScorerModel | None = None,
     validation_split_unit: str = "row",
-) -> tuple[LegalActionScorerModel, tuple[EpochMetrics, ...]]:
+) -> tuple[
+    LegalActionScorerModel | LegalActionSetScorerModel | LegalActionAttentionScorerModel,
+    tuple[EpochMetrics, ...],
+]:
     cfg = config or SupervisedTrainConfig()
     model_instance = model or LegalActionScorerModel()
     dataset = LegalActionReplayDataset(
@@ -474,5 +636,7 @@ def fit_legal_action_scorer(
     return artifacts.model, artifacts.metrics
 
 
-def _clone_model_state_dict(model: LegalActionScorerModel) -> dict[str, torch.Tensor]:
+def _clone_model_state_dict(
+    model: LegalActionScorerModel | LegalActionSetScorerModel | LegalActionAttentionScorerModel,
+) -> dict[str, torch.Tensor]:
     return {name: value.detach().cpu().clone() for name, value in model.state_dict().items()}
