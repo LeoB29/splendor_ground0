@@ -44,8 +44,17 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   permutation-equivalence and legal-hidden-reserve tests. Checkpoint inference
   recognizes `canonical_entity_action_scorer`; it is randomly initialized and
   no historical checkpoint or historical 295-vector is used to initialize it.
-  No entity model is trained or promoted yet: generate fresh legal data and
-  establish representation/invariance gates before any strength comparison.
+  The first clean CPU pilot is `outputs/canonical_entity_pilot_003`: eight
+  fresh Greedy-vs-depth1-information-legal-ShallowSearch games, 518 snapshot
+  positions, zero stalls/timeouts, and no learned checkpoint in collection.
+  A randomly initialized 32-hidden model trained for three epochs achieved
+  held-out policy loss 3.773 versus a uniform 3.846 (60 positions from one
+  held-out game). This passes a representation/learning viability gate only;
+  it is far too small for promotion or strength comparison. The greedy-only
+  pilot `002` was rejected (7/20 timeouts), and depth2/two-determinization
+  search was rejected as a CPU corpus configuration after exceeding 15 minutes
+  for 30 games without completing. Scale the verified depth1/one-
+  determinization corpus to a game-held-out block before considering a GPU.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
