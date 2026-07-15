@@ -15,7 +15,12 @@ from splendor_ai.training.entity_actor_critic import (
     ActorCriticConfig,
     full_support_probabilities,
     load_entity_actor,
+    normalized_score_margin,
     train_actor_critic_generation,
+)
+from splendor_ai.training.entity_return_validation import (
+    GameReturnRecord,
+    summarize_return_targets,
 )
 from splendor_ai.training.model import (
     CanonicalEntityActionScorerConfig,
@@ -87,6 +92,34 @@ def test_frontier_league_profile_is_selectable() -> None:
     )
 
     assert args.league_profile == "frontier"
+
+
+def test_score_margin_summary_finds_dense_variation_in_all_loss_strata() -> None:
+    records = [
+        GameReturnRecord(index, "strong", 0, -1.0, margin, normalized_score_margin(margin))
+        for index, margin in enumerate((-2.0, -4.0, -6.0))
+    ]
+    records.extend(
+        GameReturnRecord(index + 3, "strong", 1, -1.0, margin, normalized_score_margin(margin))
+        for index, margin in enumerate((-1.0, -3.0, -5.0))
+    )
+    records.extend(
+        [
+            GameReturnRecord(6, "parent", 0, 1.0, 3.0, normalized_score_margin(3.0)),
+            GameReturnRecord(7, "parent", 0, -1.0, -1.0, normalized_score_margin(-1.0)),
+        ]
+    )
+
+    summary = summarize_return_targets(records)
+
+    assert normalized_score_margin(10.0) == 0.5
+    assert normalized_score_margin(30.0) == 1.0
+    assert normalized_score_margin(-30.0) == -1.0
+    assert summary.outcome_sign_alignment == 1.0
+    assert summary.normalized_score_margin_unique_count > summary.outcome_unique_count
+    assert summary.all_loss_strata == 2
+    assert summary.all_loss_strata_with_margin_variation == 2
+    assert summary.saturation_fraction == 0.0
 
 
 def test_actor_checkpoint_compatibility_and_smoke_update(tmp_path) -> None:

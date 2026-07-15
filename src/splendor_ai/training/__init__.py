@@ -73,7 +73,14 @@ from .entity_actor_critic import (
     collect_league_rollouts,
     full_support_probabilities,
     load_entity_actor,
+    normalized_score_margin,
     train_actor_critic_generation,
+)
+from .entity_return_validation import (
+    GameReturnRecord,
+    ReturnTargetSummary,
+    game_return_records,
+    summarize_return_targets,
 )
 from .value_supervised import (
     FitValueArtifacts,
@@ -128,6 +135,8 @@ __all__ = [
     "ActorStep",
     "RolloutSummary",
     "UpdateSummary",
+    "GameReturnRecord",
+    "ReturnTargetSummary",
     "LegalActionReplaySample",
     "ReplaySample",
     "ReplaySourceSummary",
@@ -207,6 +216,9 @@ __all__ = [
     "train_legal_action_scorer_epoch",
     "run_entity_action_epoch",
     "load_entity_actor",
+    "normalized_score_margin",
+    "game_return_records",
+    "summarize_return_targets",
     "train_actor_critic_generation",
     "train_supervised_epoch",
     "train_value_epoch",

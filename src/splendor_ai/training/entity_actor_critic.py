@@ -40,6 +40,7 @@ class ActorCriticConfig:
     no_progress_limit: int = 60
     behavior_temperature: float = 1.0
     uniform_mix: float = 0.05
+    score_margin_scale: float = 20.0
     gamma: float = 1.0
     gae_lambda: float = 0.95
     actor_epochs: int = 1
@@ -67,7 +68,10 @@ class ActorStep:
     behavior_entropy: float
     actor_seat: int
     game_index: int
+    opponent_label: str
     final_return: float = 0.0
+    final_score_margin: float = 0.0
+    score_margin_return: float = 0.0
     advantage: float = 0.0
     value_target: float = 0.0
 
@@ -157,6 +161,12 @@ def full_support_probabilities(
     legal_count = mask.sum(dim=1, keepdim=True).clamp_min(1).to(probabilities.dtype)
     uniform = mask.to(probabilities.dtype) / legal_count
     return (1.0 - uniform_mix) * probabilities + uniform_mix * uniform
+
+
+def normalized_score_margin(score_margin: float, scale: float = 20.0) -> float:
+    if scale <= 0.0:
+        raise ValueError("scale must be positive.")
+    return max(-1.0, min(1.0, score_margin / scale))
 
 
 def collect_league_rollouts(
@@ -250,6 +260,7 @@ def collect_league_rollouts(
                         behavior_entropy=entropy,
                         actor_seat=actor_seat,
                         game_index=game_index,
+                        opponent_label=label,
                     )
                 )
             else:
@@ -269,8 +280,15 @@ def collect_league_rollouts(
             state = next_state
         winner = state.winner if state.terminal else _score_winner(state)
         outcome = 0.0 if winner is None else (1.0 if winner == actor_seat else -1.0)
+        score_margin = float(
+            state.players[actor_seat].score - state.players[1 - actor_seat].score
+        )
         for step in game_steps:
             step.final_return = outcome
+            step.final_score_margin = score_margin
+            step.score_margin_return = normalized_score_margin(
+                score_margin, config.score_margin_scale
+            )
         steps.extend(game_steps)
         actor_wins += winner == actor_seat
         opponent_wins += winner is not None and winner != actor_seat

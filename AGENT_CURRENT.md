@@ -137,6 +137,16 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   one. Reject `010` and skip confirmation/strong-opponent games. Curriculum
   selection removes outcome degeneracy but does not solve temporal credit;
   validate a denser return signal before another policy update.
+- Final score margin is now validated as that denser signal without performing
+  any actor update. A 120-game calibration block at seeds 140000-140119 showed
+  that raw margin preserves direction and adds variation in every all-loss
+  cell, but `clip(margin / 15)` saturated 20.8% of games and was rejected. A
+  fresh 120-game confirmation at seeds 150000-150119 using
+  `clip(margin / 20, -1, 1)` passed every preregistered gate: 31 distinct target
+  values versus two outcomes, outcome correlation 0.870, sign alignment 98.3%,
+  zero saturation, and useful margin variation in all six all-loss cells. The
+  `/20` target is eligible for a future critic/actor experiment; no candidate
+  checkpoint was created and `004` remains frozen.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
@@ -1970,7 +1980,7 @@ Audit and implementation:
   arguments. Its `all_gates_passed` result can represent a real progression
   threshold rather than the historical 40% no-regression smoke floor.
 - Tests assert exact two-seat coverage for multiple opponents. The current full
-  suite is 279 passing after the frontier-profile coverage below.
+  suite is 280 passing after frontier and return-validation coverage below.
 
 `outputs/canonical_entity_actor_009_balanced120` used rollout seeds
 120000-120119, the fixed `007/008` KL-target optimizer settings, and exactly 10
@@ -2060,6 +2070,59 @@ Artifact:
 
 - `outputs/canonical_entity_actor_010_frontier120/actor_critic_metrics.json`
 
+### Final Score-Margin Return Validation `011`-`012`
+
+Implementation:
+
+- Actor rollouts now retain opponent label, raw final score margin, and a
+  bounded normalized score-margin return in addition to terminal outcome.
+- `entity_return_validation.py` extracts one record per game and reports global
+  and opponent-seat-stratified target density, standard deviation, outcome
+  alignment, and saturation.
+- `run_entity_return_validation.py` runs the full balanced league without an
+  optimizer or actor update. It gates recording completeness, rollout
+  cleanliness, exact opponent-seat balance, sign alignment, density,
+  saturation, and variation in every all-loss cell.
+
+Calibration `011`:
+
+- Artifact: `outputs/diagnostics/entity_score_margin_validation_011.json`.
+- 120 fresh games at seeds 140000-140119, exactly 10 per opponent-seat cell,
+  zero stalls/timeouts.
+- Raw score margin had 30 distinct values, correlated 0.883 with outcome,
+  preserved outcome direction in 98.3% of games, and added meaningful
+  variation in all six all-loss cells.
+- The initially proposed `clip(raw / 15, -1, 1)` saturated 20.8% of games,
+  exceeding the fixed 10% ceiling. Reject the `/15` scale while retaining the
+  raw-margin hypothesis.
+
+Independent scale confirmation `012`:
+
+- Artifact:
+  `outputs/diagnostics/entity_score_margin_validation_012_scale20_confirm.json`.
+- 120 disjoint games at seeds 150000-150119, again exactly 10 per cell with zero
+  stalls/timeouts. Frozen `004` was not updated.
+- `clip(raw / 20, -1, 1)` produced 31 distinct values versus two binary outcome
+  values, correlation 0.870, 98.3% sign alignment, and zero saturation.
+- All six all-loss cells passed the preregistered density requirement. Each had
+  4-7 unique margins and normalized standard deviation 0.056-0.138, above the
+  0.03 floor.
+- Two non-draw games ended with tied scores and were decided by Splendor's card-
+  count tiebreak, explaining the 98.3% rather than 100% sign alignment; this
+  remains above the fixed 95% floor.
+
+Decision:
+
+- Validate normalized final score margin with scale 20 as a denser return
+  candidate. This decision generalizes across two disjoint balanced 120-game
+  blocks and specifically resolves binary outcome degeneracy in all-loss cells.
+- This is return validation only. No actor or critic candidate was trained, no
+  game-strength claim follows, and frozen `004` remains the parent.
+- The next eligible learning experiment may substitute the validated score-
+  margin return for binary terminal outcome while keeping the corrected
+  opponent-seat scheduler, KL/movement gates, and strict parent progression
+  thresholds fixed. Do not tune the scale against downstream game results.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -2096,7 +2159,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 279 passed after legal hidden-information search, PUCT batching, root-visit
+- 280 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -2108,8 +2171,8 @@ Current full test status:
   generalization auditing with resumable matched terminal continuations, and
   reserve counterfactual corpus compilation, constrained training, uptake
   gating, fixed objective/capacity diagnosis, canonical entity modeling, the
-  public-actor/privileged-critic smoke generation, opponent-seat balancing, and
-  frontier-curriculum selection.
+  public-actor/privileged-critic smoke generation, opponent-seat balancing,
+  frontier-curriculum selection, and score-margin return validation.
 
 ## Files To Read Next
 
@@ -2146,3 +2209,5 @@ Current full test status:
 - `src/splendor_ai/training/run_reserve_generalization_audit.py`
 - `src/splendor_ai/training/entity_actor_critic.py`
 - `src/splendor_ai/training/run_entity_actor_critic.py`
+- `src/splendor_ai/training/entity_return_validation.py`
+- `src/splendor_ai/training/run_entity_return_validation.py`
