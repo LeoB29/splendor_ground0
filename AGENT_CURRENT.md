@@ -27,6 +27,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Current clean actor-critic smoke candidate, not promoted: `outputs/canonical_entity_actor_005_smoke/canonical_entity_actor.pt`
 - Rejected clean actor-critic no-movement generation: `outputs/canonical_entity_actor_006_seed90000/canonical_entity_actor.pt`
 - Current clean actor-critic movement candidate, not promoted: `outputs/canonical_entity_actor_007_kl_target/canonical_entity_actor.pt`
+- Rejected independent KL-target replication: `outputs/canonical_entity_actor_008_kl_target_seed110000/canonical_entity_actor.pt`
 
 ## Current Conclusions
 
@@ -103,6 +104,16 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   retain `007` as proof that bounded effective movement is possible, not as a
   promoted parent. Do not launch expensive broad/search confirmation until the
   same recipe produces a repeatable gain from another independent rollout seed.
+- The exact independent replication `entity_actor_008_kl_target_seed110000`
+  fails that requirement. It used the same 36-game league and hyperparameters
+  on disjoint seeds, passed every generic safety/movement gate, but scored only
+  24-34-2 against `004` in its 60-game paired progression block. It therefore
+  did not receive a 100-game or broad/search gate. Despite similar final KL
+  (0.00228) and probability TV (0.0252), it required five epochs instead of one,
+  moved parameters almost three times farther, flipped 8.81% of rollout-state
+  argmaxes, and had weaker advantage/log-probability correlation. Reject `008`:
+  the 36-game credit sample is not stable enough for this recipe, and target KL
+  alone does not make independently trained policy directions reliable.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
@@ -1883,6 +1894,44 @@ Artifacts:
 
 - `outputs/canonical_entity_actor_007_kl_target/actor_critic_metrics.json`
 - `outputs/benchmarks/entity_actor007_vs004_seed102000_g100.json`
+
+### Independent KL-Target Replication `008`
+
+`outputs/canonical_entity_actor_008_kl_target_seed110000` repeated the exact
+`007` training recipe from frozen `004` on rollout seeds 110000-110035. Before
+the run, progression required at least 36/60 parent score points, bounded
+offline diagnostics, and at most one cutoff. A fresh 100-game confirmation was
+eligible only after that gate, and broad/search evaluation required at least
+55/100 in confirmation.
+
+Results:
+
+- 36 clean league games and 1,169 actor steps; zero rollout stalls/timeouts;
+- final KL 0.002282, max ratio 1.208, entropy 0.816, and probability TV 0.0252;
+- KL by epoch: 0.000107, 0.000200, 0.000951, 0.001476, 0.002282; the target was
+  reached after five epochs rather than `007`'s single epoch;
+- parameter delta L2 0.07163 and relative delta 0.001894, nearly three times
+  `007`'s relative movement despite similar final behavior-policy KL;
+- centered-logit movement 0.06323 and 8.81% argmax changes, versus 0.04244 and
+  4.93% for `007`;
+- advantage/log-probability correlation +0.167, weaker than `007`'s +0.254;
+- paired parent progression, 60 games at seed 111000: 24-34-2, no cutoffs.
+
+Decision:
+
+- Reject `008` and stop at the preregistered progression gate. The 100-game
+  confirmation and broad/search gates were correctly skipped.
+- The KL/movement mechanism works mechanically but the learned direction does
+  not replicate across 36-game credit samples. Do not repeat another 36-game
+  seed or tune learning rate/target KL against these two outcomes.
+- The next learner experiment should reduce credit variance before updating:
+  use a materially larger balanced rollout block and/or opponent/seat-stratified
+  advantage normalization, then require both held-out movement bounds and the
+  same parent progression gate. Frozen `004` remains the parent.
+
+Artifact:
+
+- `outputs/canonical_entity_actor_008_kl_target_seed110000/actor_critic_metrics.json`
 
 ### Active Overnight Reserve Corpus
 
