@@ -54,11 +54,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--parent-gate-games", type=int, default=20)
+    parser.add_argument("--minimum-parent-score-share", type=float, default=0.4)
+    parser.add_argument("--maximum-parent-timeouts", type=int, default=1_000_000)
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
+    if not 0.0 <= args.minimum_parent_score_share <= 1.0:
+        raise ValueError("minimum-parent-score-share must be in [0, 1].")
+    if args.maximum_parent_timeouts < 0:
+        raise ValueError("maximum-parent-timeouts must be non-negative.")
     parent = Path(args.parent_checkpoint)
     checkpoint016 = Path(args.checkpoint_016)
     checkpoint035 = Path(args.checkpoint_035)
@@ -155,6 +161,12 @@ def main() -> None:
             and artifacts.update.mean_centered_logit_absolute_delta
             >= args.minimum_centered_logit_delta
         ),
+        "opponent_seat_balance": (
+            artifacts.rollout.minimum_stratum_games > 0
+            and artifacts.rollout.maximum_stratum_games
+            - artifacts.rollout.minimum_stratum_games
+            <= 1
+        ),
         "clean_rollouts": artifacts.rollout.timed_out_games == 0 and artifacts.rollout.stalled_games == 0,
     }
     offline_gates_passed = all(gates.values())
@@ -175,11 +187,16 @@ def main() -> None:
         matchup = parent_gate["matchup"]
         candidate_wins = int(matchup["candidate_wins"])
         draws = int(matchup["draws"])
+        candidate_score_share = (candidate_wins + 0.5 * draws) / args.parent_gate_games
         gates["no_parent_regression_smoke"] = (
-            candidate_wins + 0.5 * draws >= 0.4 * args.parent_gate_games
+            candidate_score_share >= args.minimum_parent_score_share
+        )
+        gates["parent_gate_cutoffs_bounded"] = (
+            int(matchup["timed_out_games"]) <= args.maximum_parent_timeouts
         )
     else:
         gates["no_parent_regression_smoke"] = False
+        gates["parent_gate_cutoffs_bounded"] = False
     payload = {
         "parent_checkpoint": str(parent),
         "actor_checkpoint": str(actor_path),
@@ -188,6 +205,13 @@ def main() -> None:
         "rollout": asdict(artifacts.rollout),
         "update": asdict(artifacts.update),
         "parent_gate": parent_gate,
+        "gate_config": {
+            "minimum_effective_kl": args.minimum_effective_kl,
+            "minimum_centered_logit_delta": args.minimum_centered_logit_delta,
+            "maximum_kl": args.maximum_kl,
+            "minimum_parent_score_share": args.minimum_parent_score_share,
+            "maximum_parent_timeouts": args.maximum_parent_timeouts,
+        },
         "offline_gates_passed": offline_gates_passed,
         "parent_gate_ran": run_parent_gate,
         "gates": gates,

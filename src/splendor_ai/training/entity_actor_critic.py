@@ -86,6 +86,11 @@ class RolloutSummary:
     minimum_behavior_probability: float
     mean_normalized_entropy: float
     opponents: dict[str, int]
+    opponent_seats: dict[str, dict[str, int]]
+    opponent_results: dict[str, dict[str, int]]
+    actor_seat_results: dict[str, dict[str, int]]
+    minimum_stratum_games: int
+    maximum_stratum_games: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,18 +166,35 @@ def collect_league_rollouts(
 ) -> tuple[list[ActorStep], RolloutSummary]:
     if not opponent_factories:
         raise ValueError("At least one league opponent is required.")
+    opponent_labels = [label for label, _ in opponent_factories]
+    if len(set(opponent_labels)) != len(opponent_labels):
+        raise ValueError("League opponent labels must be unique.")
     steps: list[ActorStep] = []
     actor_wins = opponent_wins = draws = timed_out = stalled = non_greedy = 0
-    opponent_counts: dict[str, int] = {}
+    opponent_counts = {label: 0 for label in opponent_labels}
+    opponent_seats = {
+        label: {"seat0": 0, "seat1": 0} for label in opponent_labels
+    }
+    opponent_results = {
+        label: {"actor_wins": 0, "opponent_wins": 0, "draws": 0}
+        for label in opponent_labels
+    }
+    actor_seat_results = {
+        "seat0": {"actor_wins": 0, "opponent_wins": 0, "draws": 0},
+        "seat1": {"actor_wins": 0, "opponent_wins": 0, "draws": 0},
+    }
     action_types: set[str] = set()
     minimum_probability = 1.0
     entropy_values: list[float] = []
     actor.eval()
     for game_index in range(config.rollout_games):
-        label, factory = opponent_factories[game_index % len(opponent_factories)]
-        opponent_counts[label] = opponent_counts.get(label, 0) + 1
+        schedule_index = game_index % (2 * len(opponent_factories))
+        opponent_index = schedule_index // 2
+        actor_seat = schedule_index % 2
+        label, factory = opponent_factories[opponent_index]
+        opponent_counts[label] += 1
+        opponent_seats[label][f"seat{actor_seat}"] += 1
         opponent = factory()
-        actor_seat = game_index % 2
         env = SplendorEnv(seed=config.seed_start + game_index)
         state = env.initial_state()
         game_steps: list[ActorStep] = []
@@ -253,8 +275,21 @@ def collect_league_rollouts(
         actor_wins += winner == actor_seat
         opponent_wins += winner is not None and winner != actor_seat
         draws += winner is None
+        if winner is None:
+            result_key = "draws"
+        elif winner == actor_seat:
+            result_key = "actor_wins"
+        else:
+            result_key = "opponent_wins"
+        opponent_results[label][result_key] += 1
+        actor_seat_results[f"seat{actor_seat}"][result_key] += 1
         timed_out += game_timed_out
         stalled += game_stalled
+    stratum_counts = [
+        seat_count
+        for seat_counts in opponent_seats.values()
+        for seat_count in seat_counts.values()
+    ]
     return steps, RolloutSummary(
         games=config.rollout_games,
         steps=len(steps),
@@ -268,6 +303,11 @@ def collect_league_rollouts(
         minimum_behavior_probability=minimum_probability,
         mean_normalized_entropy=sum(entropy_values) / len(entropy_values),
         opponents=opponent_counts,
+        opponent_seats=opponent_seats,
+        opponent_results=opponent_results,
+        actor_seat_results=actor_seat_results,
+        minimum_stratum_games=min(stratum_counts),
+        maximum_stratum_games=max(stratum_counts),
     )
 
 

@@ -28,6 +28,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Rejected clean actor-critic no-movement generation: `outputs/canonical_entity_actor_006_seed90000/canonical_entity_actor.pt`
 - Current clean actor-critic movement candidate, not promoted: `outputs/canonical_entity_actor_007_kl_target/canonical_entity_actor.pt`
 - Rejected independent KL-target replication: `outputs/canonical_entity_actor_008_kl_target_seed110000/canonical_entity_actor.pt`
+- Rejected balanced 120-game actor-critic candidate: `outputs/canonical_entity_actor_009_balanced120/canonical_entity_actor.pt`
 
 ## Current Conclusions
 
@@ -114,6 +115,17 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   argmaxes, and had weaker advantage/log-probability correlation. Reject `008`:
   the 36-game credit sample is not stable enough for this recipe, and target KL
   alone does not make independently trained policy directions reliable.
+- The rollout scheduler used by `005`-`008` also aliased opponent and actor seat:
+  with six opponents and alternating seats, every opponent always occupied one
+  fixed actor seat. This is repaired and tested. `009` used 120 games with
+  exactly 10 games in every opponent-seat cell, plus explicit stratum/outcome
+  telemetry and a real 60% parent progression gate. It still failed 26-34
+  against `004`. The balanced corpus reveals a deeper credit problem: all 80
+  games against shallow search, `016`, `035`, and PUCT were losses. Terminal
+  win/loss returns have no outcome variation in those strata, and naive
+  opponent/seat normalization would manufacture relative signal from all-loss
+  groups. Reject `009`; keep the scheduler/gate repair, and change league
+  eligibility or the return signal before another actor update.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
@@ -1932,6 +1944,64 @@ Decision:
 Artifact:
 
 - `outputs/canonical_entity_actor_008_kl_target_seed110000/actor_critic_metrics.json`
+
+### Balanced 120-Game Actor-Critic Generation `009`
+
+Audit and implementation:
+
+- The prior scheduler selected opponent with `game_index % 6` and actor seat
+  with `game_index % 2`. Because six is even, each opponent was permanently
+  aliased to one actor seat in generations `005`-`008`.
+- The scheduler now cycles through every `(opponent, actor_seat)` pair before
+  repeating. Rollout metrics include counts and outcomes by opponent and seat,
+  plus minimum/maximum stratum size.
+- The runner now has enforceable minimum parent score-share and maximum cutoff
+  arguments. Its `all_gates_passed` result can represent a real progression
+  threshold rather than the historical 40% no-regression smoke floor.
+- Tests assert exact two-seat coverage for multiple opponents. The full suite
+  remains 278 passing.
+
+`outputs/canonical_entity_actor_009_balanced120` used rollout seeds
+120000-120119, the fixed `007/008` KL-target optimizer settings, and exactly 10
+games in each of the 12 opponent-seat cells. Progression required 60% score
+share in 60 paired parent games and at most one cutoff.
+
+Rollout evidence:
+
+- 120 games, 3,812 actor steps, zero stalls/timeouts;
+- actor seat 0: 14-46; actor seat 1: 9-51;
+- versus `004`: 6-14; versus Greedy: 17-3;
+- versus legal shallow depth 1, `016`, `035`, and PUCT035 s8: 0-20 against
+  every opponent, totaling 0-80 across the four strong strata.
+
+Update diagnostics:
+
+- one epoch reached KL 0.003173; max ratio 1.285 and entropy 0.817;
+- probability TV 0.03063, relative parameter delta 0.001007, centered-logit
+  movement 0.05051, and 6.93% rollout-state argmax changes;
+- advantage/log-probability correlation fell to +0.090, below `007` (+0.254)
+  and `008` (+0.167).
+
+Strength and decision:
+
+- Paired parent progression at seed 121000: `009` 26, frozen `004` 34, no
+  draws or cutoffs. The 60% gate failed; confirmation and broad gates were
+  correctly skipped.
+- Reject `009` and retain `004`. Larger and seat-balanced sampling did not make
+  sparse terminal win/loss credit reliable.
+- Do not apply opponent/seat-stratified normalization to these data: eight
+  opponent-seat cells among the four strong opponents contain only losses, so
+  normalization would create relative gradients without positive outcome
+  evidence.
+- Before another actor update, change the training league to opponents within
+  the actor's learning frontier (non-degenerate win rates), or replace binary
+  terminal outcome with a validated denser return such as final score margin.
+  Keep `016`, `035`, and PUCT as evaluation opponents until the clean actor can
+  occasionally beat them.
+
+Artifact:
+
+- `outputs/canonical_entity_actor_009_balanced120/actor_critic_metrics.json`
 
 ### Active Overnight Reserve Corpus
 

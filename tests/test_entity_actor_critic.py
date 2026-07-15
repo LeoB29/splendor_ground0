@@ -74,7 +74,7 @@ def test_actor_checkpoint_compatibility_and_smoke_update(tmp_path) -> None:
     actor = load_entity_actor(checkpoint)
     assert actor.entity_type_embedding.num_embeddings == 13
     config = ActorCriticConfig(
-        rollout_games=2,
+        rollout_games=4,
         seed_start=900,
         max_turns=16,
         repetition_limit=0,
@@ -89,7 +89,10 @@ def test_actor_checkpoint_compatibility_and_smoke_update(tmp_path) -> None:
 
     artifacts = train_actor_critic_generation(
         checkpoint,
-        [("parent", lambda: CanonicalEntityActionScorerBot(checkpoint))],
+        [
+            ("parent_a", lambda: CanonicalEntityActionScorerBot(checkpoint)),
+            ("parent_b", lambda: CanonicalEntityActionScorerBot(checkpoint)),
+        ],
         config,
         critic_config=PrivilegedEntityCriticConfig(
             hidden_size=16,
@@ -102,6 +105,12 @@ def test_actor_checkpoint_compatibility_and_smoke_update(tmp_path) -> None:
 
     assert artifacts.rollout.steps > 0
     assert artifacts.rollout.minimum_behavior_probability > 0.0
+    assert artifacts.rollout.minimum_stratum_games == 1
+    assert artifacts.rollout.maximum_stratum_games == 1
+    assert artifacts.rollout.opponent_seats == {
+        "parent_a": {"seat0": 1, "seat1": 1},
+        "parent_b": {"seat0": 1, "seat1": 1},
+    }
     assert artifacts.update.behavior_log_prob_max_error < 1e-5
     assert artifacts.update.max_ratio > 0.0
     assert artifacts.update.actor_epochs_completed == 1
