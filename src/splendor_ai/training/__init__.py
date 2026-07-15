@@ -74,6 +74,7 @@ from .entity_actor_critic import (
     full_support_probabilities,
     load_entity_actor,
     normalized_score_margin,
+    train_actor_critic_from_steps,
     train_actor_critic_generation,
 )
 from .entity_return_validation import (
@@ -220,6 +221,7 @@ __all__ = [
     "game_return_records",
     "summarize_return_targets",
     "train_actor_critic_generation",
+    "train_actor_critic_from_steps",
     "train_supervised_epoch",
     "train_value_epoch",
     "summarize_replay_dataset_sources",

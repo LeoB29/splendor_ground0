@@ -30,6 +30,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Rejected independent KL-target replication: `outputs/canonical_entity_actor_008_kl_target_seed110000/canonical_entity_actor.pt`
 - Rejected balanced 120-game actor-critic candidate: `outputs/canonical_entity_actor_009_balanced120/canonical_entity_actor.pt`
 - Rejected frontier-curriculum actor-critic candidate: `outputs/canonical_entity_actor_010_frontier120/canonical_entity_actor.pt`
+- Rejected matched score-margin actor candidate: `outputs/canonical_entity_return_ab_013/canonical_entity_actor_score_margin.pt`
 
 ## Current Conclusions
 
@@ -147,6 +148,16 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   zero saturation, and useful margin variation in all six all-loss cells. The
   `/20` target is eligible for a future critic/actor experiment; no candidate
   checkpoint was created and `004` remains frozen.
+- Matched return-target A/B `entity_return_ab_013` reused one fresh 120-game
+  balanced full-league corpus for binary-outcome and score-margin branches with
+  identical initial weights, critic-validation games, and minibatch order.
+  Score margin improved every preregistered credit diagnostic: held-out critic
+  skill 0.742 versus 0.662, critic correlation 0.866 versus 0.816, and
+  advantage/log-probability correlation 0.066 versus 0.031. It also beat the
+  binary candidate 33-27 with no cutoffs. Against frozen `004` it scored the
+  same 33-27, only 55% versus the fixed 60% progression threshold. Reject the
+  policy candidate and skip confirmation/strong gates, while retaining the
+  matched evidence that score margin is the superior credit target.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
@@ -1980,7 +1991,7 @@ Audit and implementation:
   arguments. Its `all_gates_passed` result can represent a real progression
   threshold rather than the historical 40% no-regression smoke floor.
 - Tests assert exact two-seat coverage for multiple opponents. The current full
-  suite is 280 passing after frontier and return-validation coverage below.
+  suite is 281 passing after matched return-branch coverage below.
 
 `outputs/canonical_entity_actor_009_balanced120` used rollout seeds
 120000-120119, the fixed `007/008` KL-target optimizer settings, and exactly 10
@@ -2123,6 +2134,61 @@ Decision:
   opponent-seat scheduler, KL/movement gates, and strict parent progression
   thresholds fixed. Do not tune the scale against downstream game results.
 
+### Matched Return-Target A/B `013`
+
+Implementation:
+
+- Actor-critic training can now reuse one collected rollout corpus through
+  `train_actor_critic_from_steps`; branch-local advantages/value targets are
+  cloned while immutable states, legal actions, and behavior probabilities are
+  shared.
+- `ActorCriticConfig.return_mode` selects `outcome` or `score_margin` without
+  changing collection, actor initialization, critic initialization, shuffle
+  seeds, optimizer settings, or KL gates.
+- A game-disjoint critic split excludes every fifth game from warmup and reports
+  held-out MSE, constant-baseline MSE, normalized skill, and correlation before
+  GAE. Both branches use the exact same 759 held-out actor states.
+- `run_entity_return_ab.py` requires score margin to improve held-out critic
+  skill, critic correlation, and absolute advantage/action correlation before
+  allowing any games. Initial game gates require 55% versus the binary control
+  and 60% versus frozen `004`, with at most one cutoff.
+
+Experiment:
+
+- Artifact: `outputs/canonical_entity_return_ab_013/return_ab_metrics.json`.
+- One 120-game balanced full-league corpus at seeds 160000-160119, 3,869 actor
+  steps, exactly 10 games per opponent-seat cell, zero rollout stalls/timeouts.
+- Both branches started from frozen `004`, used actor learning rate 3e-5, target
+  KL 0.002, five critic warmup epochs, and otherwise identical schedules.
+
+Matched offline results:
+
+- binary outcome critic: held-out MSE 0.2414 versus constant 0.7137, normalized
+  skill 0.6617, correlation 0.8157;
+- score-margin critic: held-out MSE 0.0566 versus constant 0.2194, normalized
+  skill 0.7422, correlation 0.8660;
+- score-margin advantage/log-probability correlation 0.0665 versus binary
+  0.0314;
+- score margin moved less at the policy level despite better credit: KL 0.00403
+  versus 0.00660, probability TV 0.0346 versus 0.0433, and argmax changes 5.04%
+  versus 6.18%. Both branches remained inside all safety bounds.
+
+Initial games and decision:
+
+- score-margin treatment versus matched binary control, paired 60 games at seed
+  161000: 33-27, no draws or cutoffs; the fixed 55% treatment gate passes
+  exactly.
+- score-margin treatment versus frozen `004`, paired 60 games at seed 162000:
+  33-27, no draws or cutoffs; score share 0.55 fails the fixed 0.60 progression
+  threshold.
+- Reject the score-margin policy candidate and do not run independent
+  confirmation or strong-opponent gates. Frozen `004` remains the parent.
+- Retain score margin as the superior credit target: it wins the controlled
+  offline comparison and the direct matched-candidate game gate. The remaining
+  blocker is converting that improved credit into a repeatable parent gain, not
+  target density or critic learnability. Do not tune `/20`, learning rate, or KL
+  against this near-miss.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -2159,7 +2225,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 280 passed after legal hidden-information search, PUCT batching, root-visit
+- 281 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -2172,7 +2238,8 @@ Current full test status:
   reserve counterfactual corpus compilation, constrained training, uptake
   gating, fixed objective/capacity diagnosis, canonical entity modeling, the
   public-actor/privileged-critic smoke generation, opponent-seat balancing,
-  frontier-curriculum selection, and score-margin return validation.
+  frontier-curriculum selection, score-margin return validation, and matched
+  return-mode actor/critic branching with game-disjoint critic diagnostics.
 
 ## Files To Read Next
 
@@ -2211,3 +2278,4 @@ Current full test status:
 - `src/splendor_ai/training/run_entity_actor_critic.py`
 - `src/splendor_ai/training/entity_return_validation.py`
 - `src/splendor_ai/training/run_entity_return_validation.py`
+- `src/splendor_ai/training/run_entity_return_ab.py`

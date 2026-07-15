@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
@@ -41,11 +41,13 @@ class ActorCriticConfig:
     behavior_temperature: float = 1.0
     uniform_mix: float = 0.05
     score_margin_scale: float = 20.0
+    return_mode: str = "outcome"
     gamma: float = 1.0
     gae_lambda: float = 0.95
     actor_epochs: int = 1
     critic_warmup_epochs: int = 3
     critic_epochs: int = 1
+    critic_validation_modulus: int = 0
     batch_size: int = 64
     actor_learning_rate: float = 1e-5
     critic_learning_rate: float = 3e-4
@@ -125,6 +127,11 @@ class UpdateSummary:
     advantage_log_probability_covariance: float
     advantage_log_probability_correlation: float
     action_type_advantage_means: dict[str, float]
+    critic_validation_steps: int
+    critic_validation_mse: float
+    critic_validation_baseline_mse: float
+    critic_validation_skill: float
+    critic_validation_correlation: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,27 +342,64 @@ def train_actor_critic_generation(
     config: ActorCriticConfig,
     critic_config: PrivilegedEntityCriticConfig | None = None,
 ) -> ActorCriticArtifacts:
+    actor = load_entity_actor(parent_checkpoint, config.device)
+    steps, rollout = collect_league_rollouts(actor, opponent_factories, config)
+    return train_actor_critic_from_steps(
+        parent_checkpoint,
+        steps,
+        rollout,
+        config,
+        critic_config=critic_config,
+    )
+
+
+def train_actor_critic_from_steps(
+    parent_checkpoint: str | Path,
+    source_steps: list[ActorStep] | tuple[ActorStep, ...],
+    rollout: RolloutSummary,
+    config: ActorCriticConfig,
+    critic_config: PrivilegedEntityCriticConfig | None = None,
+) -> ActorCriticArtifacts:
     if config.actor_epochs <= 0:
         raise ValueError("actor_epochs must be positive.")
     if config.target_kl is not None and config.target_kl <= 0.0:
         raise ValueError("target_kl must be positive when configured.")
     if config.max_grad_norm <= 0.0:
         raise ValueError("max_grad_norm must be positive.")
-    torch.manual_seed(config.seed_start)
-    actor = load_entity_actor(parent_checkpoint, config.device)
-    steps, rollout = collect_league_rollouts(actor, opponent_factories, config)
+    if config.return_mode not in {"outcome", "score_margin"}:
+        raise ValueError("return_mode must be 'outcome' or 'score_margin'.")
+    if config.critic_validation_modulus == 1 or config.critic_validation_modulus < 0:
+        raise ValueError("critic_validation_modulus must be 0 or at least 2.")
+    steps = [replace(step, advantage=0.0, value_target=0.0) for step in source_steps]
     if not steps:
         raise RuntimeError("League rollout produced no actor steps.")
+    torch.manual_seed(config.seed_start)
+    actor = load_entity_actor(parent_checkpoint, config.device)
     critic = PrivilegedEntityCritic(critic_config).to(config.device)
     critic_optimizer = AdamW(
         critic.parameters(), lr=config.critic_learning_rate, weight_decay=config.weight_decay
     )
     indices = list(range(len(steps)))
-    for _ in range(config.critic_warmup_epochs):
-        random.Random(config.seed_start + _).shuffle(indices)
-        for batch_indices in _batches(indices, config.batch_size):
+    if config.critic_validation_modulus >= 2:
+        critic_validation_indices = [
+            index
+            for index, step in enumerate(steps)
+            if step.game_index % config.critic_validation_modulus
+            == config.critic_validation_modulus - 1
+        ]
+        critic_validation_index_set = set(critic_validation_indices)
+        critic_train_indices = [
+            index for index in indices if index not in critic_validation_index_set
+        ]
+    else:
+        critic_validation_indices = []
+        critic_train_indices = indices
+    for epoch in range(config.critic_warmup_epochs):
+        epoch_indices = list(critic_train_indices)
+        random.Random(config.seed_start + epoch).shuffle(epoch_indices)
+        for batch_indices in _batches(epoch_indices, config.batch_size):
             targets = torch.tensor(
-                [steps[index].final_return for index in batch_indices],
+                [_terminal_return(steps[index], config) for index in batch_indices],
                 dtype=torch.float32,
                 device=config.device,
             )
@@ -367,6 +411,13 @@ def train_actor_critic_generation(
             critic_optimizer.zero_grad(set_to_none=True)
             loss.backward()
             critic_optimizer.step()
+    critic_validation = _critic_validation_diagnostics(
+        critic,
+        steps,
+        critic_train_indices,
+        critic_validation_indices,
+        config,
+    )
     _assign_gae(steps, critic, config)
     advantages = torch.tensor([step.advantage for step in steps], dtype=torch.float32)
     advantage_mean = float(advantages.mean())
@@ -486,9 +537,65 @@ def train_actor_critic_generation(
             advantage_log_probability_covariance=advantage_covariance,
             advantage_log_probability_correlation=advantage_correlation,
             action_type_advantage_means=action_type_advantage_means,
+            critic_validation_steps=critic_validation[0],
+            critic_validation_mse=critic_validation[1],
+            critic_validation_baseline_mse=critic_validation[2],
+            critic_validation_skill=critic_validation[3],
+            critic_validation_correlation=critic_validation[4],
         ),
         steps=tuple(steps),
     )
+
+
+def _terminal_return(step: ActorStep, config: ActorCriticConfig) -> float:
+    if config.return_mode == "score_margin":
+        return step.score_margin_return
+    return step.final_return
+
+
+def _critic_validation_diagnostics(
+    critic: PrivilegedEntityCritic,
+    steps: list[ActorStep],
+    train_indices: list[int],
+    validation_indices: list[int],
+    config: ActorCriticConfig,
+) -> tuple[int, float, float, float, float]:
+    if not validation_indices:
+        return 0, 0.0, 0.0, 0.0, 0.0
+    train_mean = sum(_terminal_return(steps[index], config) for index in train_indices) / len(
+        train_indices
+    )
+    predictions: list[float] = []
+    targets: list[float] = []
+    critic.eval()
+    with torch.no_grad():
+        for batch_indices in _batches(validation_indices, config.batch_size):
+            values = critic(
+                **collate_privileged_state_batch(
+                    [(steps[index].state, steps[index].actor_seat) for index in batch_indices],
+                    device=config.device,
+                )
+            )
+            predictions.extend(float(value) for value in values.cpu().tolist())
+            targets.extend(_terminal_return(steps[index], config) for index in batch_indices)
+    mse = sum((prediction - target) ** 2 for prediction, target in zip(predictions, targets)) / len(
+        targets
+    )
+    baseline_mse = sum((target - train_mean) ** 2 for target in targets) / len(targets)
+    skill = 1.0 - mse / max(baseline_mse, 1e-12)
+    prediction_tensor = torch.tensor(predictions, dtype=torch.float64)
+    target_tensor = torch.tensor(targets, dtype=torch.float64)
+    centered_predictions = prediction_tensor - prediction_tensor.mean()
+    centered_targets = target_tensor - target_tensor.mean()
+    denominator = float(
+        centered_predictions.square().sum().sqrt() * centered_targets.square().sum().sqrt()
+    )
+    correlation = (
+        float((centered_predictions * centered_targets).sum()) / denominator
+        if denominator > 0.0
+        else 0.0
+    )
+    return len(validation_indices), mse, baseline_mse, skill, correlation
 
 
 def _assign_gae(steps: list[ActorStep], critic: PrivilegedEntityCritic, config: ActorCriticConfig) -> None:
@@ -505,7 +612,11 @@ def _assign_gae(steps: list[ActorStep], critic: PrivilegedEntityCritic, config: 
         for offset in range(len(game_indices) - 1, -1, -1):
             index = game_indices[offset]
             next_value = values[game_indices[offset + 1]] if offset + 1 < len(game_indices) else 0.0
-            reward = steps[index].final_return if offset == len(game_indices) - 1 else 0.0
+            reward = (
+                _terminal_return(steps[index], config)
+                if offset == len(game_indices) - 1
+                else 0.0
+            )
             delta = reward + config.gamma * next_value - values[index]
             running = delta + config.gamma * config.gae_lambda * running
             steps[index].advantage = running

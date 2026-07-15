@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 import pytest
 import torch
@@ -16,6 +16,7 @@ from splendor_ai.training.entity_actor_critic import (
     full_support_probabilities,
     load_entity_actor,
     normalized_score_margin,
+    train_actor_critic_from_steps,
     train_actor_critic_generation,
 )
 from splendor_ai.training.entity_return_validation import (
@@ -27,7 +28,8 @@ from splendor_ai.training.model import (
     CanonicalEntityActionScorerModel,
     PrivilegedEntityCriticConfig,
 )
-from splendor_ai.training.run_entity_actor_critic import build_parser
+from splendor_ai.training.run_entity_actor_critic import build_parser as build_actor_critic_parser
+from splendor_ai.training.run_entity_return_ab import build_parser as build_return_ab_parser
 
 
 def _checkpoint(tmp_path):
@@ -76,7 +78,7 @@ def test_full_support_distribution_is_positive_and_normalized() -> None:
 
 
 def test_frontier_league_profile_is_selectable() -> None:
-    args = build_parser().parse_args(
+    args = build_actor_critic_parser().parse_args(
         [
             "--parent-checkpoint",
             "parent.pt",
@@ -92,6 +94,25 @@ def test_frontier_league_profile_is_selectable() -> None:
     )
 
     assert args.league_profile == "frontier"
+
+
+def test_matched_return_ab_defaults_are_strict() -> None:
+    args = build_return_ab_parser().parse_args(
+        [
+            "--parent-checkpoint",
+            "parent.pt",
+            "--checkpoint-016",
+            "016.pt",
+            "--checkpoint-035",
+            "035.pt",
+            "--output-dir",
+            "output",
+        ]
+    )
+
+    assert args.minimum_treatment_control_score_share == 0.55
+    assert args.minimum_treatment_parent_score_share == 0.60
+    assert args.critic_validation_modulus == 5
 
 
 def test_score_margin_summary_finds_dense_variation_in_all_loss_strata() -> None:
@@ -135,6 +156,7 @@ def test_actor_checkpoint_compatibility_and_smoke_update(tmp_path) -> None:
         actor_epochs=3,
         critic_warmup_epochs=1,
         critic_epochs=1,
+        critic_validation_modulus=2,
         batch_size=16,
         actor_learning_rate=1e-3,
         target_kl=1e-12,
@@ -176,3 +198,23 @@ def test_actor_checkpoint_compatibility_and_smoke_update(tmp_path) -> None:
     assert artifacts.update.mean_probability_total_variation > 0.0
     assert 0.0 <= artifacts.update.argmax_change_fraction <= 1.0
     assert artifacts.update.action_type_advantage_means
+    assert artifacts.update.critic_validation_steps > 0
+
+    margin_artifacts = train_actor_critic_from_steps(
+        checkpoint,
+        artifacts.steps,
+        artifacts.rollout,
+        replace(config, return_mode="score_margin"),
+        critic_config=PrivilegedEntityCriticConfig(
+            hidden_size=16,
+            layers=1,
+            attention_heads=2,
+            attention_feedforward_size=32,
+            id_embedding_size=4,
+        ),
+    )
+
+    assert margin_artifacts.update.critic_validation_steps == artifacts.update.critic_validation_steps
+    assert margin_artifacts.update.parameter_l2_norm_before == pytest.approx(
+        artifacts.update.parameter_l2_norm_before
+    )
