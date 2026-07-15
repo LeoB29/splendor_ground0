@@ -25,6 +25,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Historical contaminated value model, diagnostics only: `outputs/value_model_006_late40_outcome_currentgen/value_model_best.pt`
 - Frozen clean entity actor parent: `outputs/canonical_entity_scale_004/canonical_entity_action_scorer_best.pt`
 - Current clean actor-critic smoke candidate, not promoted: `outputs/canonical_entity_actor_005_smoke/canonical_entity_actor.pt`
+- Rejected clean actor-critic no-movement generation: `outputs/canonical_entity_actor_006_seed90000/canonical_entity_actor.pt`
 
 ## Current Conclusions
 
@@ -79,6 +80,18 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   The candidate beat its parent 12-8 in 20 paired games. This validates the
   learning mechanism but is too small for promotion; keep `004` frozen and
   require independent larger generations plus broad league confirmation.
+- The independent larger generation `entity_actor_006_seed90000` resolves the
+  smoke ambiguity. It used 72 fresh games (12 per league opponent), 2,364 actor
+  decisions, and the unchanged `005` optimizer settings. The update remained
+  clean but was extremely small: mean KL 6.88e-5, max ratio 1.037, normalized
+  entropy 0.834, and policy loss -5.0e-6. It scored 46-54 against frozen `004`
+  over 100 paired games. Same-seed controls show essentially no broad-policy
+  movement: `006`/`004` scored 7/8 wins versus `016`, 2/1 versus `035`, and
+  54/55 versus Greedy on 60 games each. `006` scored 9-51 versus legal shallow
+  depth 1, the same 15% share as `004`'s prior 5-15 result. Reject `006` and do
+  not repeat the identical one-epoch, 1e-5 actor update. Before more expensive
+  games, add an effective-movement gate and test a KL-targeted update schedule
+  that is materially larger while retaining the frozen-parent safety bound.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
@@ -1753,10 +1766,57 @@ Decision:
 - The architecture, legality boundary, stochastic rollout path, credit update,
   and conservative gates work end to end on CPU. A GPU is not justified by
   this workload yet.
-- Do not promote `005` from a 20-game readout. Next run several independent
-  larger rollout/update generations while retaining `004` as the immutable
-  control. Require repeatable no-regression against `004` and strength against
-  the broad league before replacing the parent.
+- Do not promote `005` from a 20-game readout. The independent larger `006`
+  generation below supersedes its apparent 12-8 edge.
+
+### Clean Entity Actor-Critic Generation `006`
+
+`outputs/canonical_entity_actor_006_seed90000` was trained from immutable `004`
+with the same conservative hyperparameters as `005`, but on 72 fresh league
+games at seed 90000 (12 each against `004`, Greedy, legal shallow depth 1,
+`016`, `035`, and PUCT035 s8). Its 2,364 actor decisions had five action types,
+minimum behavior probability 0.000541, 1,818 non-argmax samples, and zero
+stalls/timeouts. All implementation gates passed.
+
+Update diagnostics:
+
+- behavior reconstruction error 7.84e-7;
+- max importance ratio 1.0375 and mean ratio 0.99987;
+- mean KL 6.88e-5 and normalized entropy 0.8335;
+- policy loss -5.03e-6 and critic loss 0.1296.
+
+Fresh strength gates:
+
+- paired `006` versus frozen `004`, 100 games: 46-54, one timed-out game;
+- same seeds versus `016`, 60 games: `006` 7-53 and `004` 8-52, with one
+  timeout in each block;
+- same seeds versus legal `035`, 60 games: `006` 2-58 and `004` 1-59;
+- same seeds versus Greedy, 60 games: `006` 54-6 and `004` 55-5;
+- `006` versus legal shallow depth 1, 60 games: 9-51, matching the 15% score
+  share of `004`'s earlier 5-15 block. All rule-opponent games completed with
+  no stalls/timeouts or loop fallbacks.
+
+Artifacts:
+
+- `outputs/canonical_entity_actor_006_seed90000/actor_critic_metrics.json`
+- `outputs/benchmarks/entity_actor006_vs016_seed92000_g60.json`
+- `outputs/benchmarks/entity004_vs016_seed92000_g60.json`
+- `outputs/benchmarks/entity_actor006_vs035_seed93000_g60.json`
+- `outputs/benchmarks/entity004_vs035_seed93000_g60.json`
+- `outputs/benchmarks/entity_actor006_rules_seed94000_g60.json`
+- `outputs/benchmarks/entity004_greedy_seed94000_g60.json`
+
+Decision:
+
+- Reject `006` as a no-movement generation and retain `004` as the frozen
+  parent. The `005` 12-8 result was small-sample noise, not replicated progress.
+- Do not spend another full league/search gate on the identical update recipe.
+  Add an offline effective-movement gate first: report gradient norm, actor
+  parameter/logit movement, advantage-action covariance, and target-state KL.
+  Then test a KL-targeted multi-epoch or higher-learning-rate update that aims
+  for measurable but bounded movement before launching games.
+- CPU remains appropriate. The expensive portion is serial simulation/search,
+  not the small actor/critic optimization; a GPU would not fix this blocker.
 
 ### Active Overnight Reserve Corpus
 
