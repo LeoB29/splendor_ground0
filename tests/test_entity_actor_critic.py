@@ -22,6 +22,7 @@ from splendor_ai.training.model import (
     CanonicalEntityActionScorerModel,
     PrivilegedEntityCriticConfig,
 )
+from splendor_ai.training.run_entity_actor_critic import build_parser
 
 
 def _checkpoint(tmp_path):
@@ -67,6 +68,25 @@ def test_full_support_distribution_is_positive_and_normalized() -> None:
     assert float(probabilities[0, :3].min()) > 0.0
     assert probabilities[0, 3] == 0.0
     assert float(probabilities.sum()) == pytest.approx(1.0)
+
+
+def test_frontier_league_profile_is_selectable() -> None:
+    args = build_parser().parse_args(
+        [
+            "--parent-checkpoint",
+            "parent.pt",
+            "--checkpoint-016",
+            "016.pt",
+            "--checkpoint-035",
+            "035.pt",
+            "--output-dir",
+            "output",
+            "--league-profile",
+            "frontier",
+        ]
+    )
+
+    assert args.league_profile == "frontier"
 
 
 def test_actor_checkpoint_compatibility_and_smoke_update(tmp_path) -> None:

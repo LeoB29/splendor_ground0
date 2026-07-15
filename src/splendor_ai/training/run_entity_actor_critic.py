@@ -32,6 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint-016", required=True)
     parser.add_argument("--checkpoint-035", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument(
+        "--league-profile",
+        choices=("full", "frontier"),
+        default="full",
+        help="Use the full evaluation league or the learnable 004/Greedy frontier.",
+    )
     parser.add_argument("--rollout-games", type=int, default=12)
     parser.add_argument("--seed-start", type=int, default=80_000)
     parser.add_argument("--actor-epochs", type=int, default=1)
@@ -88,31 +94,39 @@ def main() -> None:
     league = [
         ("entity004", lambda: CanonicalEntityActionScorerBot(parent, device=args.device)),
         ("greedy", lambda: GreedyHeuristicBot(seed=31)),
-        (
-            "legal_shallow_d1",
-            lambda: ShallowSearchBot(
-                depth=1,
-                max_branching=6,
-                max_buy_actions=4,
-                max_reserve_actions=2,
-                max_take_actions=2,
-                information_legal=True,
-                determinizations=1,
-                seed=37,
-                determinization_seed=41,
-            ),
-        ),
-        ("policy016", lambda: LegalActionScorerBot(checkpoint016, device=args.device)),
-        ("policy035", lambda: LegalActionAttentionScorerBot(checkpoint035, device=args.device)),
-        (
-            "puct035_s8",
-            lambda: InformationSetPuctBot(
-                checkpoint035,
-                device=args.device,
-                config=PuctConfig(simulations=8, inference_batch_size=4, seed=43),
-            ),
-        ),
     ]
+    if args.league_profile == "full":
+        league.extend(
+            [
+                (
+                    "legal_shallow_d1",
+                    lambda: ShallowSearchBot(
+                        depth=1,
+                        max_branching=6,
+                        max_buy_actions=4,
+                        max_reserve_actions=2,
+                        max_take_actions=2,
+                        information_legal=True,
+                        determinizations=1,
+                        seed=37,
+                        determinization_seed=41,
+                    ),
+                ),
+                ("policy016", lambda: LegalActionScorerBot(checkpoint016, device=args.device)),
+                (
+                    "policy035",
+                    lambda: LegalActionAttentionScorerBot(checkpoint035, device=args.device),
+                ),
+                (
+                    "puct035_s8",
+                    lambda: InformationSetPuctBot(
+                        checkpoint035,
+                        device=args.device,
+                        config=PuctConfig(simulations=8, inference_batch_size=4, seed=43),
+                    ),
+                ),
+            ]
+        )
     critic_config = PrivilegedEntityCriticConfig(
         hidden_size=64,
         layers=1,
@@ -135,6 +149,8 @@ def main() -> None:
             "model_config": asdict(artifacts.actor.config),
             "parent_checkpoint": str(parent),
             "train_config": asdict(config),
+            "league_profile": args.league_profile,
+            "league_opponents": [label for label, _ in league],
         },
         actor_path,
     )
@@ -202,6 +218,8 @@ def main() -> None:
         "actor_checkpoint": str(actor_path),
         "critic_checkpoint": str(critic_path),
         "config": asdict(config),
+        "league_profile": args.league_profile,
+        "league_opponents": [label for label, _ in league],
         "rollout": asdict(artifacts.rollout),
         "update": asdict(artifacts.update),
         "parent_gate": parent_gate,

@@ -29,6 +29,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Current clean actor-critic movement candidate, not promoted: `outputs/canonical_entity_actor_007_kl_target/canonical_entity_actor.pt`
 - Rejected independent KL-target replication: `outputs/canonical_entity_actor_008_kl_target_seed110000/canonical_entity_actor.pt`
 - Rejected balanced 120-game actor-critic candidate: `outputs/canonical_entity_actor_009_balanced120/canonical_entity_actor.pt`
+- Rejected frontier-curriculum actor-critic candidate: `outputs/canonical_entity_actor_010_frontier120/canonical_entity_actor.pt`
 
 ## Current Conclusions
 
@@ -126,6 +127,16 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   opponent/seat normalization would manufacture relative signal from all-loss
   groups. Reject `009`; keep the scheduler/gate repair, and change league
   eligibility or the return signal before another actor update.
+- `entity_actor_010_frontier120` tested the safer league change: 120 balanced
+  games using only `004` and Greedy, with strong opponents held out. Every one
+  of the four opponent-seat cells contained 30 games; seat outcomes were
+  exactly matched at 26-34, and both opponents produced wins and losses. The
+  update nevertheless had weak advantage/log-probability correlation (+0.053)
+  and scored 33-26-1 against `004`, only 55.8% versus the preregistered 60%
+  progression threshold. Three repetition cutoffs also exceeded the ceiling of
+  one. Reject `010` and skip confirmation/strong-opponent games. Curriculum
+  selection removes outcome degeneracy but does not solve temporal credit;
+  validate a denser return signal before another policy update.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
@@ -1958,8 +1969,8 @@ Audit and implementation:
 - The runner now has enforceable minimum parent score-share and maximum cutoff
   arguments. Its `all_gates_passed` result can represent a real progression
   threshold rather than the historical 40% no-regression smoke floor.
-- Tests assert exact two-seat coverage for multiple opponents. The full suite
-  remains 278 passing.
+- Tests assert exact two-seat coverage for multiple opponents. The current full
+  suite is 279 passing after the frontier-profile coverage below.
 
 `outputs/canonical_entity_actor_009_balanced120` used rollout seeds
 120000-120119, the fixed `007/008` KL-target optimizer settings, and exactly 10
@@ -2003,6 +2014,52 @@ Artifact:
 
 - `outputs/canonical_entity_actor_009_balanced120/actor_critic_metrics.json`
 
+### Frontier-Curriculum Actor-Critic Generation `010`
+
+The runner now supports a provenance-recorded `frontier` league profile. It
+trains only against frozen `004` and Greedy; legal shallow search, `016`, `035`,
+and PUCT remain evaluation-only until the actor can produce non-degenerate
+outcomes against them. The historical `full` profile remains available.
+
+`outputs/canonical_entity_actor_010_frontier120` used rollout seeds
+130000-130119, the fixed KL-target optimizer, and 30 games in each of the four
+`(004/Greedy) x (seat0/seat1)` cells. Progression again required 60% score share
+in 60 paired parent games and at most one cutoff.
+
+Rollout evidence:
+
+- 120 games, 4,070 actor steps, zero stalls/timeouts;
+- actor seat 0 and actor seat 1 both scored exactly 26-34;
+- versus `004`: 9-51; versus Greedy: 43-17. Both opponent groups contained
+  positive and negative outcomes, removing `009`'s all-loss strata.
+
+Update diagnostics:
+
+- one epoch reached KL 0.003153; max ratio 1.282 and entropy 0.773;
+- probability TV 0.02907, relative parameter delta 0.001173, centered-logit
+  movement 0.05151, and 5.01% rollout-state argmax changes;
+- advantage/log-probability correlation remained weak at +0.053, below `009`'s
+  +0.090 despite the non-degenerate curriculum.
+
+Strength and decision:
+
+- Paired parent progression at seed 131000: `010` 33, frozen `004` 26, one
+  draw; score share 0.558. Three repetition cutoffs occurred.
+- Reject `010`: it misses the preregistered 0.60 score-share threshold and the
+  cutoff ceiling of one. The independent 100-game confirmation and strong-
+  opponent gates were correctly skipped.
+- The frontier curriculum improves the directional game readout relative to
+  `009`, but does not establish repeatable strength and introduces loop risk.
+  Keep `004` frozen.
+- Outcome degeneracy is no longer the main blocker. Before another policy
+  update, validate a denser credit target—preferably final score margin—against
+  terminal win/loss on frozen rollout trajectories. Do not tune the curriculum,
+  learning rate, or KL target against `010`'s near-miss.
+
+Artifact:
+
+- `outputs/canonical_entity_actor_010_frontier120/actor_critic_metrics.json`
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -2039,7 +2096,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 278 passed after legal hidden-information search, PUCT batching, root-visit
+- 279 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -2050,8 +2107,9 @@ Current full test status:
   human-game forensic action-quality auditing, and disjoint non-human reserve
   generalization auditing with resumable matched terminal continuations, and
   reserve counterfactual corpus compilation, constrained training, uptake
-  gating, fixed objective/capacity diagnosis, canonical entity modeling, and
-  the public-actor/privileged-critic smoke generation.
+  gating, fixed objective/capacity diagnosis, canonical entity modeling, the
+  public-actor/privileged-critic smoke generation, opponent-seat balancing, and
+  frontier-curriculum selection.
 
 ## Files To Read Next
 
