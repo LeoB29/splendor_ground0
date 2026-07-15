@@ -79,11 +79,12 @@ def test_actor_checkpoint_compatibility_and_smoke_update(tmp_path) -> None:
         max_turns=16,
         repetition_limit=0,
         no_progress_limit=0,
-        actor_epochs=1,
+        actor_epochs=3,
         critic_warmup_epochs=1,
         critic_epochs=1,
         batch_size=16,
-        actor_learning_rate=1e-5,
+        actor_learning_rate=1e-3,
+        target_kl=1e-12,
     )
 
     artifacts = train_actor_critic_generation(
@@ -103,3 +104,13 @@ def test_actor_checkpoint_compatibility_and_smoke_update(tmp_path) -> None:
     assert artifacts.rollout.minimum_behavior_probability > 0.0
     assert artifacts.update.behavior_log_prob_max_error < 1e-5
     assert artifacts.update.max_ratio > 0.0
+    assert artifacts.update.actor_epochs_completed == 1
+    assert artifacts.update.stopped_for_target_kl
+    assert len(artifacts.update.epoch_mean_kls) == 1
+    assert artifacts.update.first_batch_gradient_norm > 0.0
+    assert artifacts.update.parameter_delta_l2 > 0.0
+    assert artifacts.update.relative_parameter_delta > 0.0
+    assert artifacts.update.mean_centered_logit_absolute_delta > 0.0
+    assert artifacts.update.mean_probability_total_variation > 0.0
+    assert 0.0 <= artifacts.update.argmax_change_fraction <= 1.0
+    assert artifacts.update.action_type_advantage_means

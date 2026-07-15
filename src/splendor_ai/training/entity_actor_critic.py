@@ -51,6 +51,8 @@ class ActorCriticConfig:
     weight_decay: float = 1e-4
     clip_ratio: float = 0.15
     entropy_weight: float = 0.01
+    target_kl: float | None = None
+    max_grad_norm: float = 1.0
     device: str = "cpu"
 
 
@@ -59,6 +61,7 @@ class ActorStep:
     state: SplendorState
     legal_actions: tuple[Action, ...]
     action_row: int
+    behavior_scores: tuple[float, ...]
     behavior_probabilities: tuple[float, ...]
     behavior_log_probability: float
     behavior_entropy: float
@@ -96,6 +99,23 @@ class UpdateSummary:
     critic_loss: float
     advantage_mean: float
     advantage_std: float
+    actor_epochs_completed: int
+    stopped_for_target_kl: bool
+    epoch_mean_kls: tuple[float, ...]
+    first_batch_gradient_norm: float
+    mean_gradient_norm: float
+    max_gradient_norm: float
+    parameter_l2_norm_before: float
+    parameter_delta_l2: float
+    relative_parameter_delta: float
+    mean_centered_logit_absolute_delta: float
+    max_centered_logit_absolute_delta: float
+    mean_probability_total_variation: float
+    max_probability_total_variation: float
+    argmax_change_fraction: float
+    advantage_log_probability_covariance: float
+    advantage_log_probability_correlation: float
+    action_type_advantage_means: dict[str, float]
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +210,7 @@ def collect_league_rollouts(
                 greedy_row = int(torch.argmax(probabilities).item())
                 non_greedy += action_row != greedy_row
                 chosen = actions[action_row]
+                score_values = tuple(float(value) for value in scores[0, : len(actions)].cpu().tolist())
                 probability_values = tuple(float(value) for value in probabilities.cpu().tolist())
                 entropy = -sum(value * math.log(value) for value in probability_values if value > 0.0)
                 normalized_entropy = entropy / math.log(len(actions)) if len(actions) > 1 else 0.0
@@ -201,6 +222,7 @@ def collect_league_rollouts(
                         state=state,
                         legal_actions=tuple(actions),
                         action_row=action_row,
+                        behavior_scores=score_values,
                         behavior_probabilities=probability_values,
                         behavior_log_probability=math.log(probability_values[action_row]),
                         behavior_entropy=entropy,
@@ -255,6 +277,13 @@ def train_actor_critic_generation(
     config: ActorCriticConfig,
     critic_config: PrivilegedEntityCriticConfig | None = None,
 ) -> ActorCriticArtifacts:
+    if config.actor_epochs <= 0:
+        raise ValueError("actor_epochs must be positive.")
+    if config.target_kl is not None and config.target_kl <= 0.0:
+        raise ValueError("target_kl must be positive when configured.")
+    if config.max_grad_norm <= 0.0:
+        raise ValueError("max_grad_norm must be positive.")
+    torch.manual_seed(config.seed_start)
     actor = load_entity_actor(parent_checkpoint, config.device)
     steps, rollout = collect_league_rollouts(actor, opponent_factories, config)
     if not steps:
@@ -284,15 +313,27 @@ def train_actor_critic_generation(
     advantages = torch.tensor([step.advantage for step in steps], dtype=torch.float32)
     advantage_mean = float(advantages.mean())
     advantage_std = float(advantages.std(unbiased=False).clamp_min(1e-6))
+    advantage_covariance, advantage_correlation, action_type_advantage_means = (
+        _advantage_action_diagnostics(steps)
+    )
     for step in steps:
         step.advantage = (step.advantage - advantage_mean) / advantage_std
 
     reconstruction_error = _behavior_reconstruction_error(actor, steps, config)
+    parameter_snapshot = {
+        name: parameter.detach().cpu().clone() for name, parameter in actor.named_parameters()
+    }
+    parameter_l2_norm_before = math.sqrt(
+        sum(float((parameter.double() ** 2).sum()) for parameter in parameter_snapshot.values())
+    )
     actor_optimizer = AdamW(
         actor.parameters(), lr=config.actor_learning_rate, weight_decay=config.weight_decay
     )
     policy_losses: list[float] = []
     critic_losses: list[float] = []
+    gradient_norms: list[float] = []
+    epoch_mean_kls: list[float] = []
+    stopped_for_target_kl = False
     for epoch in range(config.actor_epochs):
         random.Random(config.seed_start + 100 + epoch).shuffle(indices)
         for batch_indices in _batches(indices, config.batch_size):
@@ -326,9 +367,18 @@ def train_actor_critic_generation(
             loss = policy_loss - config.entropy_weight * entropy.mean()
             actor_optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(actor.parameters(), 1.0)
+            gradient_norm = torch.nn.utils.clip_grad_norm_(
+                actor.parameters(), config.max_grad_norm
+            )
+            gradient_norms.append(float(gradient_norm.detach().cpu()))
             actor_optimizer.step()
             policy_losses.append(float(policy_loss.detach().cpu()))
+        _, epoch_kls, _ = _post_update_diagnostics(actor, steps, config)
+        epoch_mean_kl = sum(epoch_kls) / len(epoch_kls)
+        epoch_mean_kls.append(epoch_mean_kl)
+        if config.target_kl is not None and epoch_mean_kl >= config.target_kl:
+            stopped_for_target_kl = True
+            break
     for _ in range(config.critic_epochs):
         for batch_indices in _batches(indices, config.batch_size):
             values = critic(**collate_privileged_state_batch(
@@ -346,6 +396,7 @@ def train_actor_critic_generation(
             critic_optimizer.step()
             critic_losses.append(float(loss.detach().cpu()))
     ratios, kls, entropies = _post_update_diagnostics(actor, steps, config)
+    movement = _movement_diagnostics(actor, steps, parameter_snapshot, config)
     return ActorCriticArtifacts(
         actor=actor,
         critic=critic,
@@ -360,6 +411,23 @@ def train_actor_critic_generation(
             critic_loss=sum(critic_losses) / len(critic_losses) if critic_losses else 0.0,
             advantage_mean=advantage_mean,
             advantage_std=advantage_std,
+            actor_epochs_completed=len(epoch_mean_kls),
+            stopped_for_target_kl=stopped_for_target_kl,
+            epoch_mean_kls=tuple(epoch_mean_kls),
+            first_batch_gradient_norm=gradient_norms[0],
+            mean_gradient_norm=sum(gradient_norms) / len(gradient_norms),
+            max_gradient_norm=max(gradient_norms),
+            parameter_l2_norm_before=parameter_l2_norm_before,
+            parameter_delta_l2=movement[0],
+            relative_parameter_delta=movement[1],
+            mean_centered_logit_absolute_delta=movement[2],
+            max_centered_logit_absolute_delta=movement[3],
+            mean_probability_total_variation=movement[4],
+            max_probability_total_variation=movement[5],
+            argmax_change_fraction=movement[6],
+            advantage_log_probability_covariance=advantage_covariance,
+            advantage_log_probability_correlation=advantage_correlation,
+            action_type_advantage_means=action_type_advantage_means,
         ),
         steps=tuple(steps),
     )
@@ -436,6 +504,93 @@ def _post_update_diagnostics(
                 entropy = float(-(new * new.clamp_min(1e-12).log()).sum())
                 entropies.append(entropy / math.log(len(new)) if len(new) > 1 else 0.0)
     return ratios, kls, entropies
+
+
+def _advantage_action_diagnostics(
+    steps: list[ActorStep],
+) -> tuple[float, float, dict[str, float]]:
+    advantages = torch.tensor([step.advantage for step in steps], dtype=torch.float64)
+    log_probabilities = torch.tensor(
+        [step.behavior_log_probability for step in steps], dtype=torch.float64
+    )
+    centered_advantages = advantages - advantages.mean()
+    centered_log_probabilities = log_probabilities - log_probabilities.mean()
+    covariance = float((centered_advantages * centered_log_probabilities).mean())
+    denominator = float(
+        centered_advantages.square().mean().sqrt()
+        * centered_log_probabilities.square().mean().sqrt()
+    )
+    correlation = covariance / denominator if denominator > 0.0 else 0.0
+    by_action_type: dict[str, list[float]] = {}
+    for step in steps:
+        action_type = step.legal_actions[step.action_row].action_type.name
+        by_action_type.setdefault(action_type, []).append(step.advantage)
+    action_type_means = {
+        action_type: sum(values) / len(values)
+        for action_type, values in sorted(by_action_type.items())
+    }
+    return covariance, correlation, action_type_means
+
+
+def _movement_diagnostics(
+    actor: CanonicalEntityActionScorerModel,
+    steps: list[ActorStep],
+    parameter_snapshot: dict[str, torch.Tensor],
+    config: ActorCriticConfig,
+) -> tuple[float, float, float, float, float, float, float]:
+    parameter_delta_squared = 0.0
+    parameter_norm_squared = 0.0
+    for name, parameter in actor.named_parameters():
+        before = parameter_snapshot[name].double()
+        after = parameter.detach().cpu().double()
+        parameter_delta_squared += float(((after - before) ** 2).sum())
+        parameter_norm_squared += float((before ** 2).sum())
+    parameter_delta = math.sqrt(parameter_delta_squared)
+    relative_parameter_delta = parameter_delta / max(math.sqrt(parameter_norm_squared), 1e-12)
+
+    absolute_logit_deltas: list[float] = []
+    total_variations: list[float] = []
+    argmax_changes = 0
+    actor.eval()
+    with torch.no_grad():
+        for batch_indices in _batches(list(range(len(steps))), config.batch_size):
+            batch_steps = [steps[index] for index in batch_indices]
+            batch = collate_entity_action_batch(
+                [(step.state, list(step.legal_actions)) for step in batch_steps],
+                device=config.device,
+            )
+            scores, _ = actor(**batch)
+            probabilities = full_support_probabilities(
+                scores, batch["action_mask"], config.behavior_temperature, config.uniform_mix
+            )
+            for row, step in enumerate(batch_steps):
+                action_count = len(step.legal_actions)
+                old_scores = torch.tensor(step.behavior_scores, dtype=torch.float64)
+                new_scores = scores[row, :action_count].detach().cpu().double()
+                old_centered = old_scores - old_scores.mean()
+                new_centered = new_scores - new_scores.mean()
+                absolute_logit_deltas.extend(
+                    (new_centered - old_centered).abs().tolist()
+                )
+                old_probabilities = torch.tensor(
+                    step.behavior_probabilities, dtype=torch.float64
+                )
+                new_probabilities = probabilities[row, :action_count].detach().cpu().double()
+                total_variations.append(
+                    float(0.5 * (new_probabilities - old_probabilities).abs().sum())
+                )
+                argmax_changes += int(
+                    int(torch.argmax(old_probabilities)) != int(torch.argmax(new_probabilities))
+                )
+    return (
+        parameter_delta,
+        relative_parameter_delta,
+        sum(absolute_logit_deltas) / len(absolute_logit_deltas),
+        max(absolute_logit_deltas),
+        sum(total_variations) / len(total_variations),
+        max(total_variations),
+        argmax_changes / len(steps),
+    )
 
 
 def _batches(indices: list[int], batch_size: int) -> list[list[int]]:

@@ -42,6 +42,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--critic-learning-rate", type=float, default=3e-4)
     parser.add_argument("--entropy-weight", type=float, default=0.01)
     parser.add_argument("--uniform-mix", type=float, default=0.05)
+    parser.add_argument("--target-kl", type=float, default=None)
+    parser.add_argument("--max-grad-norm", type=float, default=1.0)
+    parser.add_argument("--minimum-effective-kl", type=float, default=0.0)
+    parser.add_argument("--minimum-centered-logit-delta", type=float, default=0.0)
+    parser.add_argument("--maximum-kl", type=float, default=0.02)
+    parser.add_argument(
+        "--skip-parent-gate-below-movement",
+        action="store_true",
+        help="Skip the game gate unless every offline safety/movement gate passes.",
+    )
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--parent-gate-games", type=int, default=20)
     return parser
@@ -65,6 +75,8 @@ def main() -> None:
         critic_learning_rate=args.critic_learning_rate,
         entropy_weight=args.entropy_weight,
         uniform_mix=args.uniform_mix,
+        target_kl=args.target_kl,
+        max_grad_norm=args.max_grad_norm,
         device=args.device,
     )
     league = [
@@ -129,20 +141,6 @@ def main() -> None:
         },
         critic_path,
     )
-    parent_gate = benchmark_head_to_head(
-        candidate_checkpoint_path=actor_path,
-        baseline_checkpoint_path=parent,
-        candidate_model_kind="canonical_entity_action_scorer",
-        baseline_model_kind="canonical_entity_action_scorer",
-        device=args.device,
-        games=args.parent_gate_games,
-        seed_start=args.seed_start + 1_000,
-        paired_seeds=True,
-        log_every=0,
-    )
-    matchup = parent_gate["matchup"]
-    candidate_wins = int(matchup["candidate_wins"])
-    draws = int(matchup["draws"])
     gates = {
         "behavior_reconstruction": artifacts.update.behavior_log_prob_max_error <= 1e-5,
         "full_support": artifacts.rollout.minimum_behavior_probability > 0.0,
@@ -150,10 +148,38 @@ def main() -> None:
         "non_greedy_exploration": artifacts.rollout.non_greedy_actions >= max(1, artifacts.rollout.steps // 10),
         "entropy_not_collapsed": artifacts.update.mean_normalized_entropy >= 0.35,
         "importance_ratios_bounded": artifacts.update.max_ratio <= 1.5,
-        "kl_bounded": artifacts.update.mean_kl <= 0.02,
+        "kl_bounded": artifacts.update.mean_kl <= args.maximum_kl,
+        "gradient_signal_present": artifacts.update.first_batch_gradient_norm > 1e-8,
+        "effective_policy_movement": (
+            artifacts.update.mean_kl >= args.minimum_effective_kl
+            and artifacts.update.mean_centered_logit_absolute_delta
+            >= args.minimum_centered_logit_delta
+        ),
         "clean_rollouts": artifacts.rollout.timed_out_games == 0 and artifacts.rollout.stalled_games == 0,
-        "no_parent_regression_smoke": candidate_wins + 0.5 * draws >= 0.4 * args.parent_gate_games,
     }
+    offline_gates_passed = all(gates.values())
+    run_parent_gate = not args.skip_parent_gate_below_movement or offline_gates_passed
+    parent_gate = None
+    if run_parent_gate:
+        parent_gate = benchmark_head_to_head(
+            candidate_checkpoint_path=actor_path,
+            baseline_checkpoint_path=parent,
+            candidate_model_kind="canonical_entity_action_scorer",
+            baseline_model_kind="canonical_entity_action_scorer",
+            device=args.device,
+            games=args.parent_gate_games,
+            seed_start=args.seed_start + 1_000,
+            paired_seeds=True,
+            log_every=0,
+        )
+        matchup = parent_gate["matchup"]
+        candidate_wins = int(matchup["candidate_wins"])
+        draws = int(matchup["draws"])
+        gates["no_parent_regression_smoke"] = (
+            candidate_wins + 0.5 * draws >= 0.4 * args.parent_gate_games
+        )
+    else:
+        gates["no_parent_regression_smoke"] = False
     payload = {
         "parent_checkpoint": str(parent),
         "actor_checkpoint": str(actor_path),
@@ -162,6 +188,8 @@ def main() -> None:
         "rollout": asdict(artifacts.rollout),
         "update": asdict(artifacts.update),
         "parent_gate": parent_gate,
+        "offline_gates_passed": offline_gates_passed,
+        "parent_gate_ran": run_parent_gate,
         "gates": gates,
         "all_gates_passed": all(gates.values()),
     }

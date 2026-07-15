@@ -26,6 +26,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Frozen clean entity actor parent: `outputs/canonical_entity_scale_004/canonical_entity_action_scorer_best.pt`
 - Current clean actor-critic smoke candidate, not promoted: `outputs/canonical_entity_actor_005_smoke/canonical_entity_actor.pt`
 - Rejected clean actor-critic no-movement generation: `outputs/canonical_entity_actor_006_seed90000/canonical_entity_actor.pt`
+- Current clean actor-critic movement candidate, not promoted: `outputs/canonical_entity_actor_007_kl_target/canonical_entity_actor.pt`
 
 ## Current Conclusions
 
@@ -92,6 +93,16 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   not repeat the identical one-epoch, 1e-5 actor update. Before more expensive
   games, add an effective-movement gate and test a KL-targeted update schedule
   that is materially larger while retaining the frozen-parent safety bound.
+- `entity_actor_007_kl_target` implements that movement gate and KL-targeted
+  schedule. On 36 fresh league games, actor learning rate 3e-5 reached mean KL
+  0.00241 in the first epoch and stopped automatically. Mean probability TV was
+  0.0271, 4.93% of rollout-state argmaxes changed, centered-logit movement was
+  0.0424, and relative parameter movement was 0.000654; max ratio remained
+  1.194 and entropy 0.842. The initial 60-game parent gate scored 37-22-1, but
+  an independent 100-game paired block scored only 52-48. Keep `004` frozen and
+  retain `007` as proof that bounded effective movement is possible, not as a
+  promoted parent. Do not launch expensive broad/search confirmation until the
+  same recipe produces a repeatable gain from another independent rollout seed.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
@@ -1817,6 +1828,61 @@ Decision:
   for measurable but bounded movement before launching games.
 - CPU remains appropriate. The expensive portion is serial simulation/search,
   not the small actor/critic optimization; a GPU would not fix this blocker.
+
+### KL-Targeted Entity Actor-Critic Generation `007`
+
+The actor-critic implementation now records pre-clipping gradient norms,
+parameter movement, centered-logit movement, probability total variation,
+argmax changes, per-epoch rollout-state KL, advantage/log-probability
+covariance, and mean raw advantage by sampled action type. Actor training can
+run for multiple epochs but stops after the first epoch whose exact rollout-
+state KL reaches `target_kl`. The runner can skip parent games unless all
+offline movement and safety gates pass.
+
+`outputs/canonical_entity_actor_007_kl_target` used 36 fresh league games at
+seed 100000, six maximum actor epochs, actor learning rate 3e-5, target KL
+0.002, minimum effective KL 0.0005, centered-logit movement floor 0.005, and
+hard KL ceiling 0.01. The six league opponents were evenly represented.
+
+Results:
+
+- 1,156 actor steps, zero rollout stalls/timeouts, and five action types;
+- target reached after one epoch: mean KL 0.002415, max importance ratio 1.194,
+  normalized entropy 0.842, and policy loss -0.01356;
+- first-batch/mean/max pre-clipping gradient norms 0.937/1.355/6.339;
+- parameter delta L2 0.02473, relative delta 0.000654;
+- mean/max centered-logit absolute movement 0.04244/0.2562;
+- mean/max probability TV 0.02714/0.07068 and 4.93% argmax changes;
+- advantage/log-probability correlation +0.254. Mean raw advantages were
+  +0.104 for visible buys, +0.070 for blind reserves, -0.0075 for reserved
+  buys, -0.0225 for visible reserves, and -0.0961 for token takes.
+
+Strength:
+
+- initial paired parent gate, 60 games at seed 101000: 37-22-1 for `007`, with
+  one repetition cutoff;
+- independent paired confirmation, 100 games at seed 102000: 52-48 for `007`,
+  with two repetition cutoffs;
+- aggregate readout 89-70-1, score share 0.559, but the larger independent block
+  does not establish a repeatable advantage.
+
+Decision:
+
+- The no-movement blocker is fixed: the higher learning rate creates measurable
+  policy movement and the KL stop bounds it automatically. This is a successful
+  learning-mechanism experiment.
+- Do not promote `007`; retain frozen `004`. Do not run the expensive broad or
+  shallow-search gates after a 52-48 independent confirmation.
+- The next eligible experiment is the same fixed KL-target recipe on another
+  disjoint rollout seed. Require another independently trained candidate to
+  clear a preregistered parent threshold before broad-league confirmation.
+- CPU remains sufficient; optimization and diagnostics completed quickly
+  relative to rollout/search simulation.
+
+Artifacts:
+
+- `outputs/canonical_entity_actor_007_kl_target/actor_critic_metrics.json`
+- `outputs/benchmarks/entity_actor007_vs004_seed102000_g100.json`
 
 ### Active Overnight Reserve Corpus
 
