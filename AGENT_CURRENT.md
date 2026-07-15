@@ -170,6 +170,17 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   opponent response to one interval and adds transition noise; the next credit
   experiment should be action-conditional/counterfactual rather than another
   temporal reward redistribution.
+- Fresh entity counterfactual-credit diagnostic `015` evaluated 18
+  game-disjoint, phase-balanced `004` states with five candidate actions and
+  eight matched continuations per action. Whole-action rankings replicated
+  (mean split Spearman 0.568, CI95 [0.329, 0.777]), all states were informative,
+  and there were zero continuation cutoffs. The sampled action's advantage did
+  not replicate overall: half-to-half correlation 0.154, CI95
+  [-0.354, 0.783], so the fixed gate failed and no policy update is eligible.
+  The failure is phase-localized: mid/late correlation was 0.905/0.842 with
+  100% eligible sign agreement, versus early correlation -0.321 and 33% sign
+  agreement. Treat mid/late-only credit as a new hypothesis requiring a fresh
+  preregistered confirmation; do not select phases or train from `015` itself.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
@@ -2257,6 +2268,62 @@ Matched results and decision:
   action-conditional/counterfactual advantage estimation that separates the
   selected action from opponent-response variance.
 
+### Entity Action-Conditional Credit Diagnostic `015`
+
+Implementation and fixed gates:
+
+- `run_entity_counterfactual_credit.py` collects fresh stochastic `004`
+  trajectories against the balanced six-opponent league without changing any
+  checkpoint. It selects one state per game, equally across turns 0-19, 20-39,
+  and 40+, so state-level uncertainty is game-disjoint.
+- Each state compares the parent top three actions, the behavior-sampled action
+  when different, and action-type diversity up to five candidates. Every
+  candidate receives the same observer-relative hidden-card determinizations
+  and continuation seeds under stochastic `004` play.
+- Four continuations per determinization are split 2/2, producing independent
+  four-return halves per action. Diagnostics cover full action-ranking
+  Spearman/top-one replication, behavior-action centered-advantage correlation
+  and sign replication, return range, parent regret, and cutoff rate.
+- Before collection, acceptance required clean balanced source games, 18 unique
+  games with six states per phase, at most 1% continuation cutoffs, at least
+  50% informative states, split top-one agreement at least 50%, positive lower
+  confidence bounds for both mean split Spearman and chosen-advantage
+  correlation, at least five sign-eligible states with 60% sign agreement, and
+  nondegenerate positive and negative advantage tails.
+
+Experiment:
+
+- Artifact: `outputs/diagnostics/entity_counterfactual_credit_015.json`.
+- Source seeds 180000-180035 produced 36 games and 1,136 actor states, exactly
+  three games in each opponent-seat cell, with zero stalls/timeouts. The actor
+  went 7-29; outcomes were not used for state selection.
+- The deterministic selection contains 18 different games, six states per
+  early/mid/late phase. All states have five candidate actions. Two legal
+  determinizations and four continuations per determinization produced 720
+  complete terminal continuations and zero cutoffs.
+
+Results and decision:
+
+- All 18 states exceeded the fixed 0.05 action-return range; mean range was
+  0.273. Split top-one agreement was 10/18 (55.6%), and mean split Spearman was
+  0.568 with CI95 [0.329, 0.777]. The action-ranking replication gate passes.
+- Behavior-action advantages were nondegenerate: standard deviation 0.090,
+  27.8% positive, 72.2% negative, with 15 sign-eligible states and 73.3% sign
+  agreement. However, half-to-half magnitude correlation was only 0.154 with
+  CI95 [-0.354, 0.783]. The preregistered chosen-advantage gate fails.
+- The parent top action differed from the full-return top action on 12/18
+  states; mean parent regret was 0.0868. Only three discovery-half best actions
+  were independently resolved on the validation half. This is headroom
+  evidence, not a safe policy target.
+- Post-hoc phase inspection localizes the instability: chosen-advantage
+  correlation is -0.321 early, 0.905 mid, and 0.842 late; eligible sign
+  agreement is 33%, 100%, and 100%, respectively. This cannot retroactively
+  change the aggregate gate.
+- Do not train from `015` and do not perform a full-game counterfactual policy
+  update. Frozen `004` remains the parent. A fresh, preregistered mid/late-only
+  confirmation with more independent continuations is scientifically eligible;
+  it must reproduce both phases separately before any matched policy update.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -2293,7 +2360,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 283 passed after legal hidden-information search, PUCT batching, root-visit
+- 287 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -2308,7 +2375,8 @@ Current full test status:
   public-actor/privileged-critic smoke generation, opponent-seat balancing,
   frontier-curriculum selection, score-margin return validation, and matched
   return-mode actor/critic branching with game-disjoint critic diagnostics,
-  and causal telescoping dense score-change credit with matched A/B gates.
+  causal telescoping dense score-change credit with matched A/B gates, and
+  fresh game-disjoint entity counterfactual-credit stability diagnostics.
 
 ## Files To Read Next
 
@@ -2349,3 +2417,4 @@ Current full test status:
 - `src/splendor_ai/training/run_entity_return_validation.py`
 - `src/splendor_ai/training/run_entity_return_ab.py`
 - `src/splendor_ai/training/run_entity_temporal_credit_ab.py`
+- `src/splendor_ai/training/run_entity_counterfactual_credit.py`
