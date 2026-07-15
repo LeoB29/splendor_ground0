@@ -31,6 +31,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Rejected balanced 120-game actor-critic candidate: `outputs/canonical_entity_actor_009_balanced120/canonical_entity_actor.pt`
 - Rejected frontier-curriculum actor-critic candidate: `outputs/canonical_entity_actor_010_frontier120/canonical_entity_actor.pt`
 - Rejected matched score-margin actor candidate: `outputs/canonical_entity_return_ab_013/canonical_entity_actor_score_margin.pt`
+- Rejected dense temporal-credit candidate: `outputs/canonical_entity_temporal_credit_ab_014/canonical_entity_actor_dense_score_change.pt`
 
 ## Current Conclusions
 
@@ -158,6 +159,17 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   same 33-27, only 55% versus the fixed 60% progression threshold. Reject the
   policy candidate and skip confirmation/strong gates, while retaining the
   matched evidence that score margin is the superior credit target.
+- Matched temporal-credit A/B `entity_temporal_credit_ab_014` compared the
+  validated terminal score-margin target with causal actor-interval margin
+  changes on one fresh shared 120-game balanced corpus. Dense rewards were
+  genuinely less sparse (28.14% versus 3.12% nonzero), but held-out critic
+  skill fell from 0.674 to 0.583, critic correlation fell from 0.828 to 0.768,
+  advantage/log-probability correlation fell slightly, and raw advantage
+  standard deviation increased from 0.161 to 0.181. Reject dense potential
+  shaping and skip all games. It assigns both the actor's action and the
+  opponent response to one interval and adds transition noise; the next credit
+  experiment should be action-conditional/counterfactual rather than another
+  temporal reward redistribution.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
@@ -2189,6 +2201,62 @@ Initial games and decision:
   target density or critic learnability. Do not tune `/20`, learning rate, or KL
   against this near-miss.
 
+### Matched Temporal-Credit A/B `014`
+
+Implementation:
+
+- `ActorCriticConfig.return_mode="score_margin_delta"` trains the critic on
+  remaining normalized final margin and gives each actor transition the change
+  in normalized score margin from its current decision state to the next actor
+  decision state, or to the terminal state on the final step.
+- The per-transition rewards telescope exactly to final normalized margin minus
+  the margin already present at the first actor decision. This is causal,
+  preserves the `/20` objective scale, and avoids giving the policy credit for
+  points scored before it acted.
+- Update telemetry now reports nonzero temporal-reward fraction and mean
+  absolute temporal reward. `run_entity_temporal_credit_ab.py` reuses one
+  rollout corpus and identical initial weights, validation games, optimizer
+  settings, shuffle seeds, and KL gates for terminal-margin control and dense
+  treatment.
+- Offline gates require both branches to be safe, dense rewards to be at least
+  1.5x less sparse, and dense treatment to improve held-out critic skill,
+  critic correlation, and absolute advantage/log-probability correlation.
+  Only then are fixed 55% treatment-control and 60% frozen-parent game gates
+  eligible.
+
+Experiment:
+
+- Artifact:
+  `outputs/canonical_entity_temporal_credit_ab_014/temporal_credit_ab_metrics.json`.
+- One 120-game balanced full-league corpus at seeds 170000-170119, 3,845 actor
+  steps, exactly 10 games per opponent-seat cell, zero stalls/timeouts, and
+  752 actor states from every fifth game held out from critic warmup.
+- Both branches started from frozen `004` and retained the `013` update recipe:
+  actor learning rate 3e-5, target KL 0.002, five critic warmup epochs, six
+  maximum actor epochs, and identical deterministic schedules.
+
+Matched results and decision:
+
+- Terminal-margin control: 3.12% nonzero temporal rewards, mean absolute reward
+  0.0161, held-out critic MSE 0.0733 versus constant 0.2248, skill 0.6738,
+  correlation 0.8282, advantage standard deviation 0.1611, and
+  advantage/log-probability correlation 0.0460.
+- Dense score-change treatment: 28.14% nonzero temporal rewards, mean absolute
+  reward 0.0271, held-out critic MSE 0.0816 versus constant 0.1957, skill
+  0.5832, correlation 0.7679, advantage standard deviation 0.1813, and
+  advantage/log-probability correlation 0.0443.
+- Both policy updates were safe and comparable: terminal/dense KL
+  0.00565/0.00539, max ratio 1.336/1.331, centered-logit movement
+  0.0702/0.0691, and one actor epoch each after the target-KL stop.
+- Dense rewards passed the sparsity gate by roughly 9x but failed all three
+  learning-quality gates. The runner correctly skipped treatment-control and
+  frozen-parent games; no game-strength claim is made.
+- Reject `014`; frozen `004` remains the parent. Do not sweep the dense reward
+  scale, learning rate, or KL. Potential-based redistribution made the critic
+  target harder and increased credit variance. The next justified direction is
+  action-conditional/counterfactual advantage estimation that separates the
+  selected action from opponent-response variance.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -2225,7 +2293,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 281 passed after legal hidden-information search, PUCT batching, root-visit
+- 283 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -2239,7 +2307,8 @@ Current full test status:
   gating, fixed objective/capacity diagnosis, canonical entity modeling, the
   public-actor/privileged-critic smoke generation, opponent-seat balancing,
   frontier-curriculum selection, score-margin return validation, and matched
-  return-mode actor/critic branching with game-disjoint critic diagnostics.
+  return-mode actor/critic branching with game-disjoint critic diagnostics,
+  and causal telescoping dense score-change credit with matched A/B gates.
 
 ## Files To Read Next
 
@@ -2279,3 +2348,4 @@ Current full test status:
 - `src/splendor_ai/training/entity_return_validation.py`
 - `src/splendor_ai/training/run_entity_return_validation.py`
 - `src/splendor_ai/training/run_entity_return_ab.py`
+- `src/splendor_ai/training/run_entity_temporal_credit_ab.py`

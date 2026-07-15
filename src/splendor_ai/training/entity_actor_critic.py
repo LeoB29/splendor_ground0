@@ -127,6 +127,8 @@ class UpdateSummary:
     advantage_log_probability_covariance: float
     advantage_log_probability_correlation: float
     action_type_advantage_means: dict[str, float]
+    nonzero_temporal_reward_fraction: float
+    mean_absolute_temporal_reward: float
     critic_validation_steps: int
     critic_validation_mse: float
     critic_validation_baseline_mse: float
@@ -366,8 +368,10 @@ def train_actor_critic_from_steps(
         raise ValueError("target_kl must be positive when configured.")
     if config.max_grad_norm <= 0.0:
         raise ValueError("max_grad_norm must be positive.")
-    if config.return_mode not in {"outcome", "score_margin"}:
-        raise ValueError("return_mode must be 'outcome' or 'score_margin'.")
+    if config.return_mode not in {"outcome", "score_margin", "score_margin_delta"}:
+        raise ValueError(
+            "return_mode must be 'outcome', 'score_margin', or 'score_margin_delta'."
+        )
     if config.critic_validation_modulus == 1 or config.critic_validation_modulus < 0:
         raise ValueError("critic_validation_modulus must be 0 or at least 2.")
     steps = [replace(step, advantage=0.0, value_target=0.0) for step in source_steps]
@@ -418,6 +422,7 @@ def train_actor_critic_from_steps(
         critic_validation_indices,
         config,
     )
+    temporal_rewards = _temporal_rewards(steps, config)
     _assign_gae(steps, critic, config)
     advantages = torch.tensor([step.advantage for step in steps], dtype=torch.float32)
     advantage_mean = float(advantages.mean())
@@ -537,6 +542,13 @@ def train_actor_critic_from_steps(
             advantage_log_probability_covariance=advantage_covariance,
             advantage_log_probability_correlation=advantage_correlation,
             action_type_advantage_means=action_type_advantage_means,
+            nonzero_temporal_reward_fraction=(
+                sum(abs(reward) > 1e-12 for reward in temporal_rewards)
+                / len(temporal_rewards)
+            ),
+            mean_absolute_temporal_reward=(
+                sum(abs(reward) for reward in temporal_rewards) / len(temporal_rewards)
+            ),
             critic_validation_steps=critic_validation[0],
             critic_validation_mse=critic_validation[1],
             critic_validation_baseline_mse=critic_validation[2],
@@ -549,8 +561,73 @@ def train_actor_critic_from_steps(
 
 def _terminal_return(step: ActorStep, config: ActorCriticConfig) -> float:
     if config.return_mode == "score_margin":
-        return step.score_margin_return
+        return normalized_score_margin(step.final_score_margin, config.score_margin_scale)
+    if config.return_mode == "score_margin_delta":
+        return (
+            normalized_score_margin(step.final_score_margin, config.score_margin_scale)
+            - _current_score_margin_return(step, config)
+        )
     return step.final_return
+
+
+def score_margin_delta_rewards(
+    game_steps: list[ActorStep] | tuple[ActorStep, ...],
+    scale: float = 20.0,
+) -> list[float]:
+    """Return causal actor-turn margin changes that telescope to remaining margin."""
+    if scale <= 0.0:
+        raise ValueError("scale must be positive.")
+    rewards: list[float] = []
+    for offset, step in enumerate(game_steps):
+        current = normalized_score_margin(
+            float(
+                step.state.players[step.actor_seat].score
+                - step.state.players[1 - step.actor_seat].score
+            ),
+            scale,
+        )
+        if offset + 1 < len(game_steps):
+            next_step = game_steps[offset + 1]
+            if next_step.game_index != step.game_index:
+                raise ValueError("score_margin_delta_rewards requires steps from one game.")
+            if next_step.actor_seat != step.actor_seat:
+                raise ValueError("score_margin_delta_rewards requires one actor perspective.")
+            following = normalized_score_margin(
+                float(
+                    next_step.state.players[next_step.actor_seat].score
+                    - next_step.state.players[1 - next_step.actor_seat].score
+                ),
+                scale,
+            )
+        else:
+            following = normalized_score_margin(step.final_score_margin, scale)
+        rewards.append(following - current)
+    return rewards
+
+
+def _current_score_margin_return(step: ActorStep, config: ActorCriticConfig) -> float:
+    return normalized_score_margin(
+        float(
+            step.state.players[step.actor_seat].score
+            - step.state.players[1 - step.actor_seat].score
+        ),
+        config.score_margin_scale,
+    )
+
+
+def _temporal_rewards(steps: list[ActorStep], config: ActorCriticConfig) -> list[float]:
+    by_game: dict[int, list[ActorStep]] = {}
+    for step in steps:
+        by_game.setdefault(step.game_index, []).append(step)
+    rewards: list[float] = []
+    for game_steps in by_game.values():
+        if config.return_mode == "score_margin_delta":
+            rewards.extend(score_margin_delta_rewards(game_steps, config.score_margin_scale))
+        else:
+            rewards.extend(
+                [0.0] * (len(game_steps) - 1) + [_terminal_return(game_steps[-1], config)]
+            )
+    return rewards
 
 
 def _critic_validation_diagnostics(
@@ -608,15 +685,19 @@ def _assign_gae(steps: list[ActorStep], critic: PrivilegedEntityCritic, config: 
     for index, step in enumerate(steps):
         by_game.setdefault(step.game_index, []).append(index)
     for game_indices in by_game.values():
+        if config.return_mode == "score_margin_delta":
+            game_rewards = score_margin_delta_rewards(
+                [steps[index] for index in game_indices], config.score_margin_scale
+            )
+        else:
+            game_rewards = [0.0] * (len(game_indices) - 1) + [
+                _terminal_return(steps[game_indices[-1]], config)
+            ]
         running = 0.0
         for offset in range(len(game_indices) - 1, -1, -1):
             index = game_indices[offset]
             next_value = values[game_indices[offset + 1]] if offset + 1 < len(game_indices) else 0.0
-            reward = (
-                _terminal_return(steps[index], config)
-                if offset == len(game_indices) - 1
-                else 0.0
-            )
+            reward = game_rewards[offset]
             delta = reward + config.gamma * next_value - values[index]
             running = delta + config.gamma * config.gae_lambda * running
             steps[index].advantage = running

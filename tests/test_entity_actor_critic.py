@@ -13,9 +13,11 @@ from splendor_ai.encoding import (
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.training.entity_actor_critic import (
     ActorCriticConfig,
+    ActorStep,
     full_support_probabilities,
     load_entity_actor,
     normalized_score_margin,
+    score_margin_delta_rewards,
     train_actor_critic_from_steps,
     train_actor_critic_generation,
 )
@@ -30,6 +32,9 @@ from splendor_ai.training.model import (
 )
 from splendor_ai.training.run_entity_actor_critic import build_parser as build_actor_critic_parser
 from splendor_ai.training.run_entity_return_ab import build_parser as build_return_ab_parser
+from splendor_ai.training.run_entity_temporal_credit_ab import (
+    build_parser as build_temporal_credit_ab_parser,
+)
 
 
 def _checkpoint(tmp_path):
@@ -113,6 +118,55 @@ def test_matched_return_ab_defaults_are_strict() -> None:
     assert args.minimum_treatment_control_score_share == 0.55
     assert args.minimum_treatment_parent_score_share == 0.60
     assert args.critic_validation_modulus == 5
+
+
+def test_matched_temporal_credit_ab_defaults_are_strict() -> None:
+    args = build_temporal_credit_ab_parser().parse_args(
+        [
+            "--parent-checkpoint",
+            "parent.pt",
+            "--checkpoint-016",
+            "016.pt",
+            "--checkpoint-035",
+            "035.pt",
+            "--output-dir",
+            "output",
+        ]
+    )
+
+    assert args.minimum_dense_reward_fraction_ratio == 1.5
+    assert args.minimum_treatment_control_score_share == 0.55
+    assert args.minimum_treatment_parent_score_share == 0.60
+    assert args.critic_validation_modulus == 5
+
+
+def test_score_margin_delta_rewards_are_dense_causal_and_telescoping() -> None:
+    states = [SplendorEnv(seed=3).initial_state() for _ in range(3)]
+    margins = (0, 3, 1)
+    for state, margin in zip(states, margins):
+        state.players[0].score = margin
+        state.players[1].score = 0
+    steps = [
+        ActorStep(
+            state=state,
+            legal_actions=(),
+            action_row=0,
+            behavior_scores=(),
+            behavior_probabilities=(),
+            behavior_log_probability=0.0,
+            behavior_entropy=0.0,
+            actor_seat=0,
+            game_index=0,
+            opponent_label="test",
+            final_score_margin=5.0,
+        )
+        for state in states
+    ]
+
+    rewards = score_margin_delta_rewards(steps, scale=20.0)
+
+    assert rewards == pytest.approx([0.15, -0.10, 0.20])
+    assert sum(rewards) == pytest.approx(0.25)
 
 
 def test_score_margin_summary_finds_dense_variation_in_all_loss_strata() -> None:
@@ -218,3 +272,26 @@ def test_actor_checkpoint_compatibility_and_smoke_update(tmp_path) -> None:
     assert margin_artifacts.update.parameter_l2_norm_before == pytest.approx(
         artifacts.update.parameter_l2_norm_before
     )
+
+    dense_artifacts = train_actor_critic_from_steps(
+        checkpoint,
+        artifacts.steps,
+        artifacts.rollout,
+        replace(config, return_mode="score_margin_delta"),
+        critic_config=PrivilegedEntityCriticConfig(
+            hidden_size=16,
+            layers=1,
+            attention_heads=2,
+            attention_feedforward_size=32,
+            id_embedding_size=4,
+        ),
+    )
+
+    assert (
+        dense_artifacts.update.critic_validation_steps
+        == artifacts.update.critic_validation_steps
+    )
+    assert dense_artifacts.update.parameter_l2_norm_before == pytest.approx(
+        artifacts.update.parameter_l2_norm_before
+    )
+    assert 0.0 <= dense_artifacts.update.nonzero_temporal_reward_fraction <= 1.0

@@ -74,6 +74,7 @@ from .entity_actor_critic import (
     full_support_probabilities,
     load_entity_actor,
     normalized_score_margin,
+    score_margin_delta_rewards,
     train_actor_critic_from_steps,
     train_actor_critic_generation,
 )
@@ -218,6 +219,7 @@ __all__ = [
     "run_entity_action_epoch",
     "load_entity_actor",
     "normalized_score_margin",
+    "score_margin_delta_rewards",
     "game_return_records",
     "summarize_return_targets",
     "train_actor_critic_generation",
