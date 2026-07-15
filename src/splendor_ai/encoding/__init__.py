@@ -14,8 +14,10 @@ from .entity_encoding import (
     EntityActionEncoding,
     EntityStateEncoding,
     collate_entity_action_batch,
+    collate_privileged_state_batch,
     encode_canonical_action_entities,
     encode_canonical_state_entities,
+    encode_privileged_state_entities,
 )
 from .observation import (
     OBSERVATION_SIZE,
@@ -51,8 +53,10 @@ __all__ = [
     "canonical_successor_action_key",
     "canonical_successor_action_keys",
     "collate_entity_action_batch",
+    "collate_privileged_state_batch",
     "encode_canonical_action_entities",
     "encode_canonical_state_entities",
+    "encode_privileged_state_entities",
     "encode_action_features",
     "encode_legal_action_features",
     "encode_public_observation",

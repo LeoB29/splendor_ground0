@@ -14,6 +14,7 @@ from splendor_ai.encoding.entity_encoding import (
     ACTION_TYPE_COUNT,
     ENTITY_NUMERIC_SIZE,
     ENTITY_TYPE_COUNT,
+    PRIVILEGED_ENTITY_TYPE_COUNT,
     card_vocabulary_size,
     noble_vocabulary_size,
 )
@@ -81,6 +82,16 @@ class CanonicalEntityActionScorerConfig:
     attention_heads: int = 4
     attention_feedforward_size: int = 384
     id_embedding_size: int = 32
+    dropout: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class PrivilegedEntityCriticConfig:
+    hidden_size: int = 128
+    layers: int = 2
+    attention_heads: int = 4
+    attention_feedforward_size: int = 256
+    id_embedding_size: int = 16
     dropout: float = 0.0
 
 
@@ -606,6 +617,64 @@ class CanonicalEntityActionScorerModel(nn.Module):
             raise ValueError("Entity id tensors must share a shape.")
         if action_card_ids.shape != action_type_ids.shape or action_noble_ids.shape != action_type_ids.shape:
             raise ValueError("Action id tensors must share a shape.")
+
+
+class PrivilegedEntityCritic(nn.Module):
+    """Centralized full-state value critic used only while training an actor."""
+
+    def __init__(self, config: PrivilegedEntityCriticConfig | None = None) -> None:
+        super().__init__()
+        self.config = config or PrivilegedEntityCriticConfig()
+        if self.config.hidden_size % self.config.attention_heads != 0:
+            raise ValueError("hidden_size must be divisible by attention_heads.")
+        id_size = self.config.id_embedding_size
+        self.entity_type_embedding = nn.Embedding(PRIVILEGED_ENTITY_TYPE_COUNT, id_size, padding_idx=0)
+        self.card_embedding = nn.Embedding(card_vocabulary_size(), id_size, padding_idx=0)
+        self.noble_embedding = nn.Embedding(noble_vocabulary_size(), id_size, padding_idx=0)
+        self.input = nn.Sequential(
+            nn.Linear(ENTITY_NUMERIC_SIZE + 3 * id_size, self.config.hidden_size),
+            nn.GELU(),
+            nn.LayerNorm(self.config.hidden_size),
+        )
+        self.encoder = nn.TransformerEncoder(
+            _transformer_encoder_layer(
+                self.config.hidden_size,
+                self.config.attention_heads,
+                self.config.attention_feedforward_size,
+                self.config.dropout,
+            ),
+            num_layers=self.config.layers,
+            enable_nested_tensor=False,
+        )
+        self.value_head = nn.Sequential(
+            nn.Linear(self.config.hidden_size, self.config.hidden_size // 2),
+            nn.GELU(),
+            nn.Linear(self.config.hidden_size // 2, 1),
+            nn.Tanh(),
+        )
+
+    def forward(
+        self,
+        entity_type_ids: torch.Tensor,
+        entity_card_ids: torch.Tensor,
+        entity_noble_ids: torch.Tensor,
+        entity_numeric_features: torch.Tensor,
+        entity_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        embedded = torch.cat(
+            [
+                entity_numeric_features,
+                self.entity_type_embedding(entity_type_ids),
+                self.card_embedding(entity_card_ids),
+                self.noble_embedding(entity_noble_ids),
+            ],
+            dim=-1,
+        )
+        hidden = self.encoder(self.input(embedded), src_key_padding_mask=~entity_mask)
+        hidden = hidden.masked_fill(~entity_mask.unsqueeze(-1), 0.0)
+        counts = entity_mask.sum(dim=1, keepdim=True).clamp_min(1).to(hidden.dtype)
+        pooled = hidden.sum(dim=1) / counts
+        return self.value_head(pooled).squeeze(-1)
 
 
 def _transformer_encoder_layer(

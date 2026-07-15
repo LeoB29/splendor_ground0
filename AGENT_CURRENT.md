@@ -23,6 +23,8 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Rejected rollout-credit candidate: `outputs/legal_action_scorer_034_rollout_credit_anchored/legal_action_attention_scorer.pt`
 - Current legal late-game value candidate, not promoted: `outputs/value_model_009_puct035_legal_late40/value_model.pt`
 - Historical contaminated value model, diagnostics only: `outputs/value_model_006_late40_outcome_currentgen/value_model_best.pt`
+- Frozen clean entity actor parent: `outputs/canonical_entity_scale_004/canonical_entity_action_scorer_best.pt`
+- Current clean actor-critic smoke candidate, not promoted: `outputs/canonical_entity_actor_005_smoke/canonical_entity_actor.pt`
 
 ## Current Conclusions
 
@@ -63,10 +65,20 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   strength readout is deliberately non-promotional: 15-5 versus Greedy, 5-15
   versus the legal depth1 shallow-search teacher, and 3-17 versus legal `035`
   on 20 games each (the `035` block used paired seeds). It is a viable clean
-  behavioral apprentice, not a champion. Do not scale pure imitation alone;
-  the next learning stage should use fresh full-support actor-critic rollouts
-  with a privileged training-only critic and a league including this snapshot,
-  the rule teachers, `016`, `035`, and PUCT variants.
+  behavioral apprentice, not a champion. Do not scale pure imitation alone.
+  `entity_scale_004` is now frozen as the clean actor parent.
+- The first clean actor-critic smoke generation is
+  `outputs/canonical_entity_actor_005_smoke`. Its actor sees only canonical
+  public entities; a separate training-only critic sees hidden deck cards and
+  opponent blind-reserve identities. The 12-game rollout league included the
+  frozen parent, Greedy, legal shallow depth 1, `016`, `035`, and PUCT035 s8.
+  Full-support sampling, exact stored behavior probabilities, GAE(lambda 0.95),
+  clipped ratios, entropy, KL, and paired parent gates are implemented. All
+  smoke gates passed, including zero rollout failures, behavior reconstruction
+  error 6.9e-7, max ratio 1.016, mean KL 2.0e-5, and normalized entropy 0.841.
+  The candidate beat its parent 12-8 in 20 paired games. This validates the
+  learning mechanism but is too small for promotion; keep `004` frozen and
+  require independent larger generations plus broad league confirmation.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
@@ -1706,6 +1718,46 @@ Decision:
 - Any next learner must change the credit or decision process itself, rather
   than trying to fit the same offline return rankings more aggressively.
 
+### Clean Entity Actor-Critic Smoke `005`
+
+Implementation:
+
+- `src/splendor_ai/training/entity_actor_critic.py`
+- `src/splendor_ai/training/run_entity_actor_critic.py`
+- `run_entity_actor_critic.py`
+- `tests/test_entity_actor_critic.py`
+
+The public actor checkpoint is initialized from frozen `entity_scale_004` and
+retains the 13-type public entity contract. The separate privileged critic has
+two additional entity types for actual hidden-deck cards and opponent blind
+reserves; privileged state is never passed to the actor. Every canonical legal
+successor has positive behavior probability through a 5% uniform mixture.
+Rollouts retain the exact old action distribution and use terminal score outcome
+with GAE/TD-lambda credit, clipped PPO updates, and explicit KL, entropy,
+importance-ratio, exploration, action-coverage, and rollout-integrity gates.
+
+CPU smoke artifacts are under `outputs/canonical_entity_actor_005_smoke`:
+
+- 12 fresh league games, 375 actor decisions, zero stalls/timeouts;
+- opponents evenly split across `entity004`, Greedy, legal shallow depth 1,
+  `016`, `035`, and PUCT035 s8;
+- minimum behavior probability 0.000734, five action types, 304/375 sampled
+  actions different from the actor argmax, and rollout entropy 0.841;
+- behavior log-probability reconstruction error 6.89e-7, max post-update
+  importance ratio 1.0158, mean KL 2.04e-5, and post-update entropy 0.841;
+- paired no-regression smoke: candidate 12, frozen parent 8, no draws or
+  timeouts; every preregistered runner gate passed.
+
+Decision:
+
+- The architecture, legality boundary, stochastic rollout path, credit update,
+  and conservative gates work end to end on CPU. A GPU is not justified by
+  this workload yet.
+- Do not promote `005` from a 20-game readout. Next run several independent
+  larger rollout/update generations while retaining `004` as the immutable
+  control. Require repeatable no-regression against `004` and strength against
+  the broad league before replacing the parent.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -1742,7 +1794,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 263 passed after legal hidden-information search, PUCT batching, root-visit
+- 278 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -1753,7 +1805,8 @@ Current full test status:
   human-game forensic action-quality auditing, and disjoint non-human reserve
   generalization auditing with resumable matched terminal continuations, and
   reserve counterfactual corpus compilation, constrained training, uptake
-  gating, and fixed objective/capacity diagnosis.
+  gating, fixed objective/capacity diagnosis, canonical entity modeling, and
+  the public-actor/privileged-critic smoke generation.
 
 ## Files To Read Next
 
@@ -1788,3 +1841,5 @@ Current full test status:
 - `src/splendor_ai/training/run_actor_movement_audit.py`
 - `src/splendor_ai/training/run_human_game_forensic_audit.py`
 - `src/splendor_ai/training/run_reserve_generalization_audit.py`
+- `src/splendor_ai/training/entity_actor_critic.py`
+- `src/splendor_ai/training/run_entity_actor_critic.py`

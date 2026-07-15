@@ -37,6 +37,9 @@ ENTITY_OPPONENT_BLIND_RESERVED = 10
 ENTITY_SELF_PURCHASED = 11
 ENTITY_OPPONENT_PURCHASED = 12
 ENTITY_TYPE_COUNT = 13
+ENTITY_HIDDEN_DECK_CARD = 13
+ENTITY_PRIVILEGED_OPPONENT_BLIND_RESERVED = 14
+PRIVILEGED_ENTITY_TYPE_COUNT = 15
 
 ACTION_PAD = 0
 ACTION_TYPE_TO_ID = {action_type: index for index, action_type in enumerate(ActionType, start=1)}
@@ -110,6 +113,53 @@ def encode_canonical_state_entities(
         rows.append((ENTITY_SELF_PURCHASED, _card_id(card), 0, _card_row(card)))
     for card in sorted(opponent.purchased_cards, key=lambda item: item.card_id):
         rows.append((ENTITY_OPPONENT_PURCHASED, _card_id(card), 0, _card_row(card)))
+    return EntityStateEncoding(
+        entity_type_ids=tuple(row[0] for row in rows),
+        card_ids=tuple(row[1] for row in rows),
+        noble_ids=tuple(row[2] for row in rows),
+        numeric_features=tuple(row[3] for row in rows),
+    )
+
+
+def encode_privileged_state_entities(
+    state: SplendorState,
+    player_id: int,
+) -> EntityStateEncoding:
+    """Encode the full simulator state for a training-only centralized critic.
+
+    The public actor must never call this function. Hidden deck cards include
+    their normalized draw position, and opponent blind reserves expose their
+    actual identity only in this privileged view.
+    """
+
+    public = encode_canonical_state_entities(state, player_id)
+    rows = list(
+        zip(
+            public.entity_type_ids,
+            public.card_ids,
+            public.noble_ids,
+            public.numeric_features,
+            strict=True,
+        )
+    )
+    for tier in (1, 2, 3):
+        cards = state.hidden_tier_decks[tier]
+        normalizer = max(len(cards), 1)
+        for position, card in enumerate(cards):
+            features = list(_card_row(card))
+            features[33] = float(position) / float(normalizer)
+            rows.append((ENTITY_HIDDEN_DECK_CARD, _card_id(card), 0, tuple(features)))
+    opponent = state.players[1 - player_id]
+    for index, card in enumerate(opponent.reserved_cards):
+        if opponent.reserved_card_source(index) == RESERVE_SOURCE_DECK:
+            rows.append(
+                (
+                    ENTITY_PRIVILEGED_OPPONENT_BLIND_RESERVED,
+                    _card_id(card),
+                    0,
+                    _card_row(card),
+                )
+            )
     return EntityStateEncoding(
         entity_type_ids=tuple(row[0] for row in rows),
         card_ids=tuple(row[1] for row in rows),
@@ -201,6 +251,44 @@ def collate_entity_action_batch(
             [encoding.numeric_features for encoding in action_encodings], max_actions, ACTION_NUMERIC_SIZE, target_device
         ),
         "action_mask": _mask([len(encoding.action_type_ids) for encoding in action_encodings], max_actions, target_device),
+    }
+
+
+def collate_privileged_state_batch(
+    states_and_players: list[tuple[SplendorState, int]],
+    device: str | torch.device | None = None,
+) -> dict[str, torch.Tensor]:
+    """Pad full-state entities for the training-only critic."""
+
+    if not states_and_players:
+        raise ValueError("states_and_players must not be empty.")
+    encodings = [
+        encode_privileged_state_entities(state, player_id)
+        for state, player_id in states_and_players
+    ]
+    width = max(len(encoding.entity_type_ids) for encoding in encodings)
+    target_device = None if device is None else torch.device(device)
+    return {
+        "entity_type_ids": _pad_int_rows(
+            [encoding.entity_type_ids for encoding in encodings], width, target_device
+        ),
+        "entity_card_ids": _pad_int_rows(
+            [encoding.card_ids for encoding in encodings], width, target_device
+        ),
+        "entity_noble_ids": _pad_int_rows(
+            [encoding.noble_ids for encoding in encodings], width, target_device
+        ),
+        "entity_numeric_features": _pad_float_rows(
+            [encoding.numeric_features for encoding in encodings],
+            width,
+            ENTITY_NUMERIC_SIZE,
+            target_device,
+        ),
+        "entity_mask": _mask(
+            [len(encoding.entity_type_ids) for encoding in encodings],
+            width,
+            target_device,
+        ),
     }
 
 
