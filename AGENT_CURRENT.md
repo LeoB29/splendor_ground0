@@ -181,6 +181,15 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   100% eligible sign agreement, versus early correlation -0.321 and 33% sign
   agreement. Treat mid/late-only credit as a new hypothesis requiring a fresh
   preregistered confirmation; do not select phases or train from `015` itself.
+- Fresh fixed-baseline counterfactual confirmation `016` used new seeds, 30
+  game-disjoint states, action-independent policy reference sets, and 24
+  continuations per candidate. Late credit passed every fixed phase gate.
+  Mid credit passed six of seven but split-half top-one agreement was 5/12,
+  below the fixed 6/12 requirement; both phases were required. Do not weaken or
+  rerun the threshold and do not train. The continuous mid signal was strong
+  (rank CI95 [0.207, 0.766], chosen-advantage correlation CI95
+  [0.320, 0.958]), so this is a disciplined near-miss rather than evidence that
+  counterfactual credit is absent. Frozen `004` remains the parent.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
@@ -2324,6 +2333,67 @@ Results and decision:
   confirmation with more independent continuations is scientifically eligible;
   it must reproduce both phases separately before any matched policy update.
 
+### Fixed-Baseline Mid/Late Confirmation `016`
+
+Implementation and preregistration:
+
+- `run_entity_counterfactual_confirmation.py` preserves `015`'s original
+  candidate-mean estimator for reproducibility and selects a new fixed
+  policy-reference mode. The five reference actions depend only on frozen
+  parent scores and action-type coverage. A sampled behavior action outside
+  that set is evaluated as a sixth action but cannot change the baseline.
+- The baseline is the softmax-policy-weighted return of the fixed reference
+  set. Fresh selection targets were fixed at six early negative-control states,
+  12 mid states, and 12 late states, all from different games.
+- Each action received three observer-relative determinizations and eight
+  matched continuations per determinization. The 12/12 independent halves
+  tripled per-action evidence over `015`.
+- Mid and late were gated independently. Each required at least 50% informative
+  states, 50% split top-one agreement, positive lower 95% bounds for split
+  Spearman and chosen-advantage correlation, at least six sign-eligible states
+  with 70% agreement, at least 10% in both advantage tails, advantage standard
+  deviation at least 0.03, and at least two discovery-best actions independently
+  resolved on the validation half. Both phases had to pass; early results could
+  not affect the decision.
+
+Experiment:
+
+- Artifact: `outputs/diagnostics/entity_counterfactual_confirmation_016.json`.
+- Source seeds 190000-190047 produced 48 games and 1,563 actor states, exactly
+  four games in every opponent-seat cell, with zero source stalls/timeouts.
+  The actor went 9-39; outcomes were not used for selection.
+- The 30 selected states exactly matched the fixed phase counts and unique-game
+  requirement. Candidate counts averaged 5.67 early and 5.33 mid/late because
+  off-reference sampled actions were retained.
+- The run produced 3,888 continuations. Twelve mid continuations cut off,
+  0.31% overall, below the fixed 1% ceiling; all others reached terminal state.
+
+Phase results:
+
+- Early negative control: all 6 informative, top-one agreement 3/6, split
+  Spearman 0.603 with CI95 [0.384, 0.805], chosen-advantage correlation 0.821
+  with CI95 [-0.228, 1.000], sign agreement 5/6, and one independently resolved
+  discovery-best action. Early remained underpowered/inconclusive as intended.
+- Mid: 10/12 informative, top-one agreement 5/12, split Spearman 0.529 with
+  CI95 [0.207, 0.766], chosen-advantage correlation 0.831 with CI95
+  [0.320, 0.958], sign agreement 7/9, advantage standard deviation 0.0666, and
+  four independently resolved discovery-best actions. Every criterion except
+  the fixed 6/12 top-one threshold passed.
+- Late: 11/12 informative, top-one agreement 7/12, split Spearman 0.812 with
+  CI95 [0.645, 0.933], chosen-advantage correlation 0.670 with CI95
+  [0.437, 0.867], sign agreement 6/6, advantage standard deviation 0.0308, and
+  two independently resolved discovery-best actions. Every late gate passed.
+
+Decision:
+
+- The confirmation fails because mid top-one replication is 5/12 rather than
+  the fixed 6/12 and both phases were required. Do not weaken the discrete gate,
+  rerun fresh seeds to chase one state, or train a late-only candidate after
+  observing the result.
+- No actor or critic checkpoint was trained and no games were run. Frozen `004`
+  remains the parent. The continuous counterfactual signal is real, especially
+  late, but has not satisfied the complete contract for a safe policy update.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -2360,7 +2430,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 287 passed after legal hidden-information search, PUCT batching, root-visit
+- 288 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -2376,7 +2446,8 @@ Current full test status:
   frontier-curriculum selection, score-margin return validation, and matched
   return-mode actor/critic branching with game-disjoint critic diagnostics,
   causal telescoping dense score-change credit with matched A/B gates, and
-  fresh game-disjoint entity counterfactual-credit stability diagnostics.
+  fresh game-disjoint entity counterfactual-credit stability diagnostics, and
+  fixed-reference mid/late counterfactual confirmation gates.
 
 ## Files To Read Next
 
@@ -2418,3 +2489,4 @@ Current full test status:
 - `src/splendor_ai/training/run_entity_return_ab.py`
 - `src/splendor_ai/training/run_entity_temporal_credit_ab.py`
 - `src/splendor_ai/training/run_entity_counterfactual_credit.py`
+- `src/splendor_ai/training/run_entity_counterfactual_confirmation.py`

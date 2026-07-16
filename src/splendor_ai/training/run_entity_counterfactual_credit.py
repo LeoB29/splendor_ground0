@@ -46,8 +46,10 @@ class EntityCounterfactualConfig:
     rollout_games: int = 36
     seed_start: int = 180_000
     max_states: int = 18
+    phase_targets: tuple[int, int, int] | None = None
     policy_top_k: int = 3
     max_candidates: int = 5
+    baseline_mode: str = "candidate_mean"
     determinizations: int = 2
     continuations_per_determinization: int = 4
     continuation_epsilon: float = 0.1
@@ -203,6 +205,7 @@ def run_counterfactual_credit_diagnostic(
         source_steps,
         config.max_states,
         config.seed_start + 91,
+        phase_targets=config.phase_targets,
     )
     scorer = EntityPolicyScorer(config.parent_checkpoint, config.device)
     state_rows = [
@@ -216,7 +219,7 @@ def run_counterfactual_credit_diagnostic(
         bootstrap_samples=config.bootstrap_samples,
         seed=config.seed_start + 193,
     )
-    expected_per_phase = config.max_states // 3
+    phase_targets = _phase_target_dict(config.max_states, config.phase_targets)
     gates = {
         "clean_balanced_source_rollout": (
             rollout.timed_out_games == 0
@@ -227,7 +230,7 @@ def run_counterfactual_credit_diagnostic(
             len(state_rows) == config.max_states
             and len({row["game_index"] for row in state_rows}) == len(state_rows)
             and all(
-                selection["selected_by_phase"].get(phase, 0) == expected_per_phase
+                selection["selected_by_phase"].get(phase, 0) == phase_targets[phase]
                 for phase in ("early", "mid", "late")
             )
         ),
@@ -283,9 +286,9 @@ def select_game_disjoint_phase_states(
     steps: list[ActorStep] | tuple[ActorStep, ...],
     max_states: int,
     seed: int,
+    phase_targets: tuple[int, int, int] | None = None,
 ) -> tuple[list[ActorStep], dict[str, Any]]:
-    if max_states <= 0 or max_states % 3:
-        raise ValueError("max_states must be a positive multiple of three.")
+    targets = _phase_target_dict(max_states, phase_targets)
     by_phase = {"early": [], "mid": [], "late": []}
     for step in steps:
         by_phase[_phase(step.state.turn_index)].append(step)
@@ -293,7 +296,6 @@ def select_game_disjoint_phase_states(
     used_games: set[int] = set()
     selected: list[ActorStep] = []
     selected_by_phase: dict[str, int] = {}
-    target = max_states // 3
     for phase in ("early", "mid", "late"):
         candidates = list(by_phase[phase])
         rng.shuffle(candidates)
@@ -303,7 +305,7 @@ def select_game_disjoint_phase_states(
                 continue
             chosen.append(step)
             used_games.add(step.game_index)
-            if len(chosen) == target:
+            if len(chosen) == targets[phase]:
                 break
         selected.extend(chosen)
         selected_by_phase[phase] = len(chosen)
@@ -325,12 +327,27 @@ def _evaluate_state(
     codec = scorer.codec
     parent_scores = scorer.score_actions(step.state, list(step.legal_actions))
     chosen_index = codec.encode(step.state, step.legal_actions[step.action_row])
-    candidates = _select_candidates(
-        parent_scores,
-        chosen_index,
-        config.policy_top_k,
-        config.max_candidates,
-    )
+    if config.baseline_mode == "policy_reference":
+        reference_candidates = _select_reference_candidates(
+            parent_scores,
+            config.policy_top_k,
+            config.max_candidates,
+        )
+        candidates = list(reference_candidates)
+        reference_indices = {item.action_index for item in reference_candidates}
+        if chosen_index not in reference_indices:
+            candidates.append(
+                next(item for item in parent_scores if item.action_index == chosen_index)
+            )
+        candidates = tuple(candidates)
+    else:
+        candidates = _select_candidates(
+            parent_scores,
+            chosen_index,
+            config.policy_top_k,
+            config.max_candidates,
+        )
+        reference_indices = {item.action_index for item in candidates}
     action_data = {
         item.action_index: {
             "score": item,
@@ -398,6 +415,7 @@ def _evaluate_state(
                 "action_payload": serialize_action(item.action),
                 "prior_score": item.score,
                 "chosen": action_index == chosen_index,
+                "reference_action": action_index in reference_indices,
                 "first_half_returns": data["first_half"],
                 "second_half_returns": data["second_half"],
                 "first_half_mean": first_mean,
@@ -408,13 +426,14 @@ def _evaluate_state(
             }
         )
     actions.sort(key=lambda row: int(row["action_index"]))
-    return _state_metrics(step, actions, chosen_index)
+    return _state_metrics(step, actions, chosen_index, config.baseline_mode)
 
 
 def _state_metrics(
     step: ActorStep,
     actions: list[dict[str, Any]],
     chosen_index: int,
+    baseline_mode: str,
 ) -> dict[str, Any]:
     first = [float(row["first_half_mean"]) for row in actions]
     second = [float(row["second_half_mean"]) for row in actions]
@@ -427,9 +446,32 @@ def _state_metrics(
     chosen_row = next(
         index for index, row in enumerate(actions) if row["action_index"] == chosen_index
     )
-    first_baseline = statistics.fmean(first)
-    second_baseline = statistics.fmean(second)
-    full_baseline = statistics.fmean(full)
+    if baseline_mode == "policy_reference":
+        reference_rows = [
+            index for index, row in enumerate(actions) if row["reference_action"]
+        ]
+        reference_max = max(prior[index] for index in reference_rows)
+        reference_weights = [
+            math.exp(prior[index] - reference_max) for index in reference_rows
+        ]
+        weight_total = sum(reference_weights)
+        reference_weights = [weight / weight_total for weight in reference_weights]
+        first_baseline = sum(
+            weight * first[index]
+            for weight, index in zip(reference_weights, reference_rows, strict=True)
+        )
+        second_baseline = sum(
+            weight * second[index]
+            for weight, index in zip(reference_weights, reference_rows, strict=True)
+        )
+        full_baseline = sum(
+            weight * full[index]
+            for weight, index in zip(reference_weights, reference_rows, strict=True)
+        )
+    else:
+        first_baseline = statistics.fmean(first)
+        second_baseline = statistics.fmean(second)
+        full_baseline = statistics.fmean(full)
     discovery_order = sorted(range(len(actions)), key=lambda index: (-first[index], index))
     discovery_best, discovery_runner = discovery_order[:2]
     validation_differences = [
@@ -451,6 +493,8 @@ def _state_metrics(
         "actor_seat": step.actor_seat,
         "opponent_label": step.opponent_label,
         "candidate_count": len(actions),
+        "reference_action_count": sum(row["reference_action"] for row in actions),
+        "baseline_mode": baseline_mode,
         "chosen_action_index": chosen_index,
         "first_top_action_index": actions[first_top]["action_index"],
         "second_top_action_index": actions[second_top]["action_index"],
@@ -596,6 +640,32 @@ def _select_candidates(
     return tuple(selected)
 
 
+def _select_reference_candidates(
+    parent_scores: tuple[ModelActionScore, ...],
+    policy_top_k: int,
+    max_candidates: int,
+) -> tuple[ModelActionScore, ...]:
+    """Choose an action-independent policy reference set for state baselines."""
+    selected = list(parent_scores[:policy_top_k])
+    selected_indices = {item.action_index for item in selected}
+    for item in parent_scores:
+        if len(selected) >= max_candidates:
+            break
+        if item.action_index in selected_indices:
+            continue
+        if any(existing.action.action_type == item.action.action_type for existing in selected):
+            continue
+        selected.append(item)
+        selected_indices.add(item.action_index)
+    for item in parent_scores:
+        if len(selected) >= max_candidates:
+            break
+        if item.action_index not in selected_indices:
+            selected.append(item)
+            selected_indices.add(item.action_index)
+    return tuple(selected)
+
+
 def _rollout_score_margin(
     env: SplendorEnv,
     scorer: EntityPolicyScorer,
@@ -708,8 +778,7 @@ def _bootstrap_correlation_ci(
 def _validate_config(config: EntityCounterfactualConfig) -> None:
     if config.rollout_games <= 0 or config.rollout_games % 12:
         raise ValueError("rollout_games must be a positive multiple of 12.")
-    if config.max_states <= 0 or config.max_states % 3:
-        raise ValueError("max_states must be a positive multiple of three.")
+    _phase_target_dict(config.max_states, config.phase_targets)
     if config.policy_top_k <= 0 or config.max_candidates < config.policy_top_k + 1:
         raise ValueError("max_candidates must exceed positive policy_top_k.")
     if config.determinizations <= 0:
@@ -721,6 +790,25 @@ def _validate_config(config: EntityCounterfactualConfig) -> None:
         raise ValueError("continuations_per_determinization must be positive and even.")
     if config.bootstrap_samples <= 0:
         raise ValueError("bootstrap_samples must be positive.")
+    if config.baseline_mode not in {"candidate_mean", "policy_reference"}:
+        raise ValueError("baseline_mode must be 'candidate_mean' or 'policy_reference'.")
+
+
+def _phase_target_dict(
+    max_states: int,
+    phase_targets: tuple[int, int, int] | None,
+) -> dict[str, int]:
+    if max_states <= 0:
+        raise ValueError("max_states must be positive.")
+    if phase_targets is None:
+        if max_states % 3:
+            raise ValueError("max_states must be a multiple of three without phase_targets.")
+        phase_targets = (max_states // 3,) * 3
+    if len(phase_targets) != 3 or any(target < 0 for target in phase_targets):
+        raise ValueError("phase_targets must contain three non-negative counts.")
+    if sum(phase_targets) != max_states:
+        raise ValueError("phase_targets must sum to max_states.")
+    return dict(zip(("early", "mid", "late"), phase_targets, strict=True))
 
 
 def _config_payload(config: EntityCounterfactualConfig) -> dict[str, Any]:

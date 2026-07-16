@@ -5,9 +5,14 @@ from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.training.entity_actor_critic import ActorStep
 from splendor_ai.training.run_entity_counterfactual_credit import (
     _select_candidates,
+    _select_reference_candidates,
     build_parser,
     select_game_disjoint_phase_states,
     summarize_counterfactual_states,
+)
+from splendor_ai.training.run_entity_counterfactual_confirmation import (
+    _phase_gate,
+    build_parser as build_confirmation_parser,
 )
 from splendor_ai.training.run_policy_search_disagreement import ModelActionScore
 
@@ -42,6 +47,17 @@ def test_phase_selection_uses_one_state_per_game() -> None:
     assert len({step.game_index for step in selected}) == 9
     assert summary["selected_by_phase"] == {"early": 3, "mid": 3, "late": 3}
 
+    selected, summary = select_game_disjoint_phase_states(
+        steps,
+        max_states=9,
+        seed=7,
+        phase_targets=(2, 3, 4),
+    )
+
+    assert len(selected) == 9
+    assert len({step.game_index for step in selected}) == 9
+    assert summary["selected_by_phase"] == {"early": 2, "mid": 3, "late": 4}
+
 
 def test_candidate_selection_retains_sampled_behavior_action() -> None:
     action_types = (
@@ -64,6 +80,10 @@ def test_candidate_selection_retains_sampled_behavior_action() -> None:
 
     assert [item.action_index for item in selected[:3]] == [0, 1, 2]
     assert selected[3].action_index == 4
+
+    references = _select_reference_candidates(scores, policy_top_k=3, max_candidates=4)
+    assert [item.action_index for item in references] == [0, 1, 2, 3]
+    assert 4 not in {item.action_index for item in references}
 
 
 def test_counterfactual_summary_detects_replicated_advantages() -> None:
@@ -124,3 +144,41 @@ def test_counterfactual_parser_preregisters_cpu_pilot_defaults() -> None:
     assert args.determinizations == 2
     assert args.continuations_per_determinization == 4
     assert args.minimum_split_top1_agreement == 0.50
+
+
+def test_confirmation_parser_and_phase_gate_are_independent() -> None:
+    args = build_confirmation_parser().parse_args(
+        [
+            "--parent-checkpoint",
+            "parent.pt",
+            "--checkpoint-016",
+            "016.pt",
+            "--checkpoint-035",
+            "035.pt",
+            "--output-path",
+            "metrics.json",
+        ]
+    )
+    summary = {
+        "informative_fraction": 0.75,
+        "split_top1_agreement": 0.50,
+        "split_spearman_ci95": [0.1, 0.8],
+        "chosen_advantage_correlation_ci95": [0.05, 0.9],
+        "chosen_advantage_sign_eligible_states": 8,
+        "chosen_advantage_sign_agreement": 0.75,
+        "chosen_advantage_std": 0.08,
+        "chosen_advantage_positive_fraction": 0.25,
+        "chosen_advantage_negative_fraction": 0.75,
+        "replicated_discovery_best_states": 2,
+    }
+
+    gate = _phase_gate(summary, args)
+
+    assert args.rollout_games == 48
+    assert (args.early_control_states, args.mid_states, args.late_states) == (6, 12, 12)
+    assert args.determinizations == 3
+    assert args.continuations_per_determinization == 8
+    assert gate["passed"]
+
+    summary["chosen_advantage_correlation_ci95"] = [-0.01, 0.9]
+    assert not _phase_gate(summary, args)["passed"]
