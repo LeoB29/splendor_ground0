@@ -2843,6 +2843,18 @@ Preregistered broad gate and result:
   an iterative expert-iteration candidate. A failure authorizes no training
   corpus and closes fixed-heuristic canonical PUCT as the next improvement
   direction; it does not change `023`'s promoted status.
+- Result: all 100 games and 50 seed pairs completed with zero stalls, timeouts,
+  forced-pass deadlocks, or fallback triggers. PUCT64 beat raw `023` 56-44,
+  sweeping 15 pairs, splitting 26, and losing both seats on 9. Its score share
+  was 56% with pair-aware bootstrap CI95 [47%, 65%]; mean final score margin
+  was +0.74 with CI95 [-0.69, +2.13]. The direction is encouraging but neither
+  the frozen 60% share threshold nor the lower-bound-above-50% threshold
+  passes. Reject `028` before corpus generation: do not tune PUCT parameters,
+  sweep budgets, or train root visits from this result. Fixed-heuristic
+  canonical PUCT is closed as the next improvement line and `023` remains
+  promoted. Raw and decision artifacts are
+  `outputs/canonical_entity_search_lift_028/puct64_vs_parent023_paired100.json`
+  and `gate_decision.json`.
 
 ### Active Overnight Reserve Corpus
 
