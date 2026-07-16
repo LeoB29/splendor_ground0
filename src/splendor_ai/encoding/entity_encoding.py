@@ -292,6 +292,44 @@ def collate_privileged_state_batch(
     }
 
 
+def collate_canonical_state_batch(
+    states_and_players: list[tuple[SplendorState, int]],
+    device: str | torch.device | None = None,
+) -> dict[str, torch.Tensor]:
+    """Pad observer-legal state entities for a deployable public value model."""
+
+    if not states_and_players:
+        raise ValueError("states_and_players must not be empty.")
+    encodings = [
+        encode_canonical_state_entities(state, player_id)
+        for state, player_id in states_and_players
+    ]
+    width = max(len(encoding.entity_type_ids) for encoding in encodings)
+    target_device = None if device is None else torch.device(device)
+    return {
+        "entity_type_ids": _pad_int_rows(
+            [encoding.entity_type_ids for encoding in encodings], width, target_device
+        ),
+        "entity_card_ids": _pad_int_rows(
+            [encoding.card_ids for encoding in encodings], width, target_device
+        ),
+        "entity_noble_ids": _pad_int_rows(
+            [encoding.noble_ids for encoding in encodings], width, target_device
+        ),
+        "entity_numeric_features": _pad_float_rows(
+            [encoding.numeric_features for encoding in encodings],
+            width,
+            ENTITY_NUMERIC_SIZE,
+            target_device,
+        ),
+        "entity_mask": _mask(
+            [len(encoding.entity_type_ids) for encoding in encodings],
+            width,
+            target_device,
+        ),
+    }
+
+
 def card_vocabulary_size() -> int:
     return len(_card_id_map()) + 1
 

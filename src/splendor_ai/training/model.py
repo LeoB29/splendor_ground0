@@ -86,6 +86,18 @@ class CanonicalEntityActionScorerConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class CanonicalEntityValueConfig:
+    """Configuration for an observer-legal canonical entity value model."""
+
+    hidden_size: int = 192
+    layers: int = 3
+    attention_heads: int = 4
+    attention_feedforward_size: int = 384
+    id_embedding_size: int = 32
+    dropout: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
 class PrivilegedEntityCriticConfig:
     hidden_size: int = 128
     layers: int = 2
@@ -617,6 +629,71 @@ class CanonicalEntityActionScorerModel(nn.Module):
             raise ValueError("Entity id tensors must share a shape.")
         if action_card_ids.shape != action_type_ids.shape or action_noble_ids.shape != action_type_ids.shape:
             raise ValueError("Action id tensors must share a shape.")
+
+
+class CanonicalEntityValueModel(nn.Module):
+    """Deployable value model over only observer-visible canonical entities."""
+
+    def __init__(self, config: CanonicalEntityValueConfig | None = None) -> None:
+        super().__init__()
+        self.config = config or CanonicalEntityValueConfig()
+        if self.config.hidden_size % self.config.attention_heads != 0:
+            raise ValueError("hidden_size must be divisible by attention_heads.")
+        id_size = self.config.id_embedding_size
+        self.entity_type_embedding = nn.Embedding(
+            ENTITY_TYPE_COUNT,
+            id_size,
+            padding_idx=0,
+        )
+        self.card_embedding = nn.Embedding(card_vocabulary_size(), id_size, padding_idx=0)
+        self.noble_embedding = nn.Embedding(noble_vocabulary_size(), id_size, padding_idx=0)
+        self.entity_input = nn.Sequential(
+            nn.Linear(ENTITY_NUMERIC_SIZE + 3 * id_size, self.config.hidden_size),
+            nn.GELU(),
+            nn.LayerNorm(self.config.hidden_size),
+        )
+        self.entity_encoder = nn.TransformerEncoder(
+            _transformer_encoder_layer(
+                self.config.hidden_size,
+                self.config.attention_heads,
+                self.config.attention_feedforward_size,
+                self.config.dropout,
+            ),
+            num_layers=self.config.layers,
+            enable_nested_tensor=False,
+        )
+        self.value_head = nn.Sequential(
+            nn.Linear(self.config.hidden_size, self.config.hidden_size // 2),
+            nn.GELU(),
+            nn.Linear(self.config.hidden_size // 2, 1),
+            nn.Tanh(),
+        )
+
+    def forward(
+        self,
+        entity_type_ids: torch.Tensor,
+        entity_card_ids: torch.Tensor,
+        entity_noble_ids: torch.Tensor,
+        entity_numeric_features: torch.Tensor,
+        entity_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        embedded = torch.cat(
+            [
+                entity_numeric_features,
+                self.entity_type_embedding(entity_type_ids),
+                self.card_embedding(entity_card_ids),
+                self.noble_embedding(entity_noble_ids),
+            ],
+            dim=-1,
+        )
+        hidden = self.entity_encoder(
+            self.entity_input(embedded),
+            src_key_padding_mask=~entity_mask,
+        )
+        hidden = hidden.masked_fill(~entity_mask.unsqueeze(-1), 0.0)
+        counts = entity_mask.sum(dim=1, keepdim=True).clamp_min(1).to(hidden.dtype)
+        pooled = hidden.sum(dim=1) / counts
+        return self.value_head(pooled).squeeze(-1)
 
 
 class PrivilegedEntityCritic(nn.Module):

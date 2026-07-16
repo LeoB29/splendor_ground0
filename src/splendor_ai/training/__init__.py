@@ -25,6 +25,8 @@ from .device import TrainingBackend, resolve_training_backend
 from .model import (
     CanonicalEntityActionScorerConfig,
     CanonicalEntityActionScorerModel,
+    CanonicalEntityValueConfig,
+    CanonicalEntityValueModel,
     PrivilegedEntityCritic,
     PrivilegedEntityCriticConfig,
     LegalActionAttentionScorerConfig,
@@ -148,6 +150,8 @@ __all__ = [
     "LegalActionAttentionScorerModel",
     "CanonicalEntityActionScorerConfig",
     "CanonicalEntityActionScorerModel",
+    "CanonicalEntityValueConfig",
+    "CanonicalEntityValueModel",
     "PrivilegedEntityCritic",
     "PrivilegedEntityCriticConfig",
     "LegalActionScorerConfig",

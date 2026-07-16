@@ -11,6 +11,7 @@ from typing import Protocol
 import torch
 
 from splendor_ai.encoding import (
+    collate_canonical_state_batch,
     collate_entity_action_batch,
     encode_legal_action_features,
     encode_public_observation_tensor,
@@ -23,6 +24,8 @@ from splendor_ai.engine.state import SplendorState
 from splendor_ai.training.model import (
     CanonicalEntityActionScorerConfig,
     CanonicalEntityActionScorerModel,
+    CanonicalEntityValueConfig,
+    CanonicalEntityValueModel,
     LegalActionAttentionScorerConfig,
     LegalActionAttentionScorerModel,
     LegalActionScorerConfig,
@@ -93,7 +96,17 @@ class CheckpointValueEvaluator:
         self._prediction_mode = prediction_mode
         self._outcome_blend_weight = outcome_blend_weight
         checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
-        self._model = ValueMLP(ValueModelConfig(**checkpoint.get("model_config", {})))
+        self._canonical_entity = checkpoint.get("model_kind") == "canonical_entity_value"
+        if self._canonical_entity:
+            if prediction_mode != "value":
+                raise ValueError(
+                    "canonical_entity_value checkpoints support prediction_mode='value' only."
+                )
+            self._model = CanonicalEntityValueModel(
+                CanonicalEntityValueConfig(**checkpoint.get("model_config", {}))
+            )
+        else:
+            self._model = ValueMLP(ValueModelConfig(**checkpoint.get("model_config", {})))
         self._model.load_state_dict(checkpoint["model_state_dict"], strict=False)
         self._model.to(device)
         self._model.eval()
@@ -107,6 +120,17 @@ class CheckpointValueEvaluator:
     ) -> list[float]:
         if not states_and_players:
             return []
+        if self._canonical_entity:
+            batch = collate_canonical_state_batch(
+                states_and_players,
+                device=self._device,
+            )
+            with torch.no_grad():
+                normalized_values = self._model(**batch)
+            return [
+                float(value) * self._value_scale
+                for value in normalized_values.detach().cpu().tolist()
+            ]
         observation_vectors = [
             fit_feature_vector(
                 encode_public_observation_tensor(state, player_id).vector,

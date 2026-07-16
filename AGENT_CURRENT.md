@@ -2856,6 +2856,56 @@ Preregistered broad gate and result:
   `outputs/canonical_entity_search_lift_028/puct64_vs_parent023_paired100.json`
   and `gate_decision.json`.
 
+### Preregistered Public-Belief Value Gate `029`
+
+- Purpose: test a genuinely different leaf-evaluator class after fixed-
+  heuristic PUCT64's encouraging but inconclusive 56% result. Do not sweep
+  PUCT parameters, budgets, or heuristic rules. No new rollout generation is
+  permitted before the offline value gate passes.
+- Source only the 240 clean league games in
+  `outputs/canonical_entity_dagger_026/replays.jsonl`. Preserve its frozen
+  192/24/24 game-disjoint train/validation/confirmation splits exactly; every
+  split remains opponent-profile balanced at 48/6/6 games for each of parent,
+  shallow, `016`, and `035`. Training cycles the eight profile x acting-seat
+  position strata with exactly equal frequency per epoch.
+- Train exactly one separate `CanonicalEntityValueModel` with the public
+  width64 entity encoder shape from promoted `023`. Initialize only public
+  entity embeddings/input/encoder from `023`; initialize a fresh value head,
+  then allow the entire value model to train. Inputs use only
+  `canonical_public_belief_v1`; hidden deck order and opponent blind-reserve
+  identity are never encoded and have invariance tests.
+- Target `clip((acting player final score - opponent final score) / 20, -1, 1)`.
+  Train eight CPU epochs with MSE, AdamW learning rate `3e-4`, weight decay
+  `1e-4`, batch size 128, gradient clip 1.0, and seed 20290716. Select once by
+  validation macro MAE across the eight opponent/seat strata. No architecture,
+  target scale, learning-rate, epoch, or initialization sweep is allowed.
+- Compare the selected model against the exact deployed PUCT heuristic
+  `legal_heuristic_value(scale=4000)` on the untouched 24-game confirmation
+  split. Report aggregate, opponent, acting-seat, and phase (0-14, 15-29,
+  30-44, 45+) MSE/MAE/correlation/sign accuracy. Ordering is measured on
+  per-game, per-actor, per-phase mean predictions within matched
+  opponent/seat/phase strata, avoiding position-count pseudoreplication.
+- Offline eligibility requires all six frozen gates: at least 10% macro
+  opponent/seat MAE improvement; paired-game MAE bootstrap CI95 wholly below
+  zero (20,000 resamples); ordering concordance at least 55%; concordance at
+  least 3 points above the heuristic; higher macro ordering correlation; and
+  no opponent or phase MAE regression above 10%. Any failure stops before
+  gameplay and forbids tuning on confirmation.
+- If and only if offline eligible, run a fresh 60-game/30-pair learned-leaf
+  PUCT64 versus heuristic-leaf PUCT64 A/B at seeds 330000-330029. Freeze the
+  full `028` PUCT64 configuration for both; only the candidate leaf evaluator
+  differs. Require zero stalls/timeouts, at least 60% learned-leaf score share,
+  and pair-aware CI95 lower bound above 50%.
+- If and only if that A/B passes, run learned-leaf PUCT64 versus raw deployed
+  `023` for 100 games/50 paired seeds 331000-331049 with the same integrity,
+  60% share, and lower-bound-above-50% gates. There are no replacement runs.
+  Only both gameplay passes authorize a separately preregistered expert-
+  iteration corpus; neither result directly promotes a model.
+- Implementation adds public-state batching, a dedicated public entity value
+  checkpoint, canonical value loading in `CheckpointValueEvaluator`, the
+  balanced trainer/evaluator, and six focused contract tests. Focused tests
+  pass 32/32 and the full suite passes 321/321 before training.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local

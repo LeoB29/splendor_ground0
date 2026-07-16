@@ -27,6 +27,8 @@ from splendor_ai.engine.state import (
 from splendor_ai.training.model import (
     CanonicalEntityActionScorerConfig,
     CanonicalEntityActionScorerModel,
+    CanonicalEntityValueConfig,
+    CanonicalEntityValueModel,
     LegalActionAttentionScorerConfig,
     LegalActionAttentionScorerModel,
     ValueMLP,
@@ -97,6 +99,30 @@ def _write_canonical_entity_checkpoint(tmp_path):
     torch.save(
         {
             "model_kind": "canonical_entity_action_scorer",
+            "model_state_dict": model.state_dict(),
+            "model_config": asdict(model.config),
+        },
+        path,
+    )
+    return path
+
+
+def _write_canonical_entity_value_checkpoint(tmp_path):
+    torch.manual_seed(37)
+    model = CanonicalEntityValueModel(
+        CanonicalEntityValueConfig(
+            hidden_size=16,
+            layers=1,
+            attention_heads=1,
+            attention_feedforward_size=16,
+            id_embedding_size=4,
+            dropout=0.0,
+        )
+    )
+    path = tmp_path / "canonical_entity_value.pt"
+    torch.save(
+        {
+            "model_kind": "canonical_entity_value",
             "model_state_dict": model.state_dict(),
             "model_config": asdict(model.config),
         },
@@ -239,6 +265,21 @@ def test_puct_can_use_checkpoint_value_for_leaf_evaluation(tmp_path) -> None:
 
     assert action is not None
     assert bot.last_search_stats.value_calls > 0
+
+
+def test_canonical_entity_value_evaluator_is_public_information_only(tmp_path) -> None:
+    state_a = SplendorEnv(seed=38).initial_state()
+    state_b = state_a.copy_shallow()
+    state_b.hidden_tier_decks[1].reverse()
+    evaluator = CheckpointValueEvaluator(
+        _write_canonical_entity_value_checkpoint(tmp_path),
+        value_scale=1.0,
+    )
+
+    value_a = evaluator.evaluate_state(state_a, 0)
+    value_b = evaluator.evaluate_state(state_b, 0)
+
+    assert value_a == pytest.approx(value_b)
 
 
 def test_puct_can_gate_checkpoint_value_by_turn(tmp_path) -> None:
