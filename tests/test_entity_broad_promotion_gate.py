@@ -64,3 +64,23 @@ def test_broad_gate_rejects_candidate_that_only_beats_absolute_floor(tmp_path) -
     assert result["gates"]["shallow_absolute_floor"] is True
     assert result["gates"]["shallow_matched_control_delta"] is False
     assert result["all_gates_passed"] is False
+
+
+def test_broad_gate_can_replace_one_invalid_greedy_block(tmp_path) -> None:
+    replacement = tmp_path / "replacement"
+    replacement.mkdir()
+    payloads = {
+        "greedy": (_baseline_payload(38), _baseline_payload(34)),
+        "shallow": (_baseline_payload(16), _baseline_payload(10)),
+        "016": (_checkpoint_payload(12), _checkpoint_payload(8)),
+        "035": (_checkpoint_payload(10), _checkpoint_payload(6)),
+    }
+    for opponent, (candidate, parent) in payloads.items():
+        target = replacement if opponent == "greedy" else tmp_path
+        (target / f"broad_candidate_{opponent}.json").write_text(json.dumps(candidate))
+        (target / f"broad_parent_{opponent}.json").write_text(json.dumps(parent))
+
+    result = summarize_broad_gate(tmp_path, greedy_replacement_dir=replacement)
+
+    assert result["greedy_replacement_used"] is True
+    assert result["all_gates_passed"] is True

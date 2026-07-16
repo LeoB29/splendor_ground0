@@ -17,6 +17,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--match-dir", required=True)
     parser.add_argument("--output-path", required=True)
+    parser.add_argument(
+        "--greedy-replacement-dir",
+        help="Optional one-shot fresh Greedy block replacing an integrity-invalid original block.",
+    )
     return parser
 
 
@@ -43,15 +47,23 @@ def baseline_score_share(payload: dict[str, Any]) -> tuple[float, int, int]:
     return (wins + 0.5 * draws) / games, games, failures
 
 
-def summarize_broad_gate(match_dir: Path) -> dict[str, Any]:
+def summarize_broad_gate(
+    match_dir: Path,
+    greedy_replacement_dir: Path | None = None,
+) -> dict[str, Any]:
     results: dict[str, Any] = {}
     gates: dict[str, bool] = {}
     for opponent in OPPONENTS:
+        source_dir = (
+            greedy_replacement_dir
+            if opponent == "greedy" and greedy_replacement_dir is not None
+            else match_dir
+        )
         candidate_payload = json.loads(
-            (match_dir / f"broad_candidate_{opponent}.json").read_text(encoding="utf-8")
+            (source_dir / f"broad_candidate_{opponent}.json").read_text(encoding="utf-8")
         )
         parent_payload = json.loads(
-            (match_dir / f"broad_parent_{opponent}.json").read_text(encoding="utf-8")
+            (source_dir / f"broad_parent_{opponent}.json").read_text(encoding="utf-8")
         )
         reader = baseline_score_share if opponent in {"greedy", "shallow"} else checkpoint_score_share
         candidate_share, candidate_games, candidate_failures = reader(candidate_payload)
@@ -76,6 +88,10 @@ def summarize_broad_gate(match_dir: Path) -> dict[str, Any]:
     return {
         "gate": "canonical_entity_broad_promotion_v1",
         "games_per_model_opponent": 40,
+        "greedy_replacement_used": greedy_replacement_dir is not None,
+        "greedy_replacement_dir": (
+            str(greedy_replacement_dir) if greedy_replacement_dir is not None else None
+        ),
         "results": results,
         "gates": gates,
         "all_gates_passed": all(gates.values()),
@@ -84,7 +100,10 @@ def summarize_broad_gate(match_dir: Path) -> dict[str, Any]:
 
 def main() -> None:
     args = build_parser().parse_args()
-    payload = summarize_broad_gate(Path(args.match_dir))
+    payload = summarize_broad_gate(
+        Path(args.match_dir),
+        Path(args.greedy_replacement_dir) if args.greedy_replacement_dir else None,
+    )
     output_path = Path(args.output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
