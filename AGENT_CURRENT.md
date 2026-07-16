@@ -2777,6 +2777,31 @@ Preregistered broad gate and result:
   epochs, learning rate, or source weights on these confirmation results; no
   parent or broad matches are authorized. `023` remains the promoted parent.
 
+### Preregistered Non-Promotional DAgger Diagnostic `027`
+
+- Purpose: determine whether rejected candidate `026`'s small but significant
+  imitation gains correspond to direct playing strength. This is diagnostic
+  only and cannot retroactively pass `026`, trigger broad gates, or promote it.
+- Play exactly 100 direct games as 50 paired-seat seeds, 310000-310049, with
+  `026` as candidate and promoted `023` as baseline. Both use
+  `canonical_entity_action_scorer` on CPU with deployed loop fallback,
+  `max_turns=400`, `repetition_limit=4`, and `no_progress_limit=60`.
+- Write the raw match to
+  `outputs/canonical_entity_dagger_diagnostic_027/paired_026_vs_023.json`.
+  Any true timeout or stall invalidates the diagnostic. A clean adjudicated
+  `forced_pass_deadlock` remains valid under the frozen engine contract.
+- Analyze candidate game score as 1 for a win, 0.5 for a draw, and 0 for a
+  loss. Average the two games for each seed before inference so seat-paired
+  games are the independent units. Report overall score share and a fixed-seed
+  percentile bootstrap CI95 over the 50 pair means (200,000 resamples,
+  analysis RNG seed 27023).
+- Interpret a candidate score share of at least 60% with pair-aware CI95 lower
+  bound above 50% as convincing positive evidence. The symmetric condition is
+  convincing negative evidence. Everything else is inconclusive/roughly even.
+  Regardless of outcome, `023` remains the promoted parent. Positive evidence
+  justifies one independently preregistered fresh DAgger replication; even or
+  negative evidence closes DAgger as the primary improvement direction.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
