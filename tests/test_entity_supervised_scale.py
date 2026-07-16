@@ -5,6 +5,7 @@ from splendor_ai.training.run_entity_supervised_scale import (
     _corpus_contract,
     _candidate_configs,
     split_game_heldout_indices,
+    split_game_seed_values,
 )
 from splendor_ai.training.run_entity_shallow_actor_ablation import (
     filter_indices_by_actor,
@@ -71,3 +72,12 @@ def test_shallow_selfplay_contract_is_coherent(tmp_path) -> None:
     contract = _corpus_contract(config)
 
     assert contract["teacher"] == "information_legal_ShallowSearchBot_depth1_d1_selfplay"
+
+
+def test_seed_only_split_matches_dataset_split() -> None:
+    dataset = _SeedDataset([seed for seed in range(10, 16) for _ in range(3)])
+
+    *_, dataset_split = split_game_heldout_indices(dataset, 4, 1, 1, seed=17)
+    seed_only_split = split_game_seed_values(list(range(10, 16)), 4, 1, 1, seed=17)
+
+    assert seed_only_split == dataset_split

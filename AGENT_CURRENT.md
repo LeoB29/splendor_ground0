@@ -34,6 +34,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Rejected dense temporal-credit candidate: `outputs/canonical_entity_temporal_credit_ab_014/canonical_entity_actor_dense_score_change.pt`
 - Rejected late auxiliary-Q diagnostic: `outputs/canonical_entity_action_value_019/canonical_entity_action_value_scorer.pt`
 - Rejected scaled supervised entity candidates: `outputs/canonical_entity_supervised_scale_020/canonical_entity_action_scorer_width64_best.pt` and `canonical_entity_action_scorer_width128_best.pt`
+- Successful shallow-actor-only diagnostic, not promoted: `outputs/canonical_entity_shallow_actor_021/canonical_entity_action_scorer_shallow_actor_width64_best.pt`
 
 ## Current Conclusions
 
@@ -92,6 +93,21 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   diagnostic should isolate a coherent teacher policy: train a preregistered
   shallow-actor-only ablation on the existing corpus before paying to generate
   shallow-vs-shallow games.
+- The bounded shallow-actor-only ablation `canonical_entity_shallow_actor_021`
+  succeeds. It reused `020`'s exact 400/50/50 games, retained only actions
+  selected by `ShallowSearchBot`, and trained the preregistered random-init
+  width64 model for eight epochs. On 1,616 untouched shallow confirmation
+  positions it lowered `004` loss from 2.0122 to 1.4635, raised top-one accuracy
+  from 37.1% to 50.2%, improved every held-out game's mean loss, and passed all
+  offline gates. It then beat frozen `004` 40-19-1 over 60 paired-seat games,
+  a 67.5% score share above the fixed 60% threshold. This validates coherent
+  teacher filtering and falsifies mixed-policy labels as the key `020` failure.
+  `021` is not yet a promoted parent; its gate only authorized coherent corpus
+  generation. The new `canonical_entity_shallow_selfplay_corpus_022` contains
+  500 depth1-vs-depth1 games, 31,080 positions, zero failures, and frozen
+  400/50/50 seed splits created before training. The next experiment should
+  train one width64 model from scratch on `022`, then require the same offline,
+  paired-parent, and broad strong-opponent gates before promotion.
 - The first clean actor-critic smoke generation is
   `outputs/canonical_entity_actor_005_smoke`. Its actor sees only canonical
   public entities; a separate training-only critic sees hidden deck cards and
@@ -2540,6 +2556,56 @@ Mandatory parent gate and decision:
   same untouched offline and paired-parent gates. Only a successful ablation
   justifies the more expensive coherent shallow-vs-shallow corpus generation.
 
+### Shallow-Actor Ablation `021` and Coherent Corpus `022`
+
+Implementation:
+
+- `run_entity_shallow_actor_ablation.py` filters replay positions by the acting
+  bot recorded in each row, refuses any seed split that differs from `020`'s
+  frozen `game_splits.json`, trains exactly one random-init width64 candidate,
+  and uses the same validation selection and untouched confirmation gates as
+  `020`. Entity training now supports per-epoch progress callbacks.
+- The clean scale collector now accepts `greedy_shallow` or `shallow_shallow`
+  pairings and a `--generate-only` mode. Generate-only collection persists the
+  400/50/50 game split before any future model training or evaluation.
+- Pre-experiment implementation checkpoints are `3a6cae0` for the shallow-only
+  learning gate and `20f5a6b` for coherent shallow self-play collection.
+
+Shallow-only ablation `021`:
+
+- Source is `outputs/canonical_entity_supervised_scale_020/replays.jsonl` with
+  the exact `020` seed split. Filtering retained 12,750 train, 1,611 validation,
+  and 1,616 confirmation actions selected by `ShallowSearchBot`.
+- The 64/64/96 one-layer model used the same initialization seed, batch size
+  128, learning rate 3e-4, and eight epochs as width64 in `020`. Validation loss
+  improved every epoch from 1.9490 to 1.4083; epoch 8 was selected.
+- On untouched confirmation, frozen `004` versus `021` policy loss was 2.0122
+  versus 1.4635, top-one accuracy 37.13% versus 50.25%, top-three 63.80% versus
+  71.35%, and MRR 0.5393 versus 0.6390. `021` improved all 50 game means; its
+  paired loss delta was -0.5501 with CI95 [-0.6001, -0.5027]. All offline gates
+  passed.
+- The mandatory parent match used 30 fresh paired seeds 240000-240029. `021`
+  beat frozen `004` 40-19-1 with zero stalls/timeouts, a 67.5% score share above
+  the fixed 60% gate. This is a successful causal ablation: removing mixed
+  Greedy labels repairs the offline/closed-loop inversion seen in `020`.
+- Do not promote `021` yet. Its preregistered purpose was to decide whether a
+  coherent teacher corpus was justified; it passed that decision gate.
+
+Coherent shallow self-play corpus `022`:
+
+- Artifact: `outputs/canonical_entity_shallow_selfplay_corpus_022`. Seeds
+  250000-250499 produced 500 fresh games with identical information-legal
+  depth1/one-determinization shallow teachers in both seats, 31,080 positions,
+  312/185 seat wins and 3 draws, zero stalls/timeouts, and zero loop fallbacks.
+- `game_splits.json` was frozen before training: 400 train, 50 validation, and
+  50 untouched confirmation games using split seed 20260716. No model has been
+  trained on `022` and no holdout has been evaluated.
+- Next: train one random-init width64 model on only the 400 `022` train games,
+  select its epoch on the 50 validation games, evaluate confirmation once, and
+  require >=60% paired score share versus `004` before broad Greedy, legal
+  shallow-search, `035`, and other strong-opponent confirmation. Only that full
+  gate can promote a new clean parent.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -2576,7 +2642,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 295 passed after legal hidden-information search, PUCT batching, root-visit
+- 298 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -2595,7 +2661,8 @@ Current full test status:
   fresh game-disjoint entity counterfactual-credit stability diagnostics, and
   fixed-reference mid/late counterfactual confirmation gates, resumable
   parallel late counterfactual collection, auxiliary entity-Q gating, and
-  resumable three-way-heldout clean entity foundation scaling.
+  resumable three-way-heldout clean entity foundation scaling, actor-source
+  filtering, and coherent shallow-self-play corpus contracts.
 
 ## Files To Read Next
 
@@ -2641,3 +2708,4 @@ Current full test status:
 - `src/splendor_ai/training/run_entity_late_counterfactual_corpus.py`
 - `src/splendor_ai/training/run_entity_action_value_training.py`
 - `src/splendor_ai/training/run_entity_supervised_scale.py`
+- `src/splendor_ai/training/run_entity_shallow_actor_ablation.py`

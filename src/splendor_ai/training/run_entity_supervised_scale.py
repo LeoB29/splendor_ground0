@@ -302,20 +302,33 @@ def split_game_heldout_indices(
     seed: int,
 ) -> tuple[list[int], list[int], list[int], dict[str, list[int]]]:
     game_seeds = sorted({dataset.game_seed_for_index(index) for index in range(len(dataset))})
-    if len(game_seeds) != train_games + validation_games + confirmation_games:
-        raise ValueError("Dataset game count does not match requested split counts.")
-    random.Random(seed).shuffle(game_seeds)
-    split_seeds = {
-        "train": sorted(game_seeds[:train_games]),
-        "validation": sorted(game_seeds[train_games : train_games + validation_games]),
-        "confirmation": sorted(game_seeds[train_games + validation_games :]),
-    }
+    split_seeds = split_game_seed_values(
+        game_seeds, train_games, validation_games, confirmation_games, seed
+    )
     sets = {name: set(values) for name, values in split_seeds.items()}
     indices = {
         name: [index for index in range(len(dataset)) if dataset.game_seed_for_index(index) in seeds]
         for name, seeds in sets.items()
     }
     return indices["train"], indices["validation"], indices["confirmation"], split_seeds
+
+
+def split_game_seed_values(
+    game_seeds: list[int],
+    train_games: int,
+    validation_games: int,
+    confirmation_games: int,
+    seed: int,
+) -> dict[str, list[int]]:
+    game_seeds = sorted(game_seeds)
+    if len(game_seeds) != train_games + validation_games + confirmation_games:
+        raise ValueError("Dataset game count does not match requested split counts.")
+    random.Random(seed).shuffle(game_seeds)
+    return {
+        "train": sorted(game_seeds[:train_games]),
+        "validation": sorted(game_seeds[train_games : train_games + validation_games]),
+        "confirmation": sorted(game_seeds[train_games + validation_games :]),
+    }
 
 
 def _candidate_configs() -> dict[str, CanonicalEntityActionScorerConfig]:
@@ -523,12 +536,25 @@ def main() -> None:
     else:
         replay_path, corpus_summary = generate_clean_scale_corpus(config)
     if args.generate_only:
+        split_seeds = split_game_seed_values(
+            list(range(config.seed_start, config.seed_start + config.games)),
+            config.train_games,
+            config.validation_games,
+            config.confirmation_games,
+            config.split_seed,
+        )
+        (config.output_dir / "game_splits.json").write_text(
+            json.dumps(split_seeds, indent=2), encoding="utf-8"
+        )
         print(
             json.dumps(
                 {
                     "generated_only": True,
                     "replay_path": str(replay_path),
                     "summary": corpus_summary,
+                    "split_games": {
+                        name: len(seeds) for name, seeds in split_seeds.items()
+                    },
                 },
                 indent=2,
             )
