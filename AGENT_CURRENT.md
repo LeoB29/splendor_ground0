@@ -23,7 +23,8 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Rejected rollout-credit candidate: `outputs/legal_action_scorer_034_rollout_credit_anchored/legal_action_attention_scorer.pt`
 - Current legal late-game value candidate, not promoted: `outputs/value_model_009_puct035_legal_late40/value_model.pt`
 - Historical contaminated value model, diagnostics only: `outputs/value_model_006_late40_outcome_currentgen/value_model_best.pt`
-- Frozen clean entity actor parent: `outputs/canonical_entity_scale_004/canonical_entity_action_scorer_best.pt`
+- Promoted clean entity actor parent: `outputs/canonical_entity_coherent_023/canonical_entity_action_scorer_coherent_width64_best.pt`
+- Previous clean entity parent, retained as historical control: `outputs/canonical_entity_scale_004/canonical_entity_action_scorer_best.pt`
 - Current clean actor-critic smoke candidate, not promoted: `outputs/canonical_entity_actor_005_smoke/canonical_entity_actor.pt`
 - Rejected clean actor-critic no-movement generation: `outputs/canonical_entity_actor_006_seed90000/canonical_entity_actor.pt`
 - Current clean actor-critic movement candidate, not promoted: `outputs/canonical_entity_actor_007_kl_target/canonical_entity_actor.pt`
@@ -35,7 +36,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Rejected late auxiliary-Q diagnostic: `outputs/canonical_entity_action_value_019/canonical_entity_action_value_scorer.pt`
 - Rejected scaled supervised entity candidates: `outputs/canonical_entity_supervised_scale_020/canonical_entity_action_scorer_width64_best.pt` and `canonical_entity_action_scorer_width128_best.pt`
 - Successful shallow-actor-only diagnostic, not promoted: `outputs/canonical_entity_shallow_actor_021/canonical_entity_action_scorer_shallow_actor_width64_best.pt`
-- Strong coherent entity candidate, not promoted on loop integrity: `outputs/canonical_entity_coherent_023/canonical_entity_action_scorer_coherent_width64_best.pt`
+- Promoted coherent entity parent: `outputs/canonical_entity_coherent_023/canonical_entity_action_scorer_coherent_width64_best.pt`
 
 ## Current Conclusions
 
@@ -2692,6 +2693,17 @@ Preregistered broad gate and result:
   requires zero stalls/timeouts.
 - Promotion requires both the parent gate and every broad strength/integrity
   gate. There is no replacement block or result-contingent rerun in `024`.
+- Result: all preregistered gates pass. The paired parent block finished 48-12
+  for `023` (80.0% score share versus the 60% floor), with zero failures; `023`
+  triggered no fallbacks and `004` triggered five. Fresh candidate/control
+  broad shares were 92.5%/90.0% versus Greedy, 37.5%/12.5% versus shallow,
+  32.5%/10.0% versus `016`, and 40.0%/11.25% versus `035`. All 320 broad games
+  completed without a stall or timeout; every absolute, matched-control, and
+  integrity gate passed. The candidate needed zero fallbacks in the fresh
+  broad blocks; `004` used four versus `016` and two versus shallow.
+- Promote `023` as the clean entity actor parent. Keep `004` as a historical
+  control, not the active parent. Final decision artifact:
+  `outputs/canonical_entity_loop_safe_024/promotion_gate_final.json`.
 
 ### Active Overnight Reserve Corpus
 
