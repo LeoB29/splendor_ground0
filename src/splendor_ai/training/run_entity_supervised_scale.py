@@ -53,6 +53,7 @@ class EntityScaleConfig:
     bootstrap_samples: int = 10_000
     minimum_relative_loss_improvement: float = 0.05
     minimum_game_win_fraction: float = 0.65
+    pairing: str = "greedy_shallow"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -73,7 +74,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--bootstrap-samples", type=int, default=10_000)
+    parser.add_argument(
+        "--pairing",
+        choices=("greedy_shallow", "shallow_shallow"),
+        default="greedy_shallow",
+    )
     parser.add_argument("--skip-generation", action="store_true")
+    parser.add_argument("--generate-only", action="store_true")
     return parser
 
 
@@ -95,6 +102,7 @@ def config_from_args(args: argparse.Namespace) -> EntityScaleConfig:
         weight_decay=args.weight_decay,
         device=args.device,
         bootstrap_samples=args.bootstrap_samples,
+        pairing=args.pairing,
     )
 
 
@@ -107,12 +115,19 @@ def _validate_config(config: EntityScaleConfig) -> None:
         raise ValueError("workers, epochs, and batch_size must be positive.")
     if not config.parent_checkpoint.exists():
         raise FileNotFoundError(config.parent_checkpoint)
+    if config.pairing not in {"greedy_shallow", "shallow_shallow"}:
+        raise ValueError("pairing must be greedy_shallow or shallow_shallow.")
 
 
 def _corpus_contract(config: EntityScaleConfig) -> dict[str, Any]:
+    teacher = (
+        "information_legal_ShallowSearchBot_depth1_d1_selfplay"
+        if config.pairing == "shallow_shallow"
+        else "GreedyHeuristicBot_vs_information_legal_ShallowSearchBot_depth1_d1"
+    )
     return {
         "contract": "canonical_public_belief_v1",
-        "teacher": "GreedyHeuristicBot_vs_information_legal_ShallowSearchBot_depth1_d1",
+        "teacher": teacher,
         "games": config.games,
         "seed_start": config.seed_start,
         "swap_seats": True,
@@ -123,20 +138,32 @@ def _corpus_contract(config: EntityScaleConfig) -> dict[str, Any]:
     }
 
 
-def _collect_clean_game(seed: int, game_index: int, game_dir: str) -> dict[str, Any]:
+def _collect_clean_game(
+    seed: int,
+    game_index: int,
+    game_dir: str,
+    pairing: str = "greedy_shallow",
+) -> dict[str, Any]:
     greedy = GreedyHeuristicBot(seed=11)
-    shallow = ShallowSearchBot(
-        depth=1,
-        max_branching=6,
-        max_buy_actions=4,
-        max_reserve_actions=2,
-        max_take_actions=2,
-        seed=23,
-        information_legal=True,
-        determinizations=1,
-        determinization_seed=29,
-    )
-    seat0, seat1 = (greedy, shallow) if game_index % 2 == 0 else (shallow, greedy)
+    def shallow_bot() -> ShallowSearchBot:
+        return ShallowSearchBot(
+            depth=1,
+            max_branching=6,
+            max_buy_actions=4,
+            max_reserve_actions=2,
+            max_take_actions=2,
+            seed=23,
+            information_legal=True,
+            determinizations=1,
+            determinization_seed=29,
+        )
+    if pairing == "shallow_shallow":
+        seat0, seat1 = shallow_bot(), shallow_bot()
+    elif pairing == "greedy_shallow":
+        shallow = shallow_bot()
+        seat0, seat1 = (greedy, shallow) if game_index % 2 == 0 else (shallow, greedy)
+    else:
+        raise ValueError(f"Unsupported pairing: {pairing}")
     game = collect_game_replay(
         seat0,
         seat1,
@@ -196,7 +223,9 @@ def generate_clean_scale_corpus(config: EntityScaleConfig) -> tuple[Path, dict[s
     if pending:
         with ProcessPoolExecutor(max_workers=config.workers) as executor:
             futures = {
-                executor.submit(_collect_clean_game, seed, index, str(game_dir)): seed
+                executor.submit(
+                    _collect_clean_game, seed, index, str(game_dir), config.pairing
+                ): seed
                 for seed, index in pending
             }
             for completed, future in enumerate(as_completed(futures), start=1):
@@ -493,6 +522,18 @@ def main() -> None:
         corpus_summary = json.loads(summary_path.read_text(encoding="utf-8"))
     else:
         replay_path, corpus_summary = generate_clean_scale_corpus(config)
+    if args.generate_only:
+        print(
+            json.dumps(
+                {
+                    "generated_only": True,
+                    "replay_path": str(replay_path),
+                    "summary": corpus_summary,
+                },
+                indent=2,
+            )
+        )
+        return
     train_and_gate_entity_scale(config, replay_path, corpus_summary)
 
 

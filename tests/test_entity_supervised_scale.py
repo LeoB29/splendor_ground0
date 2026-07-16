@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from splendor_ai.training.run_entity_supervised_scale import (
+    EntityScaleConfig,
+    _corpus_contract,
     _candidate_configs,
     split_game_heldout_indices,
 )
@@ -57,3 +59,15 @@ def test_actor_filter_keeps_only_requested_source() -> None:
     filtered = filter_indices_by_actor(dataset, list(range(6)), "ShallowSearchBot")
 
     assert filtered == [1, 3, 5]
+
+
+def test_shallow_selfplay_contract_is_coherent(tmp_path) -> None:
+    config = EntityScaleConfig(
+        output_dir=tmp_path,
+        parent_checkpoint=tmp_path / "unused.pt",
+        pairing="shallow_shallow",
+    )
+
+    contract = _corpus_contract(config)
+
+    assert contract["teacher"] == "information_legal_ShallowSearchBot_depth1_d1_selfplay"
