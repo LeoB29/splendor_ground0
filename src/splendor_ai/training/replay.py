@@ -361,7 +361,7 @@ def _model_loop_fallback_triggers(game: ReplayGame) -> int:
     return sum(
         game.loop_fallback_triggers_by_seat[seat]
         for seat, bot_name in enumerate(game.bot_seats)
-        if bot_name == "CheckpointPolicyBot"
+        if bot_name in {"CheckpointPolicyBot", "CanonicalEntityActionScorerBot"}
     )
 
 
@@ -373,6 +373,8 @@ def _bot_metadata(bot: Bot) -> dict[str, Any]:
         metadata["checkpoint_path"] = str(checkpoint_path)
         if bot_class == "CheckpointPolicyBot":
             metadata["model_kind"] = "flat_policy"
+        elif bot_class == "CanonicalEntityActionScorerBot":
+            metadata["model_kind"] = "canonical_entity_action_scorer"
         elif bot_class == "LegalActionScorerBot":
             metadata["model_kind"] = "legal_action_scorer"
         elif bot_class == "LegalActionAttentionScorerBot":

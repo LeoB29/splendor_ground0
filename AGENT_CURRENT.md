@@ -2705,6 +2705,42 @@ Preregistered broad gate and result:
   control, not the active parent. Final decision artifact:
   `outputs/canonical_entity_loop_safe_024/promotion_gate_final.json`.
 
+### Preregistered On-Policy DAgger Iteration `025`
+
+- `run_entity_dagger.py` implements one bounded dataset-aggregation iteration
+  around promoted `023`. It generates exactly 240 fresh games at seeds
+  290000-290239: 60 each against `023`, legal shallow depth1, `016`, and `035`.
+  Non-self opponents alternate the parent across seats. The frozen 192/24/24
+  train/validation/confirmation split is stratified to contain 48/6/6 games
+  from each league profile.
+- Every state is relabeled by the same information-legal shallow-depth1,
+  one-determinization teacher used by the successful coherent line. Rollout
+  actions and provenance remain stored separately. This prevents mixed-policy
+  labels while moving training support onto states visited by `023` and its
+  broad league. Rollout failures invalidate the corpus; fallback triggers are
+  recorded but remain valid deployed-policy behavior.
+- Train exactly one width64 candidate initialized from `023`, four epochs at
+  learning rate `3e-5`, weight decay `1e-4`, batch size 128, policy loss only.
+  Each epoch has exact 50/50 exposure to frozen old `022` train positions and
+  new `025` train positions; validation selection uses the same source balance.
+  No width, learning-rate, epoch, or source-weight sweep is allowed.
+- Before games, untouched new confirmation must improve loss by at least 5%,
+  top-one accuracy by at least 3 points, MRR, paired-loss CI95, and at least 65%
+  of game means. Untouched old `022` confirmation may regress by at most 2% in
+  loss, 2 points top-one, and 1 point MRR. Any failed offline condition stops
+  the experiment before game gates.
+- If eligible, require a 60-game paired-seat match against `023` at seeds
+  300000-300029 with at least 60% candidate score share and zero failures.
+  Then run fresh 40-game candidate/control blocks versus Greedy (301000), legal
+  shallow depth1 (302000), `016` paired (303000), and `035` paired (304000).
+  Candidate absolute floors remain 80%, 30%, 20%, and 20%; required deltas
+  versus matched `023` are -5, +5, -5, and -5 points respectively. All blocks
+  require zero failures. There is no replacement or result-contingent rerun.
+- Implementation smoke only: 12 balanced games completed without failure and
+  shallow labels disagreed with rollout actions on 39.4% of 734 states. A
+  one-epoch mechanics smoke produced all expected artifacts; its four-game
+  holdouts are not evidence and cannot affect the frozen `025` decision.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -2741,7 +2777,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 306 passed after legal hidden-information search, PUCT batching, root-visit
+- 311 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
