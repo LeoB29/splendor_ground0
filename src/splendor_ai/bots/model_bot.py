@@ -322,16 +322,26 @@ class CanonicalEntityActionScorerBot:
         state: SplendorState,
         legal_actions: list[Action] | None = None,
     ) -> Action | None:
-        self._reset_tracking_if_new_game(state)
         actions = legal_actions if legal_actions is not None else env.legal_actions(state)
         if not actions:
             return None
 
-        signature = self._loop_state_signature(state)
-        state_visit_count = self._state_visit_counts.get(signature, 0) + 1
-        self._state_visit_counts[signature] = state_visit_count
+        return self.choose_action_from_scores(
+            env,
+            state,
+            self.score_actions(state, actions),
+        )
 
-        representatives = actions_by_canonical_successor_key(state, actions)
+    def score_actions(
+        self,
+        state: SplendorState,
+        legal_actions: list[Action],
+    ) -> dict[Action, float]:
+        """Score one representative for each canonical public successor."""
+
+        if not legal_actions:
+            return {}
+        representatives = actions_by_canonical_successor_key(state, legal_actions)
         representative_actions = list(representatives.values())
         batch = collate_entity_action_batch(
             [(state, representative_actions)],
@@ -340,7 +350,35 @@ class CanonicalEntityActionScorerBot:
         with torch.no_grad():
             scores, _value = self._model(**batch)
             masked_scores = masked_legal_action_scores(scores, batch["action_mask"])
-            best_row = int(torch.argmax(masked_scores, dim=1).item())
+        return {
+            action: float(masked_scores[0, row].item())
+            for row, action in enumerate(representative_actions)
+        }
+
+    def choose_action_from_scores(
+        self,
+        env: SplendorEnv,
+        state: SplendorState,
+        action_scores: dict[Action, float],
+    ) -> Action | None:
+        """Choose from already-computed scores while preserving loop safeguards."""
+
+        if not action_scores:
+            return None
+        self._reset_tracking_if_new_game(state)
+
+        signature = self._loop_state_signature(state)
+        state_visit_count = self._state_visit_counts.get(signature, 0) + 1
+        self._state_visit_counts[signature] = state_visit_count
+
+        representatives = actions_by_canonical_successor_key(state, list(action_scores))
+        representative_actions = list(representatives.values())
+        masked_scores = torch.tensor(
+            [[action_scores[action] for action in representative_actions]],
+            dtype=torch.float32,
+            device=self._device,
+        )
+        best_row = int(torch.argmax(masked_scores, dim=1).item())
 
         chosen_action = representative_actions[best_row]
         fallback_action = self._loop_fallback_action(
@@ -362,6 +400,17 @@ class CanonicalEntityActionScorerBot:
         successor_counts[selected_successor_key] = successor_counts.get(selected_successor_key, 0) + 1
         self._record_selected_action(env, state, chosen_action)
         return chosen_action
+
+    def record_external_action(
+        self,
+        env: SplendorEnv,
+        state: SplendorState,
+        action: Action,
+    ) -> None:
+        """Keep loop-tracking state coherent when a wrapper selects an action."""
+
+        self._reset_tracking_if_new_game(state)
+        self._record_selected_action(env, state, action)
 
     def _loop_fallback_action(
         self,

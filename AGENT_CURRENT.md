@@ -8,7 +8,9 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 
 ## Current Active Baselines
 
-- Operational strength parent: information-legal `ShallowSearchBot` depth 1,
+- Overall strongest benchmark: `outputs/legal_action_scorer_035_legal_observation/legal_action_attention_scorer_best.pt`;
+  gate `030` did not displace it head-to-head.
+- Clean-line operational search parent: information-legal `ShallowSearchBot` depth 1,
   one determinization, branching 6 with buy/reserve/take caps 4/2/2, seeds
   23/29; promoted by operational gate `030`.
 - Active legal-observation prior: `outputs/legal_action_scorer_035_legal_observation/legal_action_attention_scorer_best.pt`
@@ -2957,7 +2959,7 @@ Preregistered broad gate and result:
   and control blocks must all have zero stalls/true timeouts. There are no
   replacement blocks or result-contingent threshold changes.
 - A complete pass designates the exact shallow configuration as the
-  operational strength parent while retaining `023` as the promoted fast
+  clean-line operational search parent while retaining `023` as the promoted fast
   neural parent. It then authorizes a separately preregistered selective-search
   hybrid. Failure leaves `023` operational and sends the project to a decision
   about scaled multi-generation self-play rather than another local search or
@@ -2977,7 +2979,7 @@ Preregistered broad gate and result:
   Greedy. Shallow scored 40.0% versus `016` compared with `023`'s 30.0%, a
   +10-point delta, and 38.33% versus `035` compared with 21.67%, a +16.67-point
   delta. Every absolute, matched-control, and integrity gate passes.
-- Designate the exact shallow configuration as the operational strength parent
+- Designate the exact shallow configuration as the clean-line operational search parent
   while retaining `023` as the promoted fast neural parent. This is not a new
   checkpoint and does not reopen parameter or budget sweeps. The successful
   gate authorizes one separately preregistered selective-search hybrid whose
@@ -2985,6 +2987,40 @@ Preregistered broad gate and result:
   Raw block artifacts, final gates, and the concise decision are under
   `outputs/shallow_operational_030/`, especially `gate_final.json` and
   `operational_decision.json`.
+
+### Preregistered Selective-Search Hybrid Gate `031`
+
+- Purpose: retain most of the exact shallow teacher's clean-line strength while
+  reducing its average search use. This does not claim that shallow or the
+  hybrid is stronger than overall benchmark `035`.
+- The candidate uses promoted `023` on ordinary confident turns and invokes
+  the exact gate-`030` shallow configuration when either (a) the top-two
+  canonical-successor logits differ by at most `0.5`, or (b) either player has
+  at least 12 points or an available buy can reach the 15-point threshold.
+  The rule is frozen before gameplay; no result-contingent threshold changes
+  or router sweep are authorized.
+- Router selection used only the frozen `026` validation games. Across 1,510
+  positions, the rule routes 46.8% to search and covers 75.2% of `023`'s
+  disagreements with shallow, raising teacher agreement from 55.7% to 89.0%
+  under the offline routing counterfactual. Confirmation games were not used.
+- Stage 1 uses 50 paired-seat seeds 344000-344049 against shallow. Require zero
+  stalls/timeouts, hybrid score share at least 45%, pair-aware CI95 lower bound
+  at least 35%, both neural and search turns, and search on at most 60% of
+  hybrid turns. Failure stops the experiment.
+- Stage 2 conditionally uses 50 paired-seat seeds 345000-345049 against `023`.
+  Require zero stalls/timeouts, at least 55% hybrid score share, CI95 lower
+  bound above 45%, and the same at-most-60% search fraction. Failure stops
+  before broad blocks.
+- Stage 3 conditionally compares hybrid and matched shallow controls on 30
+  paired seeds/60 games each versus `016` at 346000-346029 and `035` at
+  347000-347029. Each candidate/control block must have zero failures; hybrid
+  must score at least 25%, trail matched shallow by no more than 5 points, and
+  search on at most 60% of its turns.
+- `SelectiveSearchHybridBot` preserves canonical-successor policy scoring and
+  loop tracking. `run_selective_search_gate.py` provides pair-atomic resumable
+  execution, telemetry, checkpoint hashes, staged gates, and a frozen final
+  decision under `outputs/selective_search_hybrid_031`. CPU remains the correct
+  execution target because this experiment is search- and engine-bound.
 
 ### Active Overnight Reserve Corpus
 

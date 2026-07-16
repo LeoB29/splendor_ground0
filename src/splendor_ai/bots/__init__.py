@@ -19,6 +19,11 @@ from .search_bot import (
     PolicyGuidedSearchBot,
     ShallowSearchBot,
 )
+from .selective_search_bot import (
+    SelectiveSearchConfig,
+    SelectiveSearchDecision,
+    SelectiveSearchHybridBot,
+)
 
 __all__ = [
     "Bot",
@@ -38,4 +43,7 @@ __all__ = [
     "RandomLegalBot",
     "PolicyGuidedSearchBot",
     "ShallowSearchBot",
+    "SelectiveSearchConfig",
+    "SelectiveSearchDecision",
+    "SelectiveSearchHybridBot",
 ]
