@@ -108,3 +108,17 @@ def test_parser_accepts_plain_puct_opponent_flag() -> None:
     )
 
     assert args.opponent_plain_puct is True
+
+
+def test_parser_accepts_canonical_entity_policy_opponent() -> None:
+    args = build_parser().parse_args(
+        [
+            "--checkpoint", "policy.pt",
+            "--opponent", "policy",
+            "--opponent-checkpoint", "parent.pt",
+            "--opponent-model-kind", "canonical_entity_action_scorer",
+            "--output-path", "benchmark.json",
+        ]
+    )
+
+    assert args.opponent_model_kind == "canonical_entity_action_scorer"

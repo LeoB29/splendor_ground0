@@ -25,6 +25,8 @@ from splendor_ai.engine.state import (
     RESERVE_SOURCE_DECK,
 )
 from splendor_ai.training.model import (
+    CanonicalEntityActionScorerConfig,
+    CanonicalEntityActionScorerModel,
     LegalActionAttentionScorerConfig,
     LegalActionAttentionScorerModel,
     ValueMLP,
@@ -67,6 +69,34 @@ def _write_value_checkpoint(tmp_path):
     path = tmp_path / "value.pt"
     torch.save(
         {
+            "model_state_dict": model.state_dict(),
+            "model_config": asdict(model.config),
+        },
+        path,
+    )
+    return path
+
+
+def _write_canonical_entity_checkpoint(tmp_path):
+    model = CanonicalEntityActionScorerModel(
+        CanonicalEntityActionScorerConfig(
+            entity_hidden_size=16,
+            action_hidden_size=16,
+            scorer_hidden_size=16,
+            entity_layers=1,
+            action_layers=1,
+            attention_heads=1,
+            attention_feedforward_size=16,
+            id_embedding_size=4,
+            dropout=0.0,
+        )
+    )
+    for parameter in model.parameters():
+        torch.nn.init.constant_(parameter, 0.0)
+    path = tmp_path / "canonical_entity.pt"
+    torch.save(
+        {
+            "model_kind": "canonical_entity_action_scorer",
             "model_state_dict": model.state_dict(),
             "model_config": asdict(model.config),
         },
@@ -424,6 +454,40 @@ def test_checkpoint_wrappers_batch_matches_single_state_calls(tmp_path) -> None:
         evaluator.evaluate_state(state_a, 0),
         evaluator.evaluate_state(state_b, 1),
     ]
+
+
+def test_canonical_entity_prior_batches_match_single_state_calls(tmp_path) -> None:
+    env = SplendorEnv(seed=34)
+    state_a = env.initial_state()
+    state_b = env.step(state_a, env.legal_actions(state_a)[0])
+    actions_a = env.legal_actions(state_a)
+    actions_b = env.legal_actions(state_b)
+    scorer = CheckpointLegalActionPriorScorer(
+        _write_canonical_entity_checkpoint(tmp_path)
+    )
+
+    score_batches = scorer.score_action_batches(
+        [(state_a, actions_a), (state_b, actions_b)]
+    )
+
+    assert score_batches[0] == scorer.score_actions(state_a, actions_a)
+    assert score_batches[1] == scorer.score_actions(state_b, actions_b)
+    assert set(score_batches[0]) == set(actions_a)
+    assert set(score_batches[1]) == set(actions_b)
+
+
+def test_puct_accepts_canonical_entity_prior_checkpoint(tmp_path) -> None:
+    env = SplendorEnv(seed=35)
+    state = env.initial_state()
+    bot = InformationSetPuctBot(
+        _write_canonical_entity_checkpoint(tmp_path),
+        config=PuctConfig(simulations=4, seed=36),
+    )
+
+    action = bot.choose_action(env, state, env.legal_actions(state))
+
+    assert action in env.legal_actions(state)
+    assert bot.last_search_stats.neural_calls > 0
 
 
 def test_puct_reuses_information_state_tree_and_resets_for_new_game(

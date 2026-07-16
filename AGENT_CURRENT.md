@@ -2812,6 +2812,38 @@ Preregistered broad gate and result:
   `outputs/canonical_entity_dagger_diagnostic_027/paired_026_vs_023.json` and
   `paired_analysis.json`.
 
+### Preregistered Canonical Search-Lift Gate `028`
+
+- `CheckpointLegalActionPriorScorer` already supported canonical-entity
+  checkpoints. The missing evaluation path is now repaired:
+  `run_puct_benchmark.py` can construct a raw
+  `canonical_entity_action_scorer` policy opponent and records stalls,
+  timeouts, termination reasons, and fallback telemetry. Canonical prior
+  batching, live PUCT inference, and CLI selection have explicit tests. The
+  focused suite passes 23/23 and the full suite passes 315/315.
+- A two-game mechanics-only smoke at seed 319900 tied 1-1 with zero failures.
+  PUCT64 averaged 0.194 search seconds per move and 330 simulations/second on
+  CPU. This seed is disjoint from the gate and the smoke is not evidence.
+- Freeze exactly 100 games as 50 paired-seat seeds 320000-320049 in
+  `outputs/canonical_entity_search_lift_028/puct64_vs_parent023_paired100.json`.
+  Both agents use promoted `023` (SHA256
+  `29EF7C13C5553EC88C8BCB98F7378C925F0E600E2FCF3D944DF5926EFED7A070`):
+  the candidate is information-set PUCT and the control is deployed greedy
+  canonical-entity inference with loop fallback.
+- Freeze PUCT at 64 simulations, c_puct 1.5, prior temperature 1.0, FPU
+  reduction 0.1, full learned-prior mix, maximum depth 80, heuristic scale
+  4000, inference batches of 8, no tree reuse, and no learned/n-step/rollout
+  leaf. Run on CPU with `max_turns=400`, repetition limit 4, and no-progress
+  limit 60. No parameter or budget sweep is allowed after seeing the result.
+- Require zero stalls and true timeouts. Forced-pass deadlock remains a valid
+  adjudicated terminal under the engine contract. The lift gate passes only
+  if PUCT score share is at least 60% and the built-in 20,000-resample
+  pair-aware bootstrap CI95 lower bound is above 50%.
+- A pass authorizes preregistration of one search-policy/root-visit corpus and
+  an iterative expert-iteration candidate. A failure authorizes no training
+  corpus and closes fixed-heuristic canonical PUCT as the next improvement
+  direction; it does not change `023`'s promoted status.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local

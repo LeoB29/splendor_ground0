@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 from splendor_ai.bots import (
+    CanonicalEntityActionScorerBot,
     InformationSetPuctBot,
     LegalActionAttentionScorerBot,
     PolicyGuidedSearchBot,
@@ -38,6 +39,15 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     )
     parser.add_argument("--opponent-checkpoint", default=None)
+    parser.add_argument(
+        "--opponent-model-kind",
+        choices=(
+            "legal_action_attention_scorer",
+            "canonical_entity_action_scorer",
+        ),
+        default="legal_action_attention_scorer",
+        help="Checkpoint architecture used by a raw policy opponent.",
+    )
     parser.add_argument(
         "--opponent-plain-puct",
         action="store_true",
@@ -173,7 +183,11 @@ def main() -> None:
                 "final_scores": list(result.final_scores),
                 "turns": result.turns,
                 "timed_out": result.timed_out,
+                "stalled": result.stalled,
                 "termination_reason": result.termination_reason,
+                "loop_fallback_triggers_by_seat": list(
+                    result.loop_fallback_triggers_by_seat
+                ),
                 "puct_telemetry": telemetry,
             }
         )
@@ -196,6 +210,7 @@ def main() -> None:
         "value_prediction_mode": args.value_prediction_mode,
         "value_outcome_blend_weight": args.value_outcome_blend_weight,
         "opponent": args.opponent,
+        "opponent_model_kind": args.opponent_model_kind,
         "opponent_checkpoint": (
             str(opponent_checkpoint)
             if opponent_checkpoint is not None
@@ -207,6 +222,16 @@ def main() -> None:
         "puct_wins": puct_wins,
         "opponent_wins": opponent_wins,
         "draws": draws,
+        "timed_out_games": sum(game["timed_out"] for game in details),
+        "stalled_games": sum(game["stalled"] for game in details),
+        "termination_reasons": {
+            reason: sum(
+                game["termination_reason"] == reason for game in details
+            )
+            for reason in sorted(
+                {game["termination_reason"] for game in details}
+            )
+        },
         "puct_config": {
             "simulations": args.simulations,
             "c_puct": args.c_puct,
@@ -258,6 +283,11 @@ def _build_opponent(args: argparse.Namespace, checkpoint: Path | None):
     if args.opponent == "policy":
         if checkpoint is None:
             raise ValueError("policy opponent requires --opponent-checkpoint.")
+        if args.opponent_model_kind == "canonical_entity_action_scorer":
+            return CanonicalEntityActionScorerBot(
+                checkpoint,
+                device=args.device,
+            )
         return LegalActionAttentionScorerBot(checkpoint, device=args.device)
     if args.opponent == "search":
         return ShallowSearchBot(
