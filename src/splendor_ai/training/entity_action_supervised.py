@@ -121,6 +121,9 @@ def collate_entity_action_replay_samples(
     batch["value_target"] = torch.tensor(
         [sample.value_target for sample in samples], dtype=torch.float32
     )
+    batch["game_seed"] = torch.tensor(
+        [sample.game_seed for sample in samples], dtype=torch.long
+    )
     return batch
 
 
@@ -217,9 +220,12 @@ def fit_entity_action_scorer(
     weight_decay: float,
     device: str = "cpu",
     value_loss_weight: float = 0.25,
+    selection_metric: str = "total_loss",
 ) -> EntityFitArtifacts:
     if epochs <= 0:
         raise ValueError("epochs must be positive.")
+    if selection_metric not in {"policy_loss", "total_loss"}:
+        raise ValueError("selection_metric must be 'policy_loss' or 'total_loss'.")
     model.to(device)
     optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     train_history: list[EntityTrainMetrics] = []
@@ -232,8 +238,9 @@ def fit_entity_action_scorer(
         if validation_dataloader is not None:
             validation = run_entity_action_epoch(model, validation_dataloader, device, None, value_loss_weight)
             validation_history.append(validation)
-            if best_loss is None or validation.total_loss < best_loss:
-                best_loss = validation.total_loss
+            selection_loss = float(getattr(validation, selection_metric))
+            if best_loss is None or selection_loss < best_loss:
+                best_loss = selection_loss
                 best_epoch = epoch_index
                 best_state = {name: value.detach().cpu().clone() for name, value in model.state_dict().items()}
     return EntityFitArtifacts(model, tuple(train_history), tuple(validation_history), best_state, best_epoch)
