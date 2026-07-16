@@ -8,6 +8,9 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 
 ## Current Active Baselines
 
+- Operational strength parent: information-legal `ShallowSearchBot` depth 1,
+  one determinization, branching 6 with buy/reserve/take caps 4/2/2, seeds
+  23/29; promoted by operational gate `030`.
 - Active legal-observation prior: `outputs/legal_action_scorer_035_legal_observation/legal_action_attention_scorer_best.pt`
 - Frozen historical strength baseline: `outputs/legal_action_scorer_022_attention_distill/legal_action_attention_scorer_best.pt`
 - Conservative strong baseline: `outputs/legal_action_scorer_016_policy_guided_mix/legal_action_scorer_best.pt`
@@ -2966,6 +2969,22 @@ Preregistered broad gate and result:
   focused suite passes 17/17 and the full suite passes 325/325. A disjoint
   seed-339900 one-pair mechanics smoke tied 1-1 with zero failures; it is not
   evidence and did not run broad blocks.
+- Result: pass all parent and broad gates over 460 clean games with zero
+  stalls, true timeouts, forced-pass deadlocks, or fallback triggers. Against
+  fast neural parent `023`, shallow won 61-39 for 61% score share, pair-aware
+  CI95 [52%, 70%], and mean final margin +1.22, CI95 [+0.02, +2.42].
+- In matched 60-game broad blocks, shallow and `023` both scored 98.33% versus
+  Greedy. Shallow scored 40.0% versus `016` compared with `023`'s 30.0%, a
+  +10-point delta, and 38.33% versus `035` compared with 21.67%, a +16.67-point
+  delta. Every absolute, matched-control, and integrity gate passes.
+- Designate the exact shallow configuration as the operational strength parent
+  while retaining `023` as the promoted fast neural parent. This is not a new
+  checkpoint and does not reopen parameter or budget sweeps. The successful
+  gate authorizes one separately preregistered selective-search hybrid whose
+  purpose is to retain shallow strength while reducing average inference cost.
+  Raw block artifacts, final gates, and the concise decision are under
+  `outputs/shallow_operational_030/`, especially `gate_final.json` and
+  `operational_decision.json`.
 
 ### Active Overnight Reserve Corpus
 
