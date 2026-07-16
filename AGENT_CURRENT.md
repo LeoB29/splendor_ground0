@@ -37,6 +37,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Rejected scaled supervised entity candidates: `outputs/canonical_entity_supervised_scale_020/canonical_entity_action_scorer_width64_best.pt` and `canonical_entity_action_scorer_width128_best.pt`
 - Successful shallow-actor-only diagnostic, not promoted: `outputs/canonical_entity_shallow_actor_021/canonical_entity_action_scorer_shallow_actor_width64_best.pt`
 - Promoted coherent entity parent: `outputs/canonical_entity_coherent_023/canonical_entity_action_scorer_coherent_width64_best.pt`
+- Rejected on-policy DAgger candidate: `outputs/canonical_entity_dagger_026/canonical_entity_action_scorer_dagger_width64_best.pt`
 
 ## Current Conclusions
 
@@ -2760,6 +2761,21 @@ Preregistered broad gate and result:
   four-epoch optimizer, offline confirmation gates, and promotion gates remain
   unchanged. Stalls and true timeouts still invalidate `026`; an adjudicated
   `forced_pass_deadlock` is a valid clean terminal.
+- Result: `026` generated 240/240 clean games, 60 per profile, with 15,158
+  states and zero stalls, timeouts, or fallback triggers. The shallow teacher
+  disagreed with rollout actions on 5,819 states (38.39%). Frozen split sizes
+  were 12,124/1,510/1,524 new positions; old `022` contributed
+  24,862/3,090/3,128 positions.
+- The single candidate trained all four epochs and epoch 4 was selected by
+  validation. On untouched new confirmation it improved loss by 2.80%, top-one
+  by 1.25 points, and MRR by 1.12 points; it improved 79.17% of game means and
+  paired loss CI95 was [-0.0486, -0.0156]. On untouched old confirmation it
+  also improved loss by 2.89%, top-one by 1.53 points, and MRR by 0.96 points.
+- Reject `026` before games: the frozen new-confirmation thresholds required
+  at least 5% loss improvement and +3 top-one points, and both fail. All other
+  uptake, significance, game-breadth, and old-retention gates pass. Do not tune
+  epochs, learning rate, or source weights on these confirmation results; no
+  parent or broad matches are authorized. `023` remains the promoted parent.
 
 ### Active Overnight Reserve Corpus
 
