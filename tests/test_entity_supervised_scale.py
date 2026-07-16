@@ -4,6 +4,9 @@ from splendor_ai.training.run_entity_supervised_scale import (
     _candidate_configs,
     split_game_heldout_indices,
 )
+from splendor_ai.training.run_entity_shallow_actor_ablation import (
+    filter_indices_by_actor,
+)
 
 
 class _SeedDataset:
@@ -15,6 +18,9 @@ class _SeedDataset:
 
     def game_seed_for_index(self, index: int) -> int:
         return self.seeds[index]
+
+    def actor_label_for_index(self, index: int) -> str:
+        return "ShallowSearchBot" if index % 2 else "GreedyHeuristicBot"
 
 
 def test_three_way_game_split_is_disjoint_and_reproducible() -> None:
@@ -43,3 +49,11 @@ def test_scale_candidates_only_change_preregistered_widths() -> None:
     assert configs["width128"].entity_hidden_size == 128
     assert configs["width64"].entity_layers == configs["width128"].entity_layers == 1
     assert configs["width64"].action_layers == configs["width128"].action_layers == 1
+
+
+def test_actor_filter_keeps_only_requested_source() -> None:
+    dataset = _SeedDataset([1, 1, 2, 2, 3, 3])
+
+    filtered = filter_indices_by_actor(dataset, list(range(6)), "ShallowSearchBot")
+
+    assert filtered == [1, 3, 5]

@@ -6,7 +6,7 @@ import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 import torch
 from torch.optim import AdamW
@@ -105,6 +105,14 @@ class EntityActionReplayDataset(Dataset[EntityActionReplaySample]):
 
     def game_seed_for_index(self, index: int) -> int:
         return int(self._rows[index].get("seed", 0))
+
+    def actor_label_for_index(self, index: int) -> str:
+        row = self._rows[index]
+        seats = row.get("game_bot_seats")
+        player_id = int(row.get("player_id", -1))
+        if not isinstance(seats, list) or player_id not in (0, 1) or len(seats) != 2:
+            raise ValueError("Replay row does not contain a valid acting bot label.")
+        return str(seats[player_id])
 
 
 def collate_entity_action_replay_samples(
@@ -221,6 +229,10 @@ def fit_entity_action_scorer(
     device: str = "cpu",
     value_loss_weight: float = 0.25,
     selection_metric: str = "total_loss",
+    progress_callback: Callable[
+        [int, EntityTrainMetrics, EntityTrainMetrics | None], None
+    ]
+    | None = None,
 ) -> EntityFitArtifacts:
     if epochs <= 0:
         raise ValueError("epochs must be positive.")
@@ -234,7 +246,11 @@ def fit_entity_action_scorer(
     best_epoch = None
     best_loss = None
     for epoch_index in range(1, epochs + 1):
-        train_history.append(run_entity_action_epoch(model, train_dataloader, device, optimizer, value_loss_weight))
+        train_metric = run_entity_action_epoch(
+            model, train_dataloader, device, optimizer, value_loss_weight
+        )
+        train_history.append(train_metric)
+        validation: EntityTrainMetrics | None = None
         if validation_dataloader is not None:
             validation = run_entity_action_epoch(model, validation_dataloader, device, None, value_loss_weight)
             validation_history.append(validation)
@@ -243,4 +259,6 @@ def fit_entity_action_scorer(
                 best_loss = selection_loss
                 best_epoch = epoch_index
                 best_state = {name: value.detach().cpu().clone() for name, value in model.state_dict().items()}
+        if progress_callback is not None:
+            progress_callback(epoch_index, train_metric, validation)
     return EntityFitArtifacts(model, tuple(train_history), tuple(validation_history), best_state, best_epoch)

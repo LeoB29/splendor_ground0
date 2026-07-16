@@ -43,6 +43,9 @@ def test_entity_replay_dataset_and_training_epoch(tmp_path) -> None:
     assert metrics.samples == len(dataset)
     assert metrics.policy_loss > 0.0
     assert metrics.uniform_policy_loss > 0.0
+    assert {
+        dataset.actor_label_for_index(index) for index in range(len(dataset))
+    } == {"GreedyHeuristicBot"}
 
 
 def test_fit_rejects_unknown_selection_metric(tmp_path) -> None:
