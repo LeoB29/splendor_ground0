@@ -22,6 +22,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Rejected reserve hard-target full-model diagnostic: `outputs/legal_action_scorer_044_reserve_hardtop_fullmodel/legal_action_attention_scorer.pt`
 - Rejected rollout-credit candidate: `outputs/legal_action_scorer_034_rollout_credit_anchored/legal_action_attention_scorer.pt`
 - Current legal late-game value candidate, not promoted: `outputs/value_model_009_puct035_legal_late40/value_model.pt`
+- Rejected canonical public-belief value candidate: `outputs/canonical_entity_public_value_029/canonical_entity_public_value_width64_best.pt`
 - Historical contaminated value model, diagnostics only: `outputs/value_model_006_late40_outcome_currentgen/value_model_best.pt`
 - Promoted clean entity actor parent: `outputs/canonical_entity_coherent_023/canonical_entity_action_scorer_coherent_width64_best.pt`
 - Previous clean entity parent, retained as historical control: `outputs/canonical_entity_scale_004/canonical_entity_action_scorer_best.pt`
@@ -2905,6 +2906,26 @@ Preregistered broad gate and result:
   checkpoint, canonical value loading in `CheckpointValueEvaluator`, the
   balanced trainer/evaluator, and six focused contract tests. Focused tests
   pass 32/32 and the full suite passes 321/321 before training.
+- Result: the single CPU run completed all eight epochs in 79 seconds and
+  selected epoch 7. On 1,524 untouched confirmation positions, macro
+  opponent/seat MAE improved 18.58% (0.3721 to 0.3030). Paired per-game MAE
+  difference was -0.0685, CI95 [-0.1178, -0.0191], and the candidate improved
+  16/24 games. Every opponent and phase remained within the 10% regression
+  ceiling, so the error and breadth gates pass.
+- Reject `029` before gameplay because all ordering gates fail. Candidate
+  concordance is 52.31% versus the heuristic's 61.92%, below both the absolute
+  55% floor and the required +3-point improvement. Macro stratum correlation
+  is 0.116 versus 0.236. A post-gate dispersion diagnostic confirms
+  regression toward the mean: target/candidate/heuristic standard deviations
+  are 0.357/0.236/0.423, while candidate and heuristic slopes on target are
+  0.212 and 0.429. Lower average error therefore did not preserve the leaf
+  ranking search needs.
+- Do not run the seeds 330000 or 331000 PUCT gates, generate root targets, or
+  tune loss, target scale, epochs, capacity, or initialization on confirmation.
+  Retain the checkpoint as a rejected calibration diagnostic only; `023`
+  remains promoted. Full metrics and the frozen decision are in
+  `outputs/canonical_entity_public_value_029/public_value_metrics.json` and
+  `gate_decision.json`.
 
 ### Active Overnight Reserve Corpus
 
