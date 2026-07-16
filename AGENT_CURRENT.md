@@ -2801,6 +2801,16 @@ Preregistered broad gate and result:
   Regardless of outcome, `023` remains the promoted parent. Positive evidence
   justifies one independently preregistered fresh DAgger replication; even or
   negative evidence closes DAgger as the primary improvement direction.
+- Result: all 100 games completed with zero stalls, timeouts, forced-pass
+  deadlocks, or fallback triggers. `026` finished 48-52 with no draws, for a
+  48% score share. Across the 50 paired seeds it swept 9, split 30, and lost
+  both games on 11; the frozen pair-aware bootstrap CI95 is [39%, 57%]. This is
+  inconclusive/roughly even under the preregistered rule and provides no game
+  evidence that the offline improvement made `026` stronger. Close DAgger as
+  the primary direction, retain `026` only as a rejected diagnostic artifact,
+  and keep `023` promoted. Raw and analyzed results are in
+  `outputs/canonical_entity_dagger_diagnostic_027/paired_026_vs_023.json` and
+  `paired_analysis.json`.
 
 ### Active Overnight Reserve Corpus
 
