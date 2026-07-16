@@ -32,6 +32,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Rejected frontier-curriculum actor-critic candidate: `outputs/canonical_entity_actor_010_frontier120/canonical_entity_actor.pt`
 - Rejected matched score-margin actor candidate: `outputs/canonical_entity_return_ab_013/canonical_entity_actor_score_margin.pt`
 - Rejected dense temporal-credit candidate: `outputs/canonical_entity_temporal_credit_ab_014/canonical_entity_actor_dense_score_change.pt`
+- Rejected late auxiliary-Q diagnostic: `outputs/canonical_entity_action_value_019/canonical_entity_action_value_scorer.pt`
 
 ## Current Conclusions
 
@@ -190,6 +191,15 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   (rank CI95 [0.207, 0.766], chosen-advantage correlation CI95
   [0.320, 0.958]), so this is a disciplined near-miss rather than evidence that
   counterfactual credit is absent. Frozen `004` remains the parent.
+- The scaled late-only program reached a clear stopping condition. Invalid
+  corpus `017` was rejected by its own phase-selection gate after a zero-target
+  selector bug chose early states; the bug is fixed and regression-tested.
+  Corrected `018` contains 240 game-disjoint late states and 30,624 terminal
+  continuations with very strong replicated action signal. Nevertheless the
+  single preregistered auxiliary Q model `019` was worse than frozen `004` on
+  validation and untouched confirmation for top-one, regret, and Spearman.
+  No actor update was eligible. Close this counterfactual-to-Q/actor direction;
+  do not tune the Q loss, capacity, or epoch against these held-out results.
 - The previous observation encoded every opponent reserved-card identity. This was
   illegal for cards reserved blind from a deck. Reserve provenance is now tracked:
   visible reserves remain public, while deck reserves are visible only to their
@@ -2394,6 +2404,70 @@ Decision:
   remains the parent. The continuous counterfactual signal is real, especially
   late, but has not satisfied the complete contract for a safe policy update.
 
+### Scaled Late Counterfactual Corpus/Q Gate `017`-`019`
+
+Implementation:
+
+- `run_entity_late_counterfactual_corpus.py` generates a fixed late-only corpus
+  with one state per source game, action-independent policy reference sets,
+  immutable game-level train/validation/confirmation splits, atomic JSONL
+  progress, restart support, and parallel state evaluation. Corpus quality
+  gates must pass before Q training can load it.
+- `run_entity_action_value_training.py` initializes the canonical entity model
+  from frozen `004`, deterministically resets its score head, and trains one
+  auxiliary Q model with Smooth L1 action-return loss plus pairwise ranking.
+  The validation-selected epoch is evaluated once on untouched confirmation.
+  Both splits must beat parent regret and Spearman with strict confidence bounds
+  and improve top-one direction before any actor update becomes reachable.
+
+Selector failure and repair:
+
+- First artifact `outputs/diagnostics/entity_late_counterfactual_corpus_017.json`
+  completed 240 states and 32,208 continuations, but its phase gate failed.
+  A zero early target was not skipped by the shared selector, so all 240 states
+  were early rather than late. No Q training consumed `017`.
+- The selector now explicitly skips zero-target phases, with a regression test
+  requiring `(0 early, 0 mid, 9 late)` to return only turn-40+ states. `017` is
+  retained only as evidence that the quality gate caught the integration bug.
+
+Corrected corpus `018`:
+
+- Artifact: `outputs/diagnostics/entity_late_counterfactual_corpus_018.json`;
+  progress: the adjacent `.progress.jsonl` file.
+- Seeds 200000-200239 produced 240 clean balanced games, 7,714 actor states,
+  exactly 20 games per opponent-seat cell, and zero source stalls/timeouts.
+- Selection contains 240 unique turn-40+ games and fixed splits of 160 train,
+  40 validation, and 40 untouched confirmation states.
+- Three determinizations x eight continuations per evaluated action produced
+  30,624 terminal continuations with zero cutoffs. 209/240 states passed the
+  0.05 action-range floor; mean range was 0.1540.
+- Replication is strong at scale: split top-one agreement 73.75%; mean split
+  Spearman 0.8159, CI95 [0.7796, 0.8482]; chosen-advantage correlation 0.9124,
+  CI95 [0.8747, 0.9419]; sign agreement 92.2%; 54 independently resolved best
+  actions. Every corpus gate passes.
+
+Auxiliary Q `019` and stopping decision:
+
+- Artifact: `outputs/canonical_entity_action_value_019/entity_action_value_metrics.json`.
+  The validation-selected checkpoint is training-only and must not be used as
+  a bot or actor.
+- Best epoch was epoch 1. On validation, Q versus parent top-one was
+  22.5% versus 25.0%; mean regret 0.0886 versus 0.0724, delta +0.0161 with
+  CI95 [-0.0224, +0.0623]; mean Spearman -0.0317 versus +0.0619, delta -0.0937
+  with CI95 [-0.3563, +0.1782]. All three validation criteria fail.
+- On untouched confirmation, Q versus parent top-one was 20.0% versus 22.5%;
+  mean regret 0.0899 versus 0.0703, delta +0.0196 with CI95
+  [-0.0058, +0.0496]; mean Spearman -0.0491 versus +0.0163, delta -0.0654 with
+  CI95 [-0.2910, +0.1679]. All three confirmation criteria fail.
+- Training loss continued falling while validation regret worsened after epoch
+  1, confirming failed generalization rather than insufficient optimization.
+  The auxiliary Q gate therefore blocks the actor-update stage; no actor was
+  trained and no games were run.
+- Close the current counterfactual-to-Q/actor learning direction. The raw late
+  action signal is real, but this model does not generalize it across games.
+  Do not tune epochs, loss weights, capacity, or split selection on `018/019`.
+  Frozen `004` remains the parent.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -2430,7 +2504,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 288 passed after legal hidden-information search, PUCT batching, root-visit
+- 292 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -2447,7 +2521,8 @@ Current full test status:
   return-mode actor/critic branching with game-disjoint critic diagnostics,
   causal telescoping dense score-change credit with matched A/B gates, and
   fresh game-disjoint entity counterfactual-credit stability diagnostics, and
-  fixed-reference mid/late counterfactual confirmation gates.
+  fixed-reference mid/late counterfactual confirmation gates, resumable
+  parallel late counterfactual collection, and auxiliary entity-Q gating.
 
 ## Files To Read Next
 
@@ -2490,3 +2565,5 @@ Current full test status:
 - `src/splendor_ai/training/run_entity_temporal_credit_ab.py`
 - `src/splendor_ai/training/run_entity_counterfactual_credit.py`
 - `src/splendor_ai/training/run_entity_counterfactual_confirmation.py`
+- `src/splendor_ai/training/run_entity_late_counterfactual_corpus.py`
+- `src/splendor_ai/training/run_entity_action_value_training.py`

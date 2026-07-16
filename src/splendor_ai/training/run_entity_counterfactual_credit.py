@@ -297,6 +297,9 @@ def select_game_disjoint_phase_states(
     selected: list[ActorStep] = []
     selected_by_phase: dict[str, int] = {}
     for phase in ("early", "mid", "late"):
+        if targets[phase] == 0:
+            selected_by_phase[phase] = 0
+            continue
         candidates = list(by_phase[phase])
         rng.shuffle(candidates)
         chosen: list[ActorStep] = []

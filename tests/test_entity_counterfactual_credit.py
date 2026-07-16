@@ -58,6 +58,17 @@ def test_phase_selection_uses_one_state_per_game() -> None:
     assert len({step.game_index for step in selected}) == 9
     assert summary["selected_by_phase"] == {"early": 2, "mid": 3, "late": 4}
 
+    selected, summary = select_game_disjoint_phase_states(
+        steps,
+        max_states=9,
+        seed=7,
+        phase_targets=(0, 0, 9),
+    )
+
+    assert len(selected) == 9
+    assert all(step.state.turn_index >= 40 for step in selected)
+    assert summary["selected_by_phase"] == {"early": 0, "mid": 0, "late": 9}
+
 
 def test_candidate_selection_retains_sampled_behavior_action() -> None:
     action_types = (
