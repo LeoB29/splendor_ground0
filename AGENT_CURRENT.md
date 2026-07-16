@@ -2927,6 +2927,46 @@ Preregistered broad gate and result:
   `outputs/canonical_entity_public_value_029/public_value_metrics.json` and
   `gate_decision.json`.
 
+### Preregistered Shallow-Search Operational Gate `030`
+
+- Purpose: stop compressing the only teacher with demonstrated headroom and
+  test that teacher itself as an operational agent. This is a deployment-class
+  search candidate, not a neural checkpoint promotion and not permission to
+  tune search after seeing results.
+- Freeze the exact coherent teacher: information-legal `ShallowSearchBot`,
+  depth 1, one determinization, total branching 6, buy/reserve/take caps
+  4/2/2, search seed 23, and determinization seed 29. Use CPU,
+  `max_turns=400`, repetition limit 4, and no-progress limit 60.
+- First run exactly 100 games as 50 paired-seat seeds 340000-340049 against
+  promoted `023` (SHA256
+  `29EF7C13C5553EC88C8BCB98F7378C925F0E600E2FCF3D944DF5926EFED7A070`).
+  Require zero stalls/true timeouts, at least 60% shallow score share, and a
+  20,000-resample pair-aware CI95 lower bound above 50%. Any failure stops the
+  experiment before broad blocks.
+- Only after a parent pass, compare shallow and matched `023` controls on the
+  same 30 paired seeds/60 games per opponent: Greedy at 341000-341029, `016`
+  at 342000-342029, and `035` at 343000-343029. The checkpoint hashes are
+  `876AC23A005D367AC48B3619BB7CDCB6E0230A3E9E97943D7EECDC6D07D1B056`
+  and `4422A82B593340EECD02AF3A0941F24F0318CC7453E6A0739FD9F524539AF2CD`.
+- Broad absolute shallow floors are 80% versus Greedy and 25% versus each
+  strong learned opponent. Required matched-control deltas are at least -5
+  points versus Greedy and +5 points versus both `016` and `035`. Candidate
+  and control blocks must all have zero stalls/true timeouts. There are no
+  replacement blocks or result-contingent threshold changes.
+- A complete pass designates the exact shallow configuration as the
+  operational strength parent while retaining `023` as the promoted fast
+  neural parent. It then authorizes a separately preregistered selective-search
+  hybrid. Failure leaves `023` operational and sends the project to a decision
+  about scaled multi-generation self-play rather than another local search or
+  imitation adjustment.
+- `run_shallow_operational_gate.py` implements pair-atomic resumable parallel
+  execution, fixed checkpoint identities, role/seat-aware pair statistics,
+  conditional broad execution, and a final decision artifact under
+  `outputs/shallow_operational_030`. Four focused gate tests pass; the relevant
+  focused suite passes 17/17 and the full suite passes 325/325. A disjoint
+  seed-339900 one-pair mechanics smoke tied 1-1 with zero failures; it is not
+  evidence and did not run broad blocks.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
