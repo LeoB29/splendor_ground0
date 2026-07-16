@@ -10,7 +10,7 @@ from typing import Any
 from splendor_ai.diagnostics import is_progress_transition, state_signature
 from splendor_ai.bots.base import Bot
 from splendor_ai.encoding import ActionCodec, encode_public_observation_tensor
-from splendor_ai.engine.actions import Action
+from splendor_ai.engine.actions import Action, ActionType
 from splendor_ai.engine.constants import ALL_TOKEN_TYPES, TOKEN_COLORS
 from splendor_ai.engine.data import build_base_deck_by_tier, build_base_nobles
 from splendor_ai.engine.env import SplendorEnv
@@ -74,6 +74,7 @@ def collect_game_replay(
     termination_reason = "completed"
     state_visit_counts: dict[tuple[object, ...], int] = {}
     no_progress_streak = 0
+    forced_pass_streak = 0
 
     while not state.terminal:
         signature = state_signature(state)
@@ -134,6 +135,16 @@ def collect_game_replay(
             }
         )
         next_state = env.step(state, chosen_action)
+        forced_pass = (
+            len(legal_actions) == 1
+            and legal_actions[0].action_type == ActionType.PASS
+        )
+        forced_pass_streak = forced_pass_streak + 1 if forced_pass else 0
+        if forced_pass_streak >= 2:
+            state = next_state
+            winner = _adjudicate_scores(state)
+            termination_reason = "forced_pass_deadlock"
+            break
         if is_progress_transition(state, next_state, chosen_action):
             no_progress_streak = 0
         else:

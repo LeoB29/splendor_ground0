@@ -2740,6 +2740,26 @@ Preregistered broad gate and result:
   shallow labels disagreed with rollout actions on 39.4% of 734 states. A
   one-epoch mechanics smoke produced all expected artifacts; its four-game
   holdouts are not evidence and cannot affect the frozen `025` decision.
+- Result: reject `025` before training. All 240 games were generated, but seed
+  290015 in the `035` profile reached the repetition cutoff at turn 45. Audit
+  showed that both players had only `PASS`; neither `023`, `035`, nor any
+  successor fallback had an alternative action. Per the frozen integrity rule,
+  no `025` row is eligible for training and there is no replacement game.
+
+### Forced-Pass Repair and Fresh DAgger Block `026`
+
+- Replay collection and match evaluation now end two consecutive forced passes
+  as a clean adjudicated `forced_pass_deadlock`. This is not a model fallback:
+  it handles the engine state where both players have exactly one legal action,
+  `PASS`, and further play cannot change the state. The exact failed seed now
+  ends cleanly at turn 41 after recording the two forced passes. Focused tests
+  pass 22/22 and the full suite passes 312/312.
+- Freeze a completely fresh DAgger block at seeds 291000-291239 in
+  `outputs/canonical_entity_dagger_026`; reuse none of `025`. All other `025`
+  league balance, 192/24/24 stratified split, teacher, old/new 50/50 exposure,
+  four-epoch optimizer, offline confirmation gates, and promotion gates remain
+  unchanged. Stalls and true timeouts still invalidate `026`; an adjudicated
+  `forced_pass_deadlock` is a valid clean terminal.
 
 ### Active Overnight Reserve Corpus
 
@@ -2777,7 +2797,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 311 passed after legal hidden-information search, PUCT batching, root-visit
+- 312 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,

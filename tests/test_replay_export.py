@@ -2,8 +2,10 @@ import json
 
 from splendor_ai.bots import GreedyHeuristicBot, RandomLegalBot
 from splendor_ai.encoding import OBSERVATION_SIZE, ActionCodec
+from splendor_ai.engine.constants import ALL_TOKEN_TYPES
 from splendor_ai.engine.env import SplendorEnv
-from splendor_ai.engine.state import RESERVE_SOURCE_DECK
+from splendor_ai.engine.state import Card, RESERVE_SOURCE_DECK
+from splendor_ai.eval.match import play_game
 from splendor_ai.training import (
     collect_game_replay,
     deserialize_state_snapshot,
@@ -19,6 +21,23 @@ class TokenOnlyBot:
             if action.action_type.name == "TAKE_TOKENS":
                 return action
         return legal[0] if legal else None
+
+
+def _forced_pass_state():
+    state = SplendorEnv(seed=0).initial_state()
+    state.bank_tokens.update({color: 0 for color in ALL_TOKEN_TYPES})
+    for player_id, player in enumerate(state.players):
+        player.reserved_cards = [
+            Card(
+                card_id=f"forced-{player_id}-{index}",
+                tier=1,
+                bonus_color="white",
+                points=0,
+                cost={"blue": 10},
+            )
+            for index in range(3)
+        ]
+    return state
 
 
 def test_collect_game_replay_records_legal_training_examples() -> None:
@@ -46,6 +65,29 @@ def test_collect_game_replay_records_legal_training_examples() -> None:
         if replay.winner is not None:
             expected = 1.0 if replay.winner == step.player_id else -1.0
             assert step.final_value == expected
+
+
+def test_two_consecutive_forced_passes_end_as_clean_deadlock(monkeypatch) -> None:
+    state = _forced_pass_state()
+    monkeypatch.setattr(SplendorEnv, "initial_state", lambda _self: state.copy_shallow())
+
+    replay = collect_game_replay(
+        GreedyHeuristicBot(seed=1),
+        GreedyHeuristicBot(seed=2),
+        repetition_limit=4,
+        no_progress_limit=60,
+    )
+    result = play_game(
+        GreedyHeuristicBot(seed=1),
+        GreedyHeuristicBot(seed=2),
+        repetition_limit=4,
+        no_progress_limit=60,
+    )
+
+    assert replay.turns == result.turns == 2
+    assert replay.termination_reason == result.termination_reason == "forced_pass_deadlock"
+    assert replay.timed_out is result.timed_out is False
+    assert replay.stalled is result.stalled is False
 
 
 def test_export_replay_games_jsonl_writes_one_line_per_step(tmp_path) -> None:

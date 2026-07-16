@@ -7,6 +7,7 @@ from typing import Callable
 
 from splendor_ai.bots.base import Bot
 from splendor_ai.diagnostics import is_progress_transition, state_signature
+from splendor_ai.engine.actions import ActionType
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import SplendorState
 
@@ -71,6 +72,7 @@ def play_game(
     bots = (bot_seat_0, bot_seat_1)
     state_visit_counts: dict[tuple[object, ...], int] = {}
     no_progress_streak = 0
+    forced_pass_streak = 0
 
     while not state.terminal:
         signature = state_signature(state)
@@ -124,6 +126,23 @@ def play_game(
         if chosen_action is None:
             raise RuntimeError("Bot returned no action in a non-terminal state.")
         next_state = env.step(state, chosen_action)
+        forced_pass = (
+            len(legal_actions) == 1
+            and legal_actions[0].action_type == ActionType.PASS
+        )
+        forced_pass_streak = forced_pass_streak + 1 if forced_pass else 0
+        if forced_pass_streak >= 2:
+            state = next_state
+            return GameResult(
+                seed=seed,
+                turns=state.turn_index,
+                winner=_adjudicate_scores(state),
+                final_scores=(state.players[0].score, state.players[1].score),
+                bot_seats=(type(bot_seat_0).__name__, type(bot_seat_1).__name__),
+                termination_reason="forced_pass_deadlock",
+                no_progress_streak=no_progress_streak,
+                loop_fallback_triggers_by_seat=_loop_fallback_triggers(bots),
+            )
         if is_progress_transition(state, next_state, chosen_action):
             no_progress_streak = 0
         else:
