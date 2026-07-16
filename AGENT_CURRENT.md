@@ -35,6 +35,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Rejected late auxiliary-Q diagnostic: `outputs/canonical_entity_action_value_019/canonical_entity_action_value_scorer.pt`
 - Rejected scaled supervised entity candidates: `outputs/canonical_entity_supervised_scale_020/canonical_entity_action_scorer_width64_best.pt` and `canonical_entity_action_scorer_width128_best.pt`
 - Successful shallow-actor-only diagnostic, not promoted: `outputs/canonical_entity_shallow_actor_021/canonical_entity_action_scorer_shallow_actor_width64_best.pt`
+- Strong coherent entity candidate, not promoted on loop integrity: `outputs/canonical_entity_coherent_023/canonical_entity_action_scorer_coherent_width64_best.pt`
 
 ## Current Conclusions
 
@@ -108,6 +109,19 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   400/50/50 seed splits created before training. The next experiment should
   train one width64 model from scratch on `022`, then require the same offline,
   paired-parent, and broad strong-opponent gates before promotion.
+- `canonical_entity_coherent_023` validates the coherent supervised direction
+  but is not promoted because its final loop-integrity gate fails. A fresh
+  width64 model trained from scratch on `022`; validation selected epoch 7 and
+  every untouched offline gate passed. It beat `004` 44-16, then materially
+  improved matched broad score share versus Greedy (95.0% vs 83.75%), legal
+  shallow depth1 (55.0% vs 17.5%), `016` (40.0% vs 15.0%), and `035` (41.25%
+  vs 5.0%). The original Greedy control contained one `004` repetition cutoff,
+  so a preregistered one-shot fresh replacement was run rather than pooled. In
+  that replacement, `004` was clean at 70.0%, while `023` scored 92.5% but had
+  one repetition cutoff. Every strength gate passes, but Greedy integrity is
+  false and there is no second replacement. Keep `004` frozen. Do not retrain
+  the model: the next required work is loop-safe inference for
+  `CanonicalEntityActionScorerBot`, followed by fresh safety/promotion gates.
 - The first clean actor-critic smoke generation is
   `outputs/canonical_entity_actor_005_smoke`. Its actor sees only canonical
   public entities; a separate training-only critic sees hidden deck cards and
@@ -2606,6 +2620,50 @@ Coherent shallow self-play corpus `022`:
   shallow-search, `035`, and other strong-opponent confirmation. Only that full
   gate can promote a new clean parent.
 
+### Coherent Entity Promotion Candidate `023`
+
+Training and offline gates:
+
+- `run_entity_coherent_supervised.py` trains exactly one random-init width64
+  model after verifying `022`'s coherent teacher metadata, zero-failure source,
+  and frozen 400/50/50 seed split. Implementation checkpoint: `cc89154`.
+- `outputs/canonical_entity_coherent_023` used 24,862 train, 3,090 validation,
+  and 3,128 untouched confirmation positions. Validation loss improved through
+  epoch 7 to 1.1733 and slightly regressed at epoch 8 to 1.1754, so epoch 7 was
+  selected without using confirmation.
+- On confirmation, frozen `004` versus `023` policy loss was 1.8068 versus
+  1.1801, top-one accuracy 41.75% versus 57.00%, top-three 70.49% versus 79.19%,
+  and MRR 0.5877 versus 0.7018. `023` improved all 50 game means; paired loss
+  delta was -0.6269 with CI95 [-0.6540, -0.5994]. Every offline gate passed.
+- The mandatory paired-parent block used seeds 260000-260029. `023` beat `004`
+  44-16 with zero stalls/timeouts, a 73.3% score share above the fixed 60% gate.
+
+Preregistered broad gate and result:
+
+- `run_entity_broad_promotion_gate.py`, checkpoint `93c66d1`, froze 40 games
+  per candidate/opponent and same-seed `004` control. Required candidate floors
+  were 80% Greedy, 30% legal shallow, 20% `016`, and 20% `035`; required
+  candidate-minus-control deltas were -5, +10, +5, and +5 percentage points.
+  Any stall/timeout in candidate or control invalidated that opponent block.
+- Candidate/control score shares were: Greedy 95.0%/83.75%; legal shallow
+  55.0%/17.5%; `016` 40.0%/15.0%; and `035` 41.25%/5.0%. Every absolute and
+  matched strength threshold passed, as did non-Greedy integrity.
+- The original Greedy block was integrity-invalid because `004` repeated a
+  state four times at seed 270022, turn 33, score 0-0. Before rerunning, commit
+  `0036276` preregistered exactly one fresh replacement block, replacing rather
+  than pooling the original. Seeds 274000-274039 gave clean `004` share 70.0%
+  and `023` share 92.5%, but `023` repeated at seed 274002, turn 29, score 1-0.
+  Both incidents ended by `repetition_cutoff`; neither entity bot recorded a
+  loop-fallback trigger because `CanonicalEntityActionScorerBot` has no loop
+  fallback implementation.
+- Final artifact `broad_promotion_gate_final.json` has every strength gate true
+  and only `greedy_integrity` false. Honor the preregistered stop: do not run a
+  second replacement and do not promote `023`. Frozen `004` remains parent.
+- Next work is operational, not another learning run: implement and test a
+  canonical-successor-aware loop fallback for entity checkpoint inference,
+  then rerun fresh parent and broad gates because the deployed bot behavior has
+  changed. The strength evidence makes this fix worthwhile; GPU is irrelevant.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -2642,7 +2700,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 298 passed after legal hidden-information search, PUCT batching, root-visit
+- 304 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -2663,6 +2721,8 @@ Current full test status:
   parallel late counterfactual collection, auxiliary entity-Q gating, and
   resumable three-way-heldout clean entity foundation scaling, actor-source
   filtering, and coherent shallow-self-play corpus contracts.
+  Coherent single-width promotion training, matched broad strength gates, and
+  one-shot integrity replacement contracts are also covered.
 
 ## Files To Read Next
 
@@ -2709,3 +2769,5 @@ Current full test status:
 - `src/splendor_ai/training/run_entity_action_value_training.py`
 - `src/splendor_ai/training/run_entity_supervised_scale.py`
 - `src/splendor_ai/training/run_entity_shallow_actor_ablation.py`
+- `src/splendor_ai/training/run_entity_coherent_supervised.py`
+- `src/splendor_ai/training/run_entity_broad_promotion_gate.py`
