@@ -4,13 +4,15 @@ from dataclasses import asdict
 
 import torch
 
-from splendor_ai.bots import CanonicalEntityActionScorerBot
+from splendor_ai.bots import CanonicalEntityActionScorerBot, LoopFallbackConfig
 from splendor_ai.bots.search_bot import CheckpointLegalActionPriorScorer
 from splendor_ai.encoding import (
+    actions_by_canonical_successor_key,
     canonical_legal_action_descriptor,
     collate_entity_action_batch,
     encode_canonical_state_entities,
 )
+from splendor_ai.engine.actions import ActionType
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import Card, RESERVE_SOURCE_DECK
 from splendor_ai.training.model import (
@@ -34,6 +36,47 @@ def _model() -> CanonicalEntityActionScorerModel:
             dropout=0.0,
         )
     ).eval()
+
+
+class _ActionTypeScores:
+    def __init__(self, *, take_score: float, buy_score: float) -> None:
+        self._take_score = take_score
+        self._buy_score = buy_score
+
+    def __call__(self, *, action_type_ids, action_mask, **_):
+        scores = torch.zeros_like(action_type_ids, dtype=torch.float32)
+        take_id = list(ActionType).index(ActionType.TAKE_TOKENS) + 1
+        buy_visible_id = list(ActionType).index(ActionType.BUY_VISIBLE) + 1
+        buy_reserved_id = list(ActionType).index(ActionType.BUY_RESERVED) + 1
+        scores[action_type_ids == take_id] = self._take_score
+        scores[(action_type_ids == buy_visible_id) | (action_type_ids == buy_reserved_id)] = (
+            self._buy_score
+        )
+        return scores, torch.zeros(action_type_ids.shape[0])
+
+
+def _write_entity_checkpoint(tmp_path):
+    model = _model()
+    checkpoint_path = tmp_path / "entity_bot.pt"
+    torch.save(
+        {
+            "model_kind": "canonical_entity_action_scorer",
+            "model_state_dict": model.state_dict(),
+            "model_config": asdict(model.config),
+        },
+        checkpoint_path,
+    )
+    return checkpoint_path
+
+
+def _state_with_legal_buy():
+    env = SplendorEnv(seed=0)
+    state = env.initial_state()
+    player = state.players[state.current_player]
+    for card in state.visible_tier_cards[1][:2]:
+        for color, cost in card.cost.items():
+            player.tokens[color] = max(player.tokens[color], cost)
+    return env, state
 
 
 def test_entity_encoding_hides_blind_reserve_identity_but_not_tier() -> None:
@@ -112,16 +155,7 @@ def test_checkpoint_scorer_loads_canonical_entity_model(tmp_path) -> None:
 
 
 def test_entity_checkpoint_bot_returns_a_legal_action(tmp_path) -> None:
-    model = _model()
-    checkpoint_path = tmp_path / "entity_bot.pt"
-    torch.save(
-        {
-            "model_kind": "canonical_entity_action_scorer",
-            "model_state_dict": model.state_dict(),
-            "model_config": asdict(model.config),
-        },
-        checkpoint_path,
-    )
+    checkpoint_path = _write_entity_checkpoint(tmp_path)
     env = SplendorEnv(seed=8)
     state = env.initial_state()
     actions = env.legal_actions(state)
@@ -129,3 +163,48 @@ def test_entity_checkpoint_bot_returns_a_legal_action(tmp_path) -> None:
     chosen = CanonicalEntityActionScorerBot(checkpoint_path).choose_action(env, state, actions)
 
     assert chosen in actions
+
+
+def test_entity_loop_fallback_uses_best_canonical_buy_after_repeated_public_state(
+    tmp_path,
+) -> None:
+    env, state = _state_with_legal_buy()
+    checkpoint_path = _write_entity_checkpoint(tmp_path)
+    bot = CanonicalEntityActionScorerBot(checkpoint_path)
+    bot._model = _ActionTypeScores(take_score=5.0, buy_score=4.5)
+
+    first_actions = env.legal_actions(state)
+    first = bot.choose_action(env, state, first_actions)
+    assert first.action_type == ActionType.TAKE_TOKENS
+    assert bot.loop_fallback_triggers == 0
+
+    reordered_state = state.copy_shallow()
+    reordered_state.visible_tier_cards[1].reverse()
+    reordered_actions = env.legal_actions(reordered_state)
+    chosen = bot.choose_action(env, reordered_state, reordered_actions)
+
+    assert chosen.action_type == ActionType.BUY_VISIBLE
+    assert chosen in actions_by_canonical_successor_key(
+        reordered_state,
+        reordered_actions,
+    ).values()
+    assert bot.loop_fallback_triggers == 1
+
+
+def test_entity_loop_fallback_respects_score_gap(tmp_path) -> None:
+    env, state = _state_with_legal_buy()
+    checkpoint_path = _write_entity_checkpoint(tmp_path)
+    bot = CanonicalEntityActionScorerBot(
+        checkpoint_path,
+        loop_fallback=LoopFallbackConfig(max_buy_logit_gap=8.0),
+    )
+    bot._model = _ActionTypeScores(take_score=20.0, buy_score=1.0)
+    actions = env.legal_actions(state)
+
+    first = bot.choose_action(env, state, actions)
+    second = bot.choose_action(env, state, actions)
+
+    assert first.action_type == ActionType.TAKE_TOKENS
+    assert second.action_type == ActionType.TAKE_TOKENS
+    assert second != first
+    assert bot.loop_fallback_triggers == 1

@@ -2664,6 +2664,35 @@ Preregistered broad gate and result:
   then rerun fresh parent and broad gates because the deployed bot behavior has
   changed. The strength evidence makes this fix worthwhile; GPU is irrelevant.
 
+### Loop-Safe Entity Promotion Preregistration `024`
+
+- `CanonicalEntityActionScorerBot` now applies the configured inference-only
+  loop fallback to canonical successor representatives. Its cycle key is the
+  canonical public-belief key with absolute turn number reduced to parity; on a
+  repeated state it first prefers a close-scoring buy, then the highest-scoring
+  least-used canonical successor. This permits a deterministic escape even
+  when no buy is legal. Benchmark construction now passes the CLI fallback
+  configuration to entity bots.
+- Focused tests pass (22/22), the full suite passes (306/306), and the exact
+  former candidate failure at seed 274002 now completes 18-0 at turn 72 with
+  exactly one fallback instead of reaching the repetition cutoff at turn 29.
+  This replay is a regression smoke only, not promotion evidence.
+- Freeze the following fresh gate before viewing results. Use unchanged
+  fallback defaults (state visits 2, own no-progress actions 6, buy-score gap
+  8), `max_turns=400`, `repetition_limit=4`, `no_progress_limit=60`, CPU, and
+  the unchanged `023` and `004` checkpoint weights.
+- Parent gate: 60 paired-seat games (30 paired seeds 280000-280029), `023`
+  versus frozen `004`; require candidate score share at least 60% and zero
+  stalls/timeouts for either bot.
+- Broad gate: 40 games per candidate/control-opponent block with matched fresh
+  seeds: Greedy 281000-281039, legal shallow depth1 282000-282039, `016`
+  paired seeds 283000-283019, and `035` paired seeds 284000-284019. Retain the
+  v1 candidate floors of 80%, 30%, 20%, and 20%, and candidate-minus-`004`
+  deltas of -5, +10, +5, and +5 percentage points respectively. Every block
+  requires zero stalls/timeouts.
+- Promotion requires both the parent gate and every broad strength/integrity
+  gate. There is no replacement block or result-contingent rerun in `024`.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -2700,7 +2729,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 304 passed after legal hidden-information search, PUCT batching, root-visit
+- 306 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,

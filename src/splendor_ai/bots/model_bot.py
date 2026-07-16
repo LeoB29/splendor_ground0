@@ -12,6 +12,7 @@ from splendor_ai.diagnostics import is_progress_transition, state_signature
 from splendor_ai.encoding import (
     ActionCodec,
     actions_by_canonical_successor_key,
+    canonical_public_belief_key,
     collate_entity_action_batch,
     encode_legal_action_features,
     encode_public_observation_tensor,
@@ -279,9 +280,15 @@ class LegalActionScorerBot:
 class CanonicalEntityActionScorerBot:
     """Greedy legal policy backed by a canonical entity/action checkpoint."""
 
-    def __init__(self, checkpoint_path: str | Path, device: str = "cpu") -> None:
+    def __init__(
+        self,
+        checkpoint_path: str | Path,
+        device: str = "cpu",
+        loop_fallback: LoopFallbackConfig | None = None,
+    ) -> None:
         self._checkpoint_path = Path(checkpoint_path)
         self._device = device
+        self._loop_fallback = loop_fallback or LoopFallbackConfig()
         checkpoint = torch.load(self._checkpoint_path, map_location=device, weights_only=True)
         self._model = CanonicalEntityActionScorerModel(
             CanonicalEntityActionScorerConfig(**checkpoint.get("model_config", {}))
@@ -289,6 +296,13 @@ class CanonicalEntityActionScorerBot:
         self._model.load_state_dict(checkpoint["model_state_dict"])
         self._model.to(device)
         self._model.eval()
+        self._state_visit_counts: dict[tuple[object, ...], int] = {}
+        self._successor_choice_counts: dict[
+            tuple[object, ...], dict[tuple[object, ...], int]
+        ] = {}
+        self._own_non_progress_actions = 0
+        self._last_turn_index: int | None = None
+        self._loop_fallback_triggers = 0
 
     @property
     def checkpoint_path(self) -> Path:
@@ -296,7 +310,11 @@ class CanonicalEntityActionScorerBot:
 
     @property
     def loop_fallback_triggers(self) -> int:
-        return 0
+        return self._loop_fallback_triggers
+
+    @property
+    def loop_fallback_config(self) -> LoopFallbackConfig:
+        return self._loop_fallback
 
     def choose_action(
         self,
@@ -304,9 +322,15 @@ class CanonicalEntityActionScorerBot:
         state: SplendorState,
         legal_actions: list[Action] | None = None,
     ) -> Action | None:
+        self._reset_tracking_if_new_game(state)
         actions = legal_actions if legal_actions is not None else env.legal_actions(state)
         if not actions:
             return None
+
+        signature = self._loop_state_signature(state)
+        state_visit_count = self._state_visit_counts.get(signature, 0) + 1
+        self._state_visit_counts[signature] = state_visit_count
+
         representatives = actions_by_canonical_successor_key(state, actions)
         representative_actions = list(representatives.values())
         batch = collate_entity_action_batch(
@@ -317,7 +341,113 @@ class CanonicalEntityActionScorerBot:
             scores, _value = self._model(**batch)
             masked_scores = masked_legal_action_scores(scores, batch["action_mask"])
             best_row = int(torch.argmax(masked_scores, dim=1).item())
-        return representative_actions[best_row]
+
+        chosen_action = representative_actions[best_row]
+        fallback_action = self._loop_fallback_action(
+            successor_actions=representatives,
+            representative_actions=representative_actions,
+            masked_scores=masked_scores,
+            best_row=best_row,
+            state_visit_count=state_visit_count,
+            state_signature=signature,
+        )
+        if fallback_action is not None and fallback_action != chosen_action:
+            chosen_action = fallback_action
+            self._loop_fallback_triggers += 1
+
+        selected_successor_key = next(
+            key for key, action in representatives.items() if action == chosen_action
+        )
+        successor_counts = self._successor_choice_counts.setdefault(signature, {})
+        successor_counts[selected_successor_key] = successor_counts.get(selected_successor_key, 0) + 1
+        self._record_selected_action(env, state, chosen_action)
+        return chosen_action
+
+    def _loop_fallback_action(
+        self,
+        successor_actions: dict[tuple[object, ...], Action],
+        representative_actions: list[Action],
+        masked_scores: torch.Tensor,
+        best_row: int,
+        state_visit_count: int,
+        state_signature: tuple[object, ...],
+    ) -> Action | None:
+        """Choose at most one action per canonical successor when escaping a loop."""
+
+        config = self._loop_fallback
+        if not config.enabled:
+            return None
+
+        repeated_state = state_visit_count >= config.min_state_visits
+        own_no_progress = self._own_non_progress_actions >= config.min_own_non_progress_actions
+        if not repeated_state and not own_no_progress:
+            return None
+
+        row_by_action = {
+            action: row for row, action in enumerate(representative_actions)
+        }
+        buy_actions = [
+            action
+            for action in successor_actions.values()
+            if action.action_type in (ActionType.BUY_VISIBLE, ActionType.BUY_RESERVED)
+        ]
+        if buy_actions:
+            buy_action = max(
+                buy_actions,
+                key=lambda action: float(masked_scores[0, row_by_action[action]].item()),
+            )
+            buy_row = row_by_action[buy_action]
+            close_enough = True
+            if config.max_buy_logit_gap is not None:
+                best_score = float(masked_scores[0, best_row].item())
+                buy_score = float(masked_scores[0, buy_row].item())
+                close_enough = best_score - buy_score <= config.max_buy_logit_gap
+            if buy_row != best_row and close_enough:
+                return buy_action
+
+        if not repeated_state:
+            return None
+
+        successor_counts = self._successor_choice_counts.get(state_signature, {})
+        keys = list(successor_actions)
+        least_uses = min(successor_counts.get(key, 0) for key in keys)
+        least_used_keys = [
+            key for key in keys if successor_counts.get(key, 0) == least_uses
+        ]
+        fallback_key = max(
+            least_used_keys,
+            key=lambda key: float(
+                masked_scores[0, row_by_action[successor_actions[key]]].item()
+            ),
+        )
+        fallback_action = successor_actions[fallback_key]
+        return fallback_action if row_by_action[fallback_action] != best_row else None
+
+    @staticmethod
+    def _loop_state_signature(state: SplendorState) -> tuple[object, ...]:
+        """Canonical public state key with absolute time removed for cycle detection."""
+
+        key = canonical_public_belief_key(state, state.current_player)
+        return key[:3] + (state.turn_index % 2,) + key[4:]
+
+    def _record_selected_action(self, env: SplendorEnv, state: SplendorState, action: Action) -> None:
+        next_state = env.step(state, action)
+        if is_progress_transition(state, next_state, action):
+            self._own_non_progress_actions = 0
+        else:
+            self._own_non_progress_actions += 1
+        self._last_turn_index = state.turn_index
+
+    def _reset_tracking_if_new_game(self, state: SplendorState) -> None:
+        if self._last_turn_index is None:
+            return
+        if state.turn_index < self._last_turn_index or (
+            state.turn_index == 0 and self._last_turn_index != 0
+        ):
+            self._state_visit_counts.clear()
+            self._successor_choice_counts.clear()
+            self._own_non_progress_actions = 0
+            self._loop_fallback_triggers = 0
 
 
 class LegalActionSetScorerBot:

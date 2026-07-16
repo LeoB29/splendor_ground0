@@ -199,6 +199,10 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
         def __init__(self, checkpoint_path, device):
             captured.append(("set_scorer", checkpoint_path, device))
 
+    class FakeEntityScorerBot:
+        def __init__(self, checkpoint_path, device, loop_fallback):
+            captured.append(("entity_scorer", checkpoint_path, device, loop_fallback))
+
     class FakePolicyGuidedSearchBot:
         def __init__(
             self,
@@ -248,6 +252,10 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
         FakeAttentionScorerBot,
     )
     monkeypatch.setattr("splendor_ai.eval.run_benchmark.LegalActionSetScorerBot", FakeSetScorerBot)
+    monkeypatch.setattr(
+        "splendor_ai.eval.run_benchmark.CanonicalEntityActionScorerBot",
+        FakeEntityScorerBot,
+    )
     monkeypatch.setattr("splendor_ai.eval.run_benchmark.PolicyGuidedSearchBot", FakePolicyGuidedSearchBot)
 
     checkpoint_path = tmp_path / "checkpoint.pt"
@@ -275,6 +283,12 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
         device="cpu",
         loop_fallback=object(),
     )
+    entity_scorer_bot = _model_bot_for_checkpoint(
+        checkpoint_path=checkpoint_path,
+        model_kind="canonical_entity_action_scorer",
+        device="cpu",
+        loop_fallback=object(),
+    )
     guided_bot = _model_bot_for_checkpoint(
         checkpoint_path=checkpoint_path,
         model_kind="policy_guided_search",
@@ -294,12 +308,15 @@ def test_model_bot_for_checkpoint_selects_requested_model_kind(monkeypatch, tmp_
     assert isinstance(scorer_bot, FakeScorerBot)
     assert isinstance(set_scorer_bot, FakeSetScorerBot)
     assert isinstance(attention_scorer_bot, FakeAttentionScorerBot)
+    assert isinstance(entity_scorer_bot, FakeEntityScorerBot)
     assert isinstance(guided_bot, FakePolicyGuidedSearchBot)
     assert captured[0][0] == "flat"
     assert captured[1] == ("scorer", checkpoint_path, "cpu")
     assert captured[2] == ("set_scorer", checkpoint_path, "cpu")
     assert captured[3] == ("attention_scorer", checkpoint_path, "cpu")
-    assert captured[4] == (
+    assert captured[4][0] == "entity_scorer"
+    assert captured[4][1:3] == (checkpoint_path, "cpu")
+    assert captured[5] == (
         "policy_guided_search",
         checkpoint_path,
         "cpu",

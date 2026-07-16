@@ -953,7 +953,11 @@ def _model_bot_for_checkpoint(
     if model_kind == "legal_action_set_scorer":
         return LegalActionSetScorerBot(checkpoint_path, device=device)
     if model_kind == "canonical_entity_action_scorer":
-        return CanonicalEntityActionScorerBot(checkpoint_path, device=device)
+        return CanonicalEntityActionScorerBot(
+            checkpoint_path,
+            device=device,
+            loop_fallback=loop_fallback,
+        )
     if model_kind == "policy_guided_search":
         value_evaluator = _build_value_evaluator(
             checkpoint_path=search_value_checkpoint,
