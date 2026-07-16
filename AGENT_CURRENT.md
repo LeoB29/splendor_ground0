@@ -3021,6 +3021,21 @@ Preregistered broad gate and result:
   execution, telemetry, checkpoint hashes, staged gates, and a frozen final
   decision under `outputs/selective_search_hybrid_031`. CPU remains the correct
   execution target because this experiment is search- and engine-bound.
+- Result: reject the hybrid after the conditional second stage. Stage 1 passed:
+  hybrid beat shallow 57-42 with one draw over 100 games, for 57.5% score share
+  and pair-aware CI95 [49%, 66%]. Mean final margin was +0.81, CI95
+  [-0.35, +1.99]. It searched 1,460 of 3,093 turns (47.20%), with zero
+  stalls, timeouts, deadlocks, or loop fallbacks.
+- Stage 2 failed: hybrid tied raw `023` 50-50 over 100 games, for 50% score
+  share and CI95 [42%, 58%], below both the frozen 55% mean and above-45% CI
+  gates. Mean final margin was +0.25, CI95 [-0.91, +1.42]. Search use remained
+  within budget at 1,449 of 3,148 turns (46.03%), with zero integrity failures.
+- Do not promote this router or tune its threshold on these results. The
+  conditional `016`/`035` blocks were correctly skipped, so seeds 346000-346029
+  and 347000-347029 remain unused. The result shows a useful speed reduction
+  and favorable direct interaction with shallow, but no gameplay improvement
+  over the fast policy it wraps. Frozen metrics are in
+  `outputs/selective_search_hybrid_031/gate_final.json`.
 
 ### Active Overnight Reserve Corpus
 
