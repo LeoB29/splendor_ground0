@@ -33,6 +33,7 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
 - Rejected matched score-margin actor candidate: `outputs/canonical_entity_return_ab_013/canonical_entity_actor_score_margin.pt`
 - Rejected dense temporal-credit candidate: `outputs/canonical_entity_temporal_credit_ab_014/canonical_entity_actor_dense_score_change.pt`
 - Rejected late auxiliary-Q diagnostic: `outputs/canonical_entity_action_value_019/canonical_entity_action_value_scorer.pt`
+- Rejected scaled supervised entity candidates: `outputs/canonical_entity_supervised_scale_020/canonical_entity_action_scorer_width64_best.pt` and `canonical_entity_action_scorer_width128_best.pt`
 
 ## Current Conclusions
 
@@ -75,6 +76,22 @@ Build a strong 2-player Splendor AI with exact rules, legal observations/actions
   on 20 games each (the `035` block used paired seeds). It is a viable clean
   behavioral apprentice, not a champion. Do not scale pure imitation alone.
   `entity_scale_004` is now frozen as the clean actor parent.
+- The clean supervised scaling experiment `canonical_entity_supervised_scale_020`
+  closes the simple data/width-scaling hypothesis. It generated 500 fresh
+  Greedy-vs-legal-depth1 games (31,954 positions) with fixed 400/50/50
+  game-heldout splits, then trained random 64- and 128-wide one-layer entity
+  models for eight epochs. Width128 was selected by validation and passed every
+  untouched offline gate, lowering confirmation loss from `004`'s 3.0488 to
+  2.2567, raising top-one accuracy from 20.9% to 34.2%, and beating `004` on
+  all 50 confirmation games' mean losses. Despite that, it lost the mandatory
+  paired parent match 13-47. Source-stratified confirmation shows it improved
+  one-step imitation on both Greedy and shallow-search actions, so the inversion
+  is a trajectory/distribution-shift failure rather than merely fitting the
+  weak half of the labels. Reject both candidates, keep `004` frozen, and do
+  not promote larger mixed-behavior imitation from this corpus. The next clean
+  diagnostic should isolate a coherent teacher policy: train a preregistered
+  shallow-actor-only ablation on the existing corpus before paying to generate
+  shallow-vs-shallow games.
 - The first clean actor-critic smoke generation is
   `outputs/canonical_entity_actor_005_smoke`. Its actor sees only canonical
   public entities; a separate training-only critic sees hidden deck cards and
@@ -2468,6 +2485,61 @@ Auxiliary Q `019` and stopping decision:
   Do not tune epochs, loss weights, capacity, or split selection on `018/019`.
   Frozen `004` remains the parent.
 
+### Clean Supervised Foundation Scale `020`
+
+Implementation and contract:
+
+- `run_entity_supervised_scale.py` and
+  `src/splendor_ai/training/run_entity_supervised_scale.py` implement resumable,
+  parallel clean corpus collection, atomically completed per-game files, fixed
+  game-disjoint train/validation/confirmation splits, random-init matched-width
+  training, detailed rank metrics, paired per-game bootstrap gates, and a
+  confirmation holdout that is not used for model selection.
+- The two preregistered candidates preserve the one-layer `004` architecture
+  and optimizer while scaling widths to 64/64/96 (98,658 parameters) and
+  128/128/192 (377,538 parameters). Both trained eight epochs at learning rate
+  3e-4, batch size 128; best epochs were selected by validation policy loss.
+- Focused pipeline tests passed before the full run. Commit `fc01c47` is the
+  pre-experiment workspace checkpoint.
+
+Corpus and offline results:
+
+- Artifact directory: `outputs/canonical_entity_supervised_scale_020`.
+  Seeds 220000-220499 produced 500 fresh information-legal
+  Greedy-vs-depth1/one-determinization games, 31,954 positions, 246/254 seat
+  wins, and zero stalls, timeouts, or loop fallbacks. Splits contain 25,500
+  train, 3,222 validation, and 3,232 untouched confirmation positions from
+  400/50/50 disjoint games.
+- Validation loss was 2.2372 for width64 and 2.2154 for width128, so width128
+  was fixed before confirmation. On confirmation, frozen `004` versus width128
+  loss was 3.0488 versus 2.2567; top-one accuracy 20.85% versus 34.19%; top-three
+  37.84% versus 53.77%; and mean reciprocal rank 0.3374 versus 0.4853.
+- Width128 had lower loss on all 50 confirmation games. Its paired mean loss
+  delta was -0.7939 with bootstrap CI95 [-0.8428, -0.7442]. Every fixed offline
+  gate passed, including the 5% relative-loss floor, rank improvement, strictly
+  negative paired CI, 65% per-game floor, and uniform-policy control.
+- Post-hoc source stratification is in `teacher_stratified_confirmation.json`.
+  On 1,616 Greedy action positions, `004` versus width128 loss was 4.0853 versus
+  3.0038 and MRR 0.1355 versus 0.3239. On 1,616 shallow-search positions, loss
+  was 2.0122 versus 1.5097 and MRR 0.5393 versus 0.6467. The larger candidate
+  did not improve aggregate offline metrics merely by fitting one source.
+
+Mandatory parent gate and decision:
+
+- `parent_match_60.json` used 30 fresh paired seeds (230000-230029), both seats
+  per seed, and zero stalls/timeouts. Width128 lost to frozen `004` by 13-47,
+  only 21.7% score share versus the required 60%. The strong-opponent gate was
+  therefore not run.
+- This is a decisive one-step-imitation/closed-loop inversion. Better held-out
+  action prediction from the mixed Greedy/shallow trajectory corpus does not
+  yield a coherent deterministic policy when the model controls every turn.
+  Reject width64 and width128 for play and retain `004` as frozen parent.
+- Do not tune width, epochs, or mixed-corpus loss against this result. The next
+  bounded test should use the existing split but retain only actions selected
+  by `ShallowSearchBot`, train one width64 random-init model, and require the
+  same untouched offline and paired-parent gates. Only a successful ablation
+  justifies the more expensive coherent shallow-vs-shallow corpus generation.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -2504,7 +2576,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 292 passed after legal hidden-information search, PUCT batching, root-visit
+- 295 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -2522,7 +2594,8 @@ Current full test status:
   causal telescoping dense score-change credit with matched A/B gates, and
   fresh game-disjoint entity counterfactual-credit stability diagnostics, and
   fixed-reference mid/late counterfactual confirmation gates, resumable
-  parallel late counterfactual collection, and auxiliary entity-Q gating.
+  parallel late counterfactual collection, auxiliary entity-Q gating, and
+  resumable three-way-heldout clean entity foundation scaling.
 
 ## Files To Read Next
 
@@ -2567,3 +2640,4 @@ Current full test status:
 - `src/splendor_ai/training/run_entity_counterfactual_confirmation.py`
 - `src/splendor_ai/training/run_entity_late_counterfactual_corpus.py`
 - `src/splendor_ai/training/run_entity_action_value_training.py`
+- `src/splendor_ai/training/run_entity_supervised_scale.py`
