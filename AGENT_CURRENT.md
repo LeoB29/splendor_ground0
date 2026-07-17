@@ -46,6 +46,13 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
   `outputs/scaled_public_belief_value_036/{selection,offline_gate,gate_final}.json`.
   Checkpoint SHA256 is
   `537b3100980d18093042bf377a009da11a90f4fa63ad4beeee5c9cd5b95c0fa6`.
+- The authorized follow-up is `reliability_blend_value_036b`, frozen in
+  `docs/experiments/reliability_blend_value_036b.md`. It does not retrain or
+  relax `036`. It selects among exactly 12 phase/confidence blends on existing
+  validation data, requiring every original offline gate there, then uses a new
+  512-game confirmation block at seeds 381000-381127. Only a full fresh pass
+  unlocks reliability-value PUCT64 versus heuristic-leaf PUCT64 and then raw
+  `035`. Until those conditional gates pass, `035` remains champion.
 
 ## Goal
 

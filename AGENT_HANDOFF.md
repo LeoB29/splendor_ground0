@@ -39,6 +39,14 @@ floor). All other gates passed. No PUCT block ran. Preserve this as evidence tha
 the scaled belief-value direction has real signal but is not yet a fully safe
 search leaf; do not retrospectively waive the two narrow failures.
 
+The next frozen experiment is `036b`, a no-training reliability blend. Its 12
+fixed candidates combine four phase profiles with three WDL-confidence floors,
+are selected only on the old validation partition, and must pass the complete
+unchanged `036` gate set before a new confirmation corpus is even generated.
+Fresh confirmation uses seeds 381000-381127. See
+`docs/experiments/reliability_blend_value_036b.md` and
+`src/splendor_ai/training/run_reliability_blend_value.py`.
+
 Short current-state handoff: read `AGENT_CURRENT.md` first.
 
 This file is now the long historical record of the project. Keep detailed experiment history here, but put the active goals/takeaways/next steps in `AGENT_CURRENT.md`.
