@@ -3475,6 +3475,54 @@ one distinct search operator that consumes matched terminal returns directly.
   and `gate_final.json` (SHA256
   `6a00bd0ab5d89ccf96208b9940fbfdd0d1f7795ddc2255a18464c49a5102c12d`).
 
+### Preregistered One-Shot Matched-Rollout Gate `005`
+
+`004` formally closes its uncertainty-enriched two-search contract, but its
+independent action-quality result is the strongest positive decision signal in
+the project. `005` tests a deployment-realistic, structurally bounded operator;
+it is not permission to relax `004`, select threshold 0.10, or reuse any `004`
+source state, continuation, or gameplay seed.
+
+- Freeze threshold 0.075, raw-logit routing gap 0.5, three information-legal
+  determinizations, four discovery continuations per determinization/action,
+  stochastic `035` continuation at epsilon 0.1/temperature 0.5/top-3, score
+  margin `/20`, and the loop-safe 400-turn continuation contract. No parameter
+  selection occurs in `005`.
+- Assign every game one search phase—early, mid, or late—by environment seed
+  modulo three. Permit exactly one comparison: the first acting-`035` state in
+  the assigned phase whose top two distinct canonical successors have gap at
+  most 0.5. If none exists, the game remains raw `035`. This is online-causal;
+  it never chooses a later, more uncertain state after seeing the future.
+- Generate 960 fresh league games at seeds 375000-375959, exactly balanced over
+  `035`, `016`, gate-030 shallow, clean `023`, both actor seats, and assigned
+  phase. Retain the first 20 eligible unique games in each of the 24
+  opponent/seat/phase strata, without outcomes: 480 confirmation states.
+- Evaluate each state with the fixed discovery half and a separate four-
+  continuation evaluation half under fresh continuation namespace 40000000.
+  Require every branch resolved, zero hard caps, at most 0.1% adjudications,
+  at least 20 switches, bootstrap mean evaluation gain CI95 wholly above zero,
+  at least 60% positive switched effects, and phase/opponent/seat breadth with
+  at least three switches and mean switched gain at least -0.025 per bucket.
+- Measure capacity over every acting-`035` source turn, not the enriched 480-
+  state confirmation set. The eligible one-shot search fraction must be at most
+  5%; after multiplying by the independently measured switch probability, the
+  projected changed-turn fraction must be at most 3%.
+- Only a complete fresh pass unlocks 200 paired seeds/400 games against raw
+  `035` at seeds 377000-377199. Each candidate game uses the same seed-based
+  phase schedule and at most one comparison. Require zero failures, at least
+  55% score share, pair-bootstrap CI95 lower bound above 50%, actual searches
+  in every phase, at least one switch, search on at most 5% and switching on at
+  most 3% of candidate turns, zero rollout hard caps, and at most 0.1% rollout
+  adjudications. A pass establishes a stronger non-learning teacher but does
+  not promote a neural model. Any failure closes direct matched-rollout search
+  and sends the project to the architectural-reset branch.
+- Implementation is isolated in `run_one_shot_rollout_gate.py` and
+  `src/splendor_ai/eval/run_one_shot_rollout_gate.py`. No `005` source game,
+  continuation, or gameplay result may be generated before this protocol,
+  focused contracts, and the complete suite are checkpointed.
+- Pre-evidence verification (2026-07-17): the combined focused rollout suite
+  passed 17/17 and the complete suite passed 360 tests in 140.61 seconds.
+
 ### Completed Overnight Reserve Corpus
 
 A 500-state matched-return corpus job launched at 2026-07-14 01:28 local and
@@ -3513,7 +3561,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 357 passed after legal hidden-information search, PUCT batching, root-visit
+- 360 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
