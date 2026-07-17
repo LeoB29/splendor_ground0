@@ -71,30 +71,33 @@ def build_parser() -> argparse.ArgumentParser:
 def audit_group_relative_signal(config: GroupRelativeSignalAuditConfig) -> dict[str, Any]:
     _validate(config)
     corpus_summary = json.loads(config.corpus_summary_path.read_text(encoding="utf-8"))
-    rows = [
-        json.loads(line)
-        for line in config.trajectory_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
     trajectory_returns: dict[tuple[str, int, int], float] = {}
     group_trajectories: dict[str, set[tuple[str, int, int]]] = defaultdict(set)
     probabilities: list[float] = []
     logged_log_errors: list[float] = []
     nongreedy_rows = 0
-    for row in rows:
-        metadata = row.get("trajectory_metadata", {})
-        trajectory_key = (
-            str(metadata.get("source_replay_path", "")),
-            int(row.get("game_seed", row.get("seed", -1))),
-            int(row["player_id"]),
-        )
-        group_key = json.dumps(metadata.get("group_key", []), sort_keys=True)
-        trajectory_returns[trajectory_key] = float(metadata["raw_return"])
-        group_trajectories[group_key].add(trajectory_key)
-        probability = float(row["behavior_probability"])
-        probabilities.append(probability)
-        logged_log_errors.append(abs(math.log(probability) - float(row["behavior_log_probability"])))
-        nongreedy_rows += int(not bool(row.get("behavior_greedy_action", True)))
+    rows_count = 0
+    with config.trajectory_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            rows_count += 1
+            row = json.loads(line)
+            metadata = row.get("trajectory_metadata", {})
+            trajectory_key = (
+                str(metadata.get("source_replay_path", "")),
+                int(row.get("game_seed", row.get("seed", -1))),
+                int(row["player_id"]),
+            )
+            group_key = json.dumps(metadata.get("group_key", []), sort_keys=True)
+            trajectory_returns[trajectory_key] = float(metadata["raw_return"])
+            group_trajectories[group_key].add(trajectory_key)
+            probability = float(row["behavior_probability"])
+            probabilities.append(probability)
+            logged_log_errors.append(
+                abs(math.log(probability) - float(row["behavior_log_probability"]))
+            )
+            nongreedy_rows += int(not bool(row.get("behavior_greedy_action", True)))
 
     group_ranges = []
     observed_group_sizes = []
@@ -107,7 +110,7 @@ def audit_group_relative_signal(config: GroupRelativeSignalAuditConfig) -> dict[
     groups_total = int(corpus_summary.get("groups_total", 0))
     groups_informative = int(corpus_summary.get("groups_informative", 0))
     informative_rate = groups_informative / groups_total if groups_total else 0.0
-    nongreedy_rate = nongreedy_rows / len(rows) if rows else 0.0
+    nongreedy_rate = nongreedy_rows / rows_count if rows_count else 0.0
     baseline_mode = str(corpus_summary.get("config", {}).get("baseline_mode", ""))
     gates = {
         "baseline_is_leave_one_out": baseline_mode == "leave_one_out",
@@ -130,7 +133,7 @@ def audit_group_relative_signal(config: GroupRelativeSignalAuditConfig) -> dict[
         "format": "group_relative_signal_audit_v1",
         "config": _config_payload(config),
         "corpus": {
-            "rows": len(rows),
+            "rows": rows_count,
             "trajectories": len(trajectory_returns),
             "groups_total": groups_total,
             "groups_informative": groups_informative,

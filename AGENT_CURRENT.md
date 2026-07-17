@@ -3037,6 +3037,55 @@ Preregistered broad gate and result:
   over the fast policy it wraps. Frozen metrics are in
   `outputs/selective_search_hybrid_031/gate_final.json`.
 
+### Preregistered League Self-Play Generation `032`
+
+- Purpose: make the first genuinely iterative improvement attempt anchored on
+  overall champion `035`. This is not another `023`/shallow router, PUCT
+  variation, one-step reserve imitation, PPO magnitude correction, or use of
+  human games.
+- Before outcomes, calibrate exploration on 5,000 deterministic rows sampled
+  from the existing 47k `035` self-play corpus. The fixed candidate grid is
+  `(epsilon, temperature, top_k) = (0.30,0.50,3), (0.40,1.00,3),
+  (0.50,1.00,3), (0.50,1.50,5), (0.60,1.50,5)`. Select the setting closest to
+  15% expected non-greedy actions among settings inside the frozen 10%-20%
+  band. This calibration never reads game outcomes; failure stops generation.
+- Collect 512 environment-seed groups at 350000-350511, four stochastic `035`
+  trajectories per group (2,048 games). Groups are exactly balanced at 64 in
+  each of the eight `(opponent, actor seat)` cells for league opponents `035`,
+  `016`, exact gate-030 shallow, and clean fast parent `023`. Within a group,
+  environment seed, opponent, and actor seat are shared; only actor sampling
+  seed changes. Human rows are forbidden. Any stall/timeout or sampling rate
+  outside 10%-20% stops before training.
+- Freeze groups 0-447 for training and 448-511 for validation. The update uses
+  only leave-one-out group-ranked `tanh(final score margin / 20)` returns.
+  Signal gates require all 512 four-member groups, at least 75% informative
+  groups, exact behavior-probability reconstruction, clean termination, and
+  at least 10% observed non-greedy actor decisions.
+- Train exactly one full `035` attention candidate for one epoch with
+  advantage-weighted regression: learning rate `1e-5`, batch 256, advantage
+  temperature 0.25, maximum weight 10, parent raw-policy KL weight 1.0,
+  entropy weight 0.001, weight decay `1e-4`, and gradient norm 1. This replaces
+  signed clipped PPO with exponentially weighted supervised likelihood over
+  complete better-return trajectories; it is not eligible for a parameter
+  sweep on downstream results.
+- Before games, require lower validation AWR policy loss than frozen `035`,
+  1%-10% top-action movement on both 5,000 on-policy and broad rows, mean raw
+  KL at most 0.01 on both streams, and behavior reconstruction MAE at most
+  `1e-5`. Failure rejects the candidate before strength games.
+- A passing offline candidate gets one fresh direct gate against `035`: 200
+  paired-seat seeds 351000-351199 (400 games), zero integrity failures, at
+  least 55% candidate score share, and pair-aware CI95 lower bound above 50%.
+  Failure rejects Generation 1 and does not authorize a retry on these data.
+- Only a direct pass unlocks matched candidate and frozen-`035` control blocks,
+  50 paired seeds each versus `016` at 352000, shallow at 353000, and `023` at
+  354000. Every block must be clean; candidate share must be at least 25% and
+  trail the matched `035` control by no more than 5 points. A full pass promotes
+  the candidate and authorizes Generation 2; otherwise `035` remains champion.
+- `run_league_generation_032.py` and
+  `src/splendor_ai/training/run_league_generation.py` implement the staged,
+  hash-bound, resumable contract. Training remains small; CPU game simulation
+  dominates, so no GPU rental is justified for Generation 1.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
