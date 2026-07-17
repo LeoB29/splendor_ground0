@@ -3085,6 +3085,26 @@ Preregistered broad gate and result:
   `src/splendor_ai/training/run_league_generation.py` implement the staged,
   hash-bound, resumable contract. Training remains small; CPU game simulation
   dominates, so no GPU rental is justified for Generation 1.
+- Result: reject Generation 1 at the preregistered movement/KL gate, before
+  gameplay. Behavior-only calibration selected epsilon 0.50, temperature 1.0,
+  top-3 with 15.257% expected non-greedy probability. The 2,048-game corpus
+  then observed 9,738 non-greedy actions in 64,852 actor turns (15.016%), exact
+  64-group balance in every opponent/seat cell, zero stalls/timeouts, and one
+  adjudicated forced-pass deadlock. All 512 groups were informative; mean
+  group return range was 0.6275 and behavior reconstruction MAE was `1.18e-7`.
+- The single AWR update improved game-disjoint validation policy loss from
+  0.72098 to 0.61229. Greedy movement was healthy at 5.04% on-policy and 4.98%
+  on broad rows, and behavior reconstruction remained exact. However, mean raw
+  policy KL was 0.04128 on-policy and 0.04084 broad, exceeding the frozen 0.01
+  ceiling by more than 4x. The lower exploration-policy KL (~0.0058) does not
+  override the explicitly preregistered raw-policy safety gate.
+- Do not run the direct `035` gate, broad gates, Generation 2, or a learning
+  rate/KL/temperature correction on this corpus. Seeds 351000-351199 and all
+  352000-354049 broad seeds remain unused. Retain the clean balanced corpus as
+  evidence and a possible source for a separately justified future method;
+  candidate `032` is rejected and `035` remains overall champion. Frozen
+  results are under `outputs/league_generation_032/gate_final.json`, with the
+  concise gate evidence in `movement_gate.json`.
 
 ### Active Overnight Reserve Corpus
 
