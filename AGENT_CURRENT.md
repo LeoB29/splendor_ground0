@@ -3341,12 +3341,48 @@ discarding Generation 001 evidence.
   seconds, including canonical buy priority, least-used canonical-successor
   diversification, bounded loop-adjudication contracts, and literal post-model-
   selection confirmation loading.
-- Active run status (2026-07-17): Generation 002 was launched from preregistration
-  commit `1856aad` as PID 24212 with 10 CPU workers. Resumable progress is in
-  `outputs/action_preference_generation_002_loop_repair/preference_evaluation_repaired.progress.jsonl`;
-  stdout/stderr are `runner.stdout.log` and `runner.stderr.log` in the same
-  directory. Do not launch a duplicate while this runner or an equivalent
-  resumed process is active.
+- Final result: the repaired corpus passed every gate with all 2,304 states,
+  zero cutoffs, zero hard caps, and—under fresh seeds—zero fallback or loop-
+  adjudication triggers. It produced 1,071 resolved states: 709 train, 163
+  validation, and 199 confirmation, with balanced preference directions.
+  Split-half correlation was 0.8323 and eligible sign agreement was 86.92%.
+- The single full-model pairwise proposal selected epoch 4, then projected to
+  alpha 0.884765625 for validation raw KL 0.003998. It failed the offline gate:
+  validation loss improved only 0.22% versus the required 3%; confirmation
+  loss worsened by 0.00157 with CI95 [-0.00811, +0.01084]; accuracy improved
+  only 1.0 point versus the required 5; and parent-win retention was 74.23%
+  versus the required 90%. No movement or gameplay gates ran. Reject the
+  candidate, keep `035`, and do not tune full-model learning rate or epochs.
+
+### Preregistered Frozen-Representation Learnability Probe 003
+
+Generation 002 supplied only 709 resolved training labels for a multi-million-
+parameter update, while training loss improved continuously and validation
+stayed flat. Probe 003 tests the bounded alternative hypothesis that the labels
+are predictable but require a much lower-capacity learner.
+
+- Freeze every `035` parameter. For each resolved parent/challenger pair,
+  extract only information-legal frozen features: state hidden vector,
+  challenger-minus-parent contextual action vector, pair-mean contextual
+  vector, frozen challenger-minus-parent logit, and legal turn-phase one-hot.
+  Opponent identity is excluded from features.
+- Use only Generation 002's 709 training rows for model selection. Select one
+  L2 penalty from `[1e-4,1e-3,1e-2,1e-1,1,10]` by minimum mean log loss across
+  five deterministic folds stratified by label, phase, opponent, and seat.
+  Fit one linear logistic head on all training rows after selection.
+- Parse the 163 validation labels exactly once after selection and fitting.
+  Confirmation is path-recorded but never opened. Require balanced accuracy at
+  least 55%, bootstrap AUC CI95 lower bound above 0.5, at least 2% log-loss
+  improvement over the train-prevalence intercept, train/validation balanced-
+  accuracy gap at most 10 points, and at least 45% balanced accuracy in every
+  phase/opponent/seat validation bucket with at least ten rows.
+- This probe is diagnostic only: no gameplay or promotion is allowed. A full
+  pass authorizes a fresh, larger disjoint preference corpus and a separately
+  preregistered selective residual reranker. Failure closes action-preference
+  learning as the primary direction. CPU is sufficient.
+- Pre-evidence verification (2026-07-17): the focused preference contracts
+  passed 9/9 and the complete suite passed 352 tests in 100.65 seconds. Commit
+  this protocol and runner before launching the probe or reading validation.
 
 ### Active Overnight Reserve Corpus
 
@@ -3384,7 +3420,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 350 passed after legal hidden-information search, PUCT batching, root-visit
+- 352 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,

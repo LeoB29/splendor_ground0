@@ -22,6 +22,11 @@ from splendor_ai.training.run_action_preference_repair import (
     rollout_score_margin_loop_safe,
     select_canonical_loop_fallback,
 )
+from splendor_ai.training.run_action_preference_linear_probe import (
+    binary_auc,
+    binary_metrics,
+    stratified_fold_indices,
+)
 from splendor_ai.training.run_policy_search_disagreement import ModelActionScore
 
 
@@ -197,3 +202,30 @@ def test_loop_safe_rollout_adjudicates_after_bounded_fallback(monkeypatch) -> No
     assert result.loop_adjudicated
     assert result.fallback_triggers == 2
     assert not result.hard_cap_reached
+
+
+def test_binary_probe_metrics_recognize_perfect_ranking() -> None:
+    labels = torch.tensor([0.0, 0.0, 1.0, 1.0])
+    probabilities = torch.tensor([0.1, 0.2, 0.8, 0.9])
+    metrics = binary_metrics(labels, probabilities)
+    assert metrics["auc"] == 1.0
+    assert metrics["balanced_accuracy"] == 1.0
+    assert binary_auc(labels.bool(), 1.0 - probabilities) == 0.0
+
+
+def test_probe_folds_cover_rows_once_and_stratify_cells() -> None:
+    metadata = []
+    for label in (False, True):
+        for phase in ("early", "mid"):
+            for offset in range(10):
+                metadata.append(
+                    {
+                        "preference_challenger_better": label,
+                        "phase": phase,
+                        "opponent_label": "035",
+                        "player_id": offset % 2,
+                    }
+                )
+    folds = stratified_fold_indices(metadata, folds=5, seed=3)
+    assert sorted(index for fold in folds for index in fold) == list(range(len(metadata)))
+    assert max(len(fold) for fold in folds) - min(len(fold) for fold in folds) <= 1
