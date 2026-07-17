@@ -3286,10 +3286,14 @@ than another trajectory-AWR update.
   movement audit now masks padded action rows before argmax comparisons.
 - Pre-evidence verification: 347 tests passed in 147.69 seconds, including four
   new action-preference contracts.
-- A pre-evidence timing probe completed zero games with 4 workers and showed
-  each worker saturating one core. The operational worker count was therefore
-  amended to 10 for this 10-core/20-thread machine; seeds, selections, matched
-  continuations, thresholds, and all statistical rules are unchanged.
+- Provenance correction: the initial 4-worker run completed 1,866 source games
+  before its first restart; an inspection command had queried the wrong nested
+  directory and initially reported zero. The count was discovered from runner
+  progress only, without inspecting outcomes. The operational worker count was
+  then raised to 10 for this 10-core/20-thread machine. A second pause at 2,395
+  completed source games froze this worker history explicitly in the protocol.
+  Worker count cannot affect the fixed per-game/per-continuation seeds; all
+  selection, split, continuation, threshold, and promotion rules are unchanged.
 
 ### Active Overnight Reserve Corpus
 

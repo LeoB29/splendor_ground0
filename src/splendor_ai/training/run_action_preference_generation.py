@@ -94,6 +94,17 @@ def run_action_preference_generation(config: ActionPreferenceGenerationConfig) -
         "split_counts": {"train": 1536, "validation": 384, "confirmation": 384},
         "confirmation_touched_after_selection_only": True,
         "promotion_order": ["corpus", "offline", "movement", "direct", "broad"],
+        "operational_worker_history": [
+            {
+                "workers": 4,
+                "completed_source_games_at_first_restart": 1866,
+            },
+            {
+                "workers": 10,
+                "completed_source_games_at_protocol_amendment": 2395,
+            },
+        ],
+        "worker_count_cannot_change_seeded_game_or_continuation_results": True,
         "config": _config_payload(config),
     }
     if protocol_path.exists():
