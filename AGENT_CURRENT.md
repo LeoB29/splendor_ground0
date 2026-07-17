@@ -2,6 +2,22 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-17 Event-Value Rolling-Horizon Diagnostic
+
+- The hierarchical option direction closed at `039`; do not tune it.
+- The next independently justified algorithmic direction is frozen as
+  `event_value_rolling_horizon_040` in
+  `docs/experiments/event_value_rolling_horizon_040.md`.
+- `040` is a non-training CPU diagnostic of information-legal branching-
+  mutation rolling-horizon planning. It evolves two root-player decisions,
+  uses frozen legal `035` for intervening opponent moves, and compares a fixed
+  published five-event evaluator against an otherwise identical score-delta
+  control.
+- No checkpoint promotion, self-play, parameter tuning, or GPU use is
+  authorized. A four-game operational smoke precedes a frozen 60-game paired
+  evaluator gate; a conditional 60-game raw-`035` gate runs only if the event
+  evaluator first beats its score-delta control.
+
 ## 2026-07-17 Outcome-Blind Plan Persistence Diagnostic
 
 - A repository audit showed that the proposed high-budget search-oracle test
