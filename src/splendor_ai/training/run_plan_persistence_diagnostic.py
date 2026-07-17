@@ -292,7 +292,7 @@ def sanitize_snapshot(snapshot: dict[str, Any], observer: int) -> dict[str, Any]
     clean["hidden_tier_decks"] = {
         str(tier): [] for tier in clean.get("hidden_tier_decks", {})
     }
-    clean["winner"] = None
+    clean.pop("winner", None)
     for player in clean["players"]:
         if int(player["player_id"]) != observer:
             player["reserved_card_ids"] = []

@@ -46,7 +46,7 @@ def test_sanitized_snapshot_removes_private_hidden_information() -> None:
     assert all(not cards for cards in snapshot["hidden_tier_decks"].values())
     assert snapshot["players"][1]["reserved_card_ids"] == []
     assert snapshot["players"][0]["reserved_card_ids"] == []
-    assert snapshot["winner"] is None
+    assert "winner" not in snapshot
 
 
 def test_group_assignment_balances_each_split() -> None:
