@@ -3449,6 +3449,31 @@ one distinct search operator that consumes matched terminal returns directly.
   protocol, tests, and full-suite verification are checkpointed.
 - Pre-evidence verification (2026-07-17): the focused rollout/preference suite
   passed 14/14 and the complete suite passed 357 tests in 142.63 seconds.
+- Final result: reject `004` at the fresh action-quality gate and do not run
+  gameplay. Train-only selection chose threshold 0.075. On 384 development
+  validation rows it switched 26.04% of half-orientations and gained +0.04004
+  normalized return with CI95 [+0.03158, +0.04893]; 91.0% of switched actions
+  were positive on the opposite half. The development gate passed completely.
+- All 960 fresh games completed normally with exact 120-game opponent/seat
+  balance, 30,389 actor turns, and zero stalls, timeouts, or fallbacks.
+  Outcome-blind selection produced exactly 480 unique states, 20 in every
+  opponent/seat/phase stratum, all within the frozen 0.5 routing gap.
+- All 23,040 fresh continuation branches resolved naturally with zero
+  fallbacks, adjudications, or hard caps. Independent evaluation strongly
+  confirms action quality: 147 switched states gained +0.14158 on average,
+  CI95 [+0.12234, +0.16088], and 90.48% were positive. Including unchanged
+  states, mean gain was +0.04336, CI95 [+0.03526, +0.05183]. Every phase,
+  opponent, and seat breadth gate passed.
+- The sole failed condition is the preregistered maximum switch rate:
+  147/480 = 30.625%, three states above the 30% ceiling. This is a strict
+  near-boundary operational rejection, not a reversal of the direct signal.
+  Do not relax the ceiling, select threshold 0.10 after seeing this result, or
+  run seeds 374000-374199. Under the frozen decision rule, close this exact
+  direct-rollout operator and keep `035` overall champion. The evidence is in
+  `outputs/selective_matched_rollout_004/fresh_action_quality.json` (SHA256
+  `51e1f7282504463a4ace4fa52142b70a63663325617750a6b4a10b3e4bbc67e6`)
+  and `gate_final.json` (SHA256
+  `6a00bd0ab5d89ccf96208b9940fbfdd0d1f7795ddc2255a18464c49a5102c12d`).
 
 ### Completed Overnight Reserve Corpus
 
