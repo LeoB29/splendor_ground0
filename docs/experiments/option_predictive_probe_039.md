@@ -59,3 +59,35 @@ A complete pass authorizes a separately preregistered supervised high-level
 card-option model and option-conditioned low-level behavior-reconstruction
 probe. Failure closes the hierarchical direction. Thresholds and splits may
 not be changed after collection.
+
+## Result
+
+Rejected on 2026-07-17. The privacy-clean collection contained 512 completed
+games, 16,201 actor turns, and zero stalls or timeouts. Feature splits contained
+934 training, 352 validation, and 1,216 untouched confirmation examples. Both
+heads independently selected epoch 22; validation NLL was `2.063525` for the
+state-only head and a worse `2.084111` for the option-conditioned head.
+
+Untouched confirmation:
+
+- state-only: NLL `1.978413`, top1 `32.48%`, MRR `0.518431`;
+- option-conditioned: NLL `1.995238`, top1 `31.58%`, MRR `0.514029`;
+- paired game-cluster NLL delta: `+0.017896`, CI95
+  `[+0.001319, +0.034511]`;
+- top1 delta: `-1.20` points, CI95 `[-2.46, +0.07]`;
+- MRR delta: `-0.005291`, CI95 `[-0.013354, +0.002690]`.
+
+The multi-turn subset had 113 examples. Option NLL worsened from `2.278359` to
+`2.306954` (`-1.26%` relative improvement). Top1 increased from `18.58%` to
+`21.24%`, but its clustered CI touched zero. MRR increased only `0.01275`, with
+an interval spanning zero and below the frozen `0.02` floor.
+
+Nine gates failed: every overall improvement/significance gate, multi-turn NLL
+and MRR, and major-stratum noncollapse. Coverage and multi-turn top1
+nonregression passed. Decision: `explicit_option_not_incremental_close_hierarchy`.
+No policy was updated and no gameplay ran.
+
+`038` therefore measured a genuine card-cost-directed behavioral motif, but
+`039` shows it is not a useful incremental latent variable beyond contextual
+public state and card features. Do not tune this probe or proceed to a
+hierarchical gameplay model.

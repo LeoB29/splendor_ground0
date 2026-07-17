@@ -50,6 +50,23 @@ are frozen. The gate requires strong overall NLL/top1/MRR improvement,
 multi-turn improvement, and no major-stratum collapse. A pass authorizes only a
 separate supervised high-level/low-level hierarchy reconstruction experiment.
 
+`039` completed and failed decisively. All 512 privacy-clean games completed;
+the data yielded 934/352/1,216 train/validation/confirmation examples. Both
+heads selected epoch 22. The option head was worse on validation NLL (2.0841
+versus 2.0635) and on untouched confirmation: NLL 1.9952 versus 1.9784, top1
+31.58% versus 32.48%, and MRR 0.5140 versus 0.5184. The game-cluster paired NLL
+delta was +0.01790, CI95 [+0.00132, +0.03451], so conditioning significantly
+regressed calibration. Top1 and MRR deltas were negative and unresolved.
+
+The 113 multi-turn examples did not rescue the hypothesis: option NLL worsened
+1.26%; top1 gained 2.65 points, but its cluster CI touched zero; MRR gained only
+1.28 points with a CI spanning zero, below the frozen +2-point gate. Nine gates
+failed, including major-stratum noncollapse. The correct synthesis is that
+`038` found a real cost-directed action motif, while `039` showed it is not an
+incremental latent variable beyond the public state/card representation. Close
+hierarchical options; do not tune this head, train a gameplay hierarchy, or use
+more compute on this formulation. `035` remains champion.
+
 ## 2026-07-17: Start-role value v2 rejected; value/PUCT branch closed
 
 Experiment `037` completed under the preregistered contract. Epoch 1 was the

@@ -45,6 +45,26 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
   train. Confirmation is not loaded until both validation-selected epochs are
   fixed. A full incremental overall, multi-turn, and no-collapse pass only
   authorizes supervised hierarchy reconstruction, not gameplay.
+- Result: `039` rejects and closes the hierarchical option direction. The fresh
+  privacy-clean corpus contained 512 completed games, 16,201 actor turns, 934
+  train examples, 352 validation examples, and 1,216 untouched confirmation
+  examples. Both heads independently selected epoch 22; the option head was
+  already worse on validation NLL (2.0841 versus 2.0635).
+- On confirmation, state-only NLL/top1/MRR were 1.9784 / 32.48% / 0.5184;
+  option-conditioned results were worse at 1.9952 / 31.58% / 0.5140. The
+  game-cluster NLL delta was +0.01790, CI95 [+0.00132, +0.03451], establishing
+  significant regression rather than merely an unresolved gain. Top1 delta was
+  -1.20 points, CI95 [-2.46, +0.07], and MRR delta -0.00529, CI95
+  [-0.01335, +0.00269].
+- The 113 multi-turn confirmation examples also had worse NLL (2.3070 versus
+  2.2784). Their raw top1 and MRR rose only 2.65 and 1.28 points respectively,
+  with unresolved clustered intervals and MRR below the frozen +2-point floor.
+  Nine gates failed, including the no-stratum-collapse gate.
+- Interpretation: `038` measured a real behavioral motif, but not an incremental
+  latent decision variable. Given the complete public state and contextual card
+  entities, the selected take does not add predictive information robustly; it
+  mostly reflects cost structure already present in state. Do not tune `039`,
+  train a hierarchical gameplay model, or spend GPU on this direction.
 
 ## 2026-07-17 Start-Role Value v2 Result and Direction Change
 
