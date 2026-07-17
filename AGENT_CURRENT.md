@@ -18,6 +18,23 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
   state. Both halves, multi-take episodes, opponent/seat cells, and phases must
   pass frozen persistence gates. A pass authorizes only a separate hierarchy
   design; failure closes hierarchy. No training or promotion is allowed.
+- Result: `038` passed every frozen gate on a contract-clean corpus of 256
+  completed games and 8,059 actor turns. Discovery had 630 anchors: game-cluster
+  progress advantage 0.7031, CI95 [0.6638, 0.7433], and progress-rank percentile
+  0.7895, CI95 [0.7772, 0.8019]. Confirmation independently had 648 anchors:
+  advantage 0.7002, CI95 [0.6596, 0.7402], and rank percentile 0.7879, CI95
+  [0.7751, 0.8004].
+- Multi-take persistence also replicated: 58 discovery episodes at advantage
+  0.6568, CI95 [0.5770, 0.7371], and 65 confirmation episodes at 0.5863, CI95
+  [0.4947, 0.6709]. Every opponent/seat cell and all four observed phases had
+  positive mean advantage; zero games stalled or timed out.
+- Scope the conclusion carefully. Most anchors target the immediately following
+  own-turn purchase (1,136/1,278); 126 span two own turns and 16 span three.
+  The evidence establishes robust card-acquisition motifs, including replicated
+  two-take episodes, but not general long-horizon, noble, denial, or hidden-card
+  planning. It authorizes a separately frozen option-representation predictive
+  probe, not policy training or gameplay. Exact evidence is under
+  `outputs/plan_persistence_diagnostic_038`.
 
 ## 2026-07-17 Start-Role Value v2 Result and Direction Change
 

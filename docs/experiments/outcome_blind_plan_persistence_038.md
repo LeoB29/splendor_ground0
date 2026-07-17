@@ -56,3 +56,35 @@ A complete pass authorizes only the design of a separate hierarchical option
 representation and predictive probe. Failure closes the proposed hierarchy.
 Thresholds, horizon, target definition, and splits may not be changed after
 collection.
+
+## Result
+
+Passed every frozen gate on 2026-07-17. All 256 games completed with zero stalls
+or timeouts and exact 16-game balance in each split/opponent/seat cell. The
+contract-clean corpus contains 8,059 actor turns and no outcome fields, true deck
+order, or opponent-private reserved identities.
+
+- Discovery: 630 anchors; game-cluster progress advantage `0.703095`, CI95
+  `[0.663840, 0.743346]`; progress-rank percentile `0.789538`, CI95
+  `[0.777195, 0.801940]`.
+- Confirmation: 648 anchors; progress advantage `0.700173`, CI95
+  `[0.659638, 0.740157]`; progress-rank percentile `0.787894`, CI95
+  `[0.775057, 0.800359]`.
+- Multi-take discovery: 58 episodes; advantage `0.656797`, CI95
+  `[0.577015, 0.737081]`.
+- Multi-take confirmation: 65 episodes; advantage `0.586296`, CI95
+  `[0.494734, 0.670853]`.
+
+All eight opponent/seat cells were well covered and positive (mean advantage
+range `0.657`--`0.814`). All four phases were positive; the three preregistered
+well-covered phases each had 210--605 anchors. The action supported the later
+target in 99.7% of anchors and tied for best target progress in 94.1%.
+
+The evidence is narrower than a general hierarchy claim: 1,136 of 1,278 anchors
+target the immediately following own-turn purchase, 126 span two turns, and 16
+span three. No visible-reserve target survived the anchor definition; the
+measured targets were visible or previously reserved purchases. Decision:
+`authorize_hierarchical_option_design`, with training and promotion still
+forbidden. The next experiment must be a separately frozen predictive probe
+showing that an explicit option representation adds information beyond a
+state-only model.

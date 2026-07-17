@@ -18,6 +18,25 @@ stores no outcomes and strips hidden information. Training and promotion are
 forbidden. Only a replicated full pass permits a separately preregistered
 hierarchical option design; failure closes the proposed hierarchy.
 
+`038` completed and passed every gate. The 256 games were all complete, exactly
+balanced in both halves, and yielded 8,059 actor turns. Discovery contained 630
+anchors with game-cluster chosen-minus-alternative progress 0.7031, CI95
+[0.6638, 0.7433], and rank percentile 0.7895, CI95 [0.7772, 0.8019]. The untouched
+confirmation half contained 648 anchors with progress 0.7002, CI95
+[0.6596, 0.7402], and rank percentile 0.7879, CI95 [0.7751, 0.8004]. Multi-take
+episodes replicated strongly: 58 at 0.6568 [0.5770, 0.7371] and 65 at 0.5863
+[0.4947, 0.6709]. Every opponent/seat cell and every phase was directionally
+positive.
+
+The stored corpus was regenerated after a privacy audit removed even the
+constant `winner: null` key. Resume validation now rejects outcome fields,
+nonempty hidden decks, and opponent-private reserves; the final raw corpus
+contains none. Interpret the pass narrowly: 1,136/1,278 anchors point to the
+next own-turn purchase, 126 span two turns, and 16 span three. This proves a
+replicated card-acquisition option signal, not general long-horizon planning.
+The only authorization is to preregister a state-only versus option-conditioned
+predictive probe. Do not train a gameplay policy or run strength games yet.
+
 ## 2026-07-17: Start-role value v2 rejected; value/PUCT branch closed
 
 Experiment `037` completed under the preregistered contract. Epoch 1 was the
