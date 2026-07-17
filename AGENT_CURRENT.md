@@ -2,6 +2,20 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-18 Frozen Score-Delta Rolling-Horizon Gate
+
+- `040` rejected the fixed event evaluator but left one clean question: its
+  unchanged score-delta BMRH control won 45-15 and has never faced raw `035`.
+- `score_delta_rolling_horizon_041` is frozen in
+  `docs/experiments/score_delta_rolling_horizon_041.md`. It changes no `040`
+  planner parameter and runs 100 fresh paired seeds / 200 games against raw
+  `035` under strict integrity, exact-budget, 55% share, lower-CI-above-50%,
+  and positive-margin gates.
+- Only a complete direct pass unlocks fresh 50-pair blocks against gate-`030`
+  shallow search, `016`, and loop-safe clean `023`, each under the same strength
+  conditions. Failure closes the rolling-horizon branch; success authorizes
+  only a separately frozen teacher-corpus loop. `035` remains champion.
+
 ## 2026-07-17 Event-Value Rolling-Horizon Diagnostic
 
 - The hierarchical option direction closed at `039`; do not tune it.
