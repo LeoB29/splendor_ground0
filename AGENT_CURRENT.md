@@ -3294,6 +3294,16 @@ than another trajectory-AWR update.
   completed source games froze this worker history explicitly in the protocol.
   Worker count cannot affect the fixed per-game/per-continuation seeds; all
   selection, split, continuation, threshold, and promotion rules are unchanged.
+- Active run status (2026-07-17): all 2,880 source games are complete with
+  exact 360-game balance in every opponent/seat cell, 91,340 acting-`035`
+  turns, zero stalls, zero timeouts, and zero loop fallbacks. Outcome-blind
+  selection passed with exactly 2,304 unique games and frozen 1,536/384/384
+  splits; all 24 strata have their exact allocation and no source game lacked
+  its assigned phase. Matched evaluation is running in the background as PID
+  37764 with resumable progress in
+  `outputs/action_preference_generation_001/preference_evaluation.progress.jsonl`
+  and log `runner.resume.stdout.log`. Do not launch a duplicate process while
+  that PID or an equivalent runner is active.
 
 ### Active Overnight Reserve Corpus
 
