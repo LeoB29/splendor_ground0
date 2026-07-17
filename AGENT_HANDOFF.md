@@ -1,5 +1,32 @@
 # Agent Handoff
 
+## 2026-07-18: Score-delta rolling horizon passed strength, failed integrity
+
+`score_delta_rolling_horizon_041` froze the exact score-delta BMRH control from
+`040` and tested it on 100 fresh paired seeds / 200 games against raw legal
+`035`. Protocol commit was `25350bd`, implementation commit was `7e9765a`, and
+the pre-evidence full suite passed 401 tests.
+
+The planner was statistically stronger: 117-83-0, paired score share 58.5%
+with CI95 [52.0%, 65.0%], and mean paired final-score margin +0.91 with CI95
+[+0.16, +1.64]. It completed 6,364 planning decisions and exactly 203,648
+sequence evaluations. All strength, count, and exact-budget gates passed.
+
+The formal gate nevertheless failed because one game did not have literal
+`completed` termination. Seed `403078`, candidate seat 0, reached the match
+runner's `forced_pass_deadlock` adjudication at turn 30 and score 2-0; the
+candidate was adjudicated winner. It was not a timeout or stall, but the frozen
+integrity rule allowed zero non-completed games. Consequently the runner did
+not generate any shallow, `016`, or `023` broad block.
+
+Honor the preregistration: keep `035` champion, do not repair or tune `041`
+after this result, and close rolling horizon as the active branch. Preserve the
+nuance for future strategic review: unlike most rejected directions, this
+operator passed every statistical strength gate and was rejected only by one
+forced-pass terminal-contract event. Exact hashes are in `AGENT_CURRENT.md` and
+the `041` protocol; evidence is under
+`outputs/score_delta_rolling_horizon_041`.
+
 ## 2026-07-17: Event-value rolling-horizon diagnostic rejected
 
 After `039` closed explicit hierarchical options, the project tested a genuinely

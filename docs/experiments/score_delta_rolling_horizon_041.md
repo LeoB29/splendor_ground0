@@ -61,3 +61,38 @@ A complete pass establishes the score-delta BMRH operator as a stronger search
 teacher and authorizes a separately preregistered search-every-move corpus and
 distillation loop. It does not promote a neural checkpoint by itself. CPU is
 appropriate; GPU use is not authorized for this gate.
+
+## Result
+
+Formally rejected on 2026-07-18 at the direct integrity gate. Pre-evidence
+verification passed all 401 tests, and the implementation was checkpointed at
+`7e9765a` before any `041` game.
+
+All 100 paired seeds / 200 games were generated. The score-delta planner showed
+clear directional strength against raw `035`:
+
+- 117-83-0;
+- paired score share `58.5%`, CI95 `[52.0%, 65.0%]`;
+- mean paired final-score margin `+0.91`, CI95 `[+0.16, +1.64]`;
+- 6,364 planning decisions, 203,648 sequence evaluations, and exact
+  `32 x planning decisions` accounting.
+
+The score-share, confidence-bound, margin, expected-count, and exact-budget
+gates all passed. The sole failed gate was zero non-completed games. Seed
+`403078`, candidate seat 0, ended after 30 turns through the match runner's
+`forced_pass_deadlock` adjudication at score 2-0; the candidate was adjudicated
+the winner. This was not marked as a stall or timeout, but the frozen protocol
+explicitly rejected every non-`completed` termination.
+
+Therefore do not run the conditional shallow/`016`/`023` blocks, do not call
+this a promoted teacher, and keep `035` champion. The result is operationally
+frustrating but unambiguous under the preregistration: rolling-horizon closes as
+the current improvement branch without a post-result repair. Scope the evidence
+carefully—the planner passed every statistical strength gate, and was rejected
+only for one forced-pass terminal-contract event.
+
+Evidence is under `outputs/score_delta_rolling_horizon_041`.
+`direct_vs_035.json` SHA256 is
+`3ece75beb2ad19d2b5eeadaa7321b684d8e7ac1ec1de388b34a79ec3af968465`;
+`gate_final.json` SHA256 is
+`c90daf97251c0621e16416e783a2ff3cdf3a966e66c9a394043059171b398423`.

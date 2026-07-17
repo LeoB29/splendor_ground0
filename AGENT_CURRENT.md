@@ -15,6 +15,23 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
   shallow search, `016`, and loop-safe clean `023`, each under the same strength
   conditions. Failure closes the rolling-horizon branch; success authorizes
   only a separately frozen teacher-corpus loop. `035` remains champion.
+- Result: formal rejection on the sole integrity gate. All 401 pre-evidence
+  tests passed. The full 100-pair/200-game direct block otherwise showed clear
+  strength: score-delta BMRH went 117-83-0 versus raw `035`, paired share 58.5%
+  with CI95 [52.0%, 65.0%], and paired margin +0.91 with CI95 [+0.16, +1.64].
+  Expected-count, exact-budget, share, confidence, and margin gates passed.
+- Seed `403078`, candidate seat 0, terminated at turn 30 through
+  `forced_pass_deadlock` with score 2-0 and candidate adjudicated winner. It was
+  neither a stall nor timeout, but it is one non-`completed` game and the frozen
+  contract required zero. No broad game was generated.
+- Keep `035` champion and do not repair, tune, or promote this operator after
+  the result. Close rolling horizon as the current branch while retaining the
+  important scoped fact that it passed every statistical strength gate and
+  failed only the forced-pass terminal-integrity condition.
+- Result hashes: `direct_vs_035.json`
+  `3ece75beb2ad19d2b5eeadaa7321b684d8e7ac1ec1de388b34a79ec3af968465`;
+  `gate_final.json`
+  `c90daf97251c0621e16416e783a2ff3cdf3a966e66c9a394043059171b398423`.
 
 ## 2026-07-17 Event-Value Rolling-Horizon Diagnostic
 
