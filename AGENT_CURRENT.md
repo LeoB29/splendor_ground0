@@ -3286,6 +3286,10 @@ than another trajectory-AWR update.
   movement audit now masks padded action rows before argmax comparisons.
 - Pre-evidence verification: 347 tests passed in 147.69 seconds, including four
   new action-preference contracts.
+- A pre-evidence timing probe completed zero games with 4 workers and showed
+  each worker saturating one core. The operational worker count was therefore
+  amended to 10 for this 10-core/20-thread machine; seeds, selections, matched
+  continuations, thresholds, and all statistical rules are unchanged.
 
 ### Active Overnight Reserve Corpus
 

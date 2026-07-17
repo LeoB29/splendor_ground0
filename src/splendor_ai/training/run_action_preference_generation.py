@@ -70,7 +70,7 @@ class ActionPreferenceGenerationConfig:
     broad_016_seed_start: int = 365_000
     broad_shallow_seed_start: int = 366_000
     broad_023_seed_start: int = 367_000
-    workers: int = 4
+    workers: int = 10
     max_turns: int = 400
     repetition_limit: int = 4
     no_progress_limit: int = 60
@@ -258,7 +258,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--broad-replay", default="outputs/canonical_entity_supervised_scale_020/replays.jsonl"
     )
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--device", default="cpu")
     return parser
 
