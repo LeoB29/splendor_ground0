@@ -3243,6 +3243,50 @@ Preregistered broad gate and result:
   `outputs/policy_delta_causal_audit_034/audit_final.json` and the concise
   decision is in `operational_decision.json`.
 
+### Preregistered Action-Preference Generation 001
+
+The next learning experiment is frozen before any new source games or matched
+continuations are generated. It tests direct action-level supervision rather
+than another trajectory-AWR update.
+
+- Generate 2,880 fresh `035` league games at seeds 361000-363879, exactly
+  balanced across `035`, `016`, shallow, and `023` opponents and both actor
+  seats. Each opponent/seat cell is also assigned evenly to early, mid, and
+  late selection phases.
+- Select exactly one state per game without reading outcomes: the state in its
+  assigned phase with the smallest `035` logit gap between its top two
+  distinct canonical successors. Retain the 96 most uncertain games per each
+  of 24 opponent/seat/phase strata, then freeze game-disjoint splits of 64/16/16
+  per stratum: 1,536 train, 384 validation, and 384 untouched confirmation.
+- Evaluate both actions with identical information-legal determinizations and
+  matched continuation seeds: 3 determinizations x 8 continuations per action.
+  Require complete continuations, stable split-half action signal, at least
+  450/100/100 resolved train/validation/confirmation states, and both label
+  directions in every split before training.
+- Train one full attention scorer initialized from `035` for 8 epochs with
+  direct pairwise softplus loss, AdamW at 3e-5, and a frozen-parent KL anchor.
+  Select the epoch only on validation pairwise loss, then deterministically
+  interpolate its parameters toward `035` until validation raw KL is at most
+  0.004. Confirmation labels are first read only after both choices are fixed.
+- Offline passage requires at least 3% pairwise-loss improvement on validation
+  and confirmation, a confirmation paired-loss CI wholly below zero, at least
+  +5 percentage points confirmation accuracy, at least 20% accuracy on states
+  where the challenger is correct, and at least 90% retention where `035` is
+  correct. Movement must be 1-5% on fresh on-policy and broad streams with mean
+  raw KL at most 0.008.
+- Only then run an untouched 200-pair/400-game gate against `035` requiring at
+  least 55% score share and CI95 lower bound above 50%, followed conditionally
+  by matched broad gates against `016`, shallow, and `023`. `035` remains the
+  champion unless every gate passes. CPU is appropriate; GPU would only reduce
+  the short training stage, not the dominant rollout cost.
+- Implementation is in `run_action_preference_corpus.py`,
+  `run_action_preference_training.py`, and
+  `run_action_preference_generation.py`. The runner is resumable at source
+  games, evaluated states, training completion, and gameplay gates. The shared
+  movement audit now masks padded action rows before argmax comparisons.
+- Pre-evidence verification: 347 tests passed in 147.69 seconds, including four
+  new action-preference contracts.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -3279,7 +3323,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 343 passed after legal hidden-information search, PUCT batching, root-visit
+- 347 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,

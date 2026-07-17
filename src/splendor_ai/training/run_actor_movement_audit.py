@@ -154,14 +154,19 @@ def _measure_stream(
             legal_mask = batch["legal_action_mask"].to(config.device)
             parent_scores, _ = parent(observation, action_features, legal_mask)
             candidate_scores, _ = candidate(observation, action_features, legal_mask)
+            masked_parent_scores = parent_scores.masked_fill(~legal_mask, -torch.inf)
+            masked_candidate_scores = candidate_scores.masked_fill(~legal_mask, -torch.inf)
             changes += int(
-                (torch.argmax(parent_scores, dim=1) != torch.argmax(candidate_scores, dim=1))
+                (
+                    torch.argmax(masked_parent_scores, dim=1)
+                    != torch.argmax(masked_candidate_scores, dim=1)
+                )
                 .sum()
                 .item()
             )
 
-            parent_logits = parent_scores.masked_fill(~legal_mask, -torch.inf)
-            candidate_logits = candidate_scores.masked_fill(~legal_mask, -torch.inf)
+            parent_logits = masked_parent_scores
+            candidate_logits = masked_candidate_scores
             parent_probs = torch.softmax(parent_logits, dim=1)
             candidate_probs = torch.softmax(candidate_logits, dim=1)
             raw_kls.extend(_row_kl(parent_probs, candidate_probs).cpu().tolist())
