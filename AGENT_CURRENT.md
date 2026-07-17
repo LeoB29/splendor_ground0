@@ -3383,6 +3383,22 @@ are predictable but require a much lower-capacity learner.
 - Pre-evidence verification (2026-07-17): the focused preference contracts
   passed 9/9 and the complete suite passed 352 tests in 100.65 seconds. Commit
   this protocol and runner before launching the probe or reading validation.
+- Final result: the probe ran from preregistration commit `f97664a` and failed
+  decisively. Train-only CV selected the strongest penalty, L2 `10.0`; its
+  mean held-out log loss was 0.68817, balanced accuracy 50.03%, and AUC 0.50236.
+  The final 516-feature head reached training AUC 0.68857 but only 50.0%
+  balanced accuracy. On the once-opened 163-row validation split it achieved
+  50.0% balanced accuracy, AUC 0.46612 with bootstrap CI95
+  [0.37683, 0.55631], and log loss 0.70022 versus the 0.69812 prevalence
+  baseline, a -0.30% relative improvement. The sample-count, generalization-
+  gap, breakdown-floor, and confirmation-untouched gates passed; the minimum
+  balanced-accuracy, AUC, and log-loss gates failed. Confirmation was never
+  opened, no gameplay ran, and no checkpoint is promotable.
+- Decision: close direct action-preference learning as the primary direction;
+  do not rescue it with another capacity, learning-rate, or corpus-size sweep.
+  `035` remains overall champion. Frozen evidence is in
+  `outputs/action_preference_learnability_probe_003/probe_final.json`; its
+  SHA256 is `5fd1c5f6a2fe3a1d01f4338b2bf9322a423b9f0d36355d3fd3dcf347e85645a9`.
 
 ### Active Overnight Reserve Corpus
 
