@@ -24,6 +24,15 @@ from .selective_search_bot import (
     SelectiveSearchDecision,
     SelectiveSearchHybridBot,
 )
+from .rolling_horizon_bot import (
+    BranchingMutationRollingHorizonBot,
+    RollingHorizonConfig,
+    RollingHorizonStats,
+    TransitionEvents,
+    event_value,
+    transition_events,
+    transition_value,
+)
 
 __all__ = [
     "Bot",
@@ -46,4 +55,11 @@ __all__ = [
     "SelectiveSearchConfig",
     "SelectiveSearchDecision",
     "SelectiveSearchHybridBot",
+    "BranchingMutationRollingHorizonBot",
+    "RollingHorizonConfig",
+    "RollingHorizonStats",
+    "TransitionEvents",
+    "event_value",
+    "transition_events",
+    "transition_value",
 ]

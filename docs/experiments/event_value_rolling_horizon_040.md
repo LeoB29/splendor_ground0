@@ -30,8 +30,10 @@ hierarchical-option variant. It follows the Branching Mutation Rolling Horizon
 - Each decision evaluates 32 sequences over two determinizations, with fixed
   seed derivation from environment seed, public turn index, and evaluation
   index. Ties are resolved by frozen `035` root score and canonical action key.
-- Both variants receive exactly the same determinizations, initial genomes,
-  mutations, policy scores, candidate caps, and simulated-action budget.
+- Both variants receive exactly the same determinizations, initial root-covering
+  genomes, random mutation-point/suffix schedule, policy scores, candidate
+  caps, and simulated-action budget. Later incumbent genomes may differ because
+  accepting an offspring is the evaluator-dependent quantity under test.
 
 ## Frozen evaluators
 
