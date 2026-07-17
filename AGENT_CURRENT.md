@@ -2,6 +2,26 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-18 Deadlock-Validated Rolling-Horizon Replication
+
+- A post-`041` audit reconstructed seed `403078`: turns 28 and 29 each had the
+  complete legal set `[PASS]`; all colored bank stacks were empty, both players
+  held ten colored tokens and three reserves, and neither could buy. This was a
+  genuine forced deadlock, not a loop or cutoff.
+- More importantly, the repository had already frozen and tested
+  `forced_pass_deadlock` as a valid clean terminal in DAgger `026`/`027`.
+  `041`'s literal-`completed` integrity rule contradicted that established
+  contract. Keep `041` formally rejected, but do not interpret it as negative
+  strength evidence.
+- The corrected fresh replication is preregistered as
+  `deadlock_validated_rolling_horizon_042` in
+  `docs/experiments/deadlock_validated_rolling_horizon_042.md`. It changes no
+  planner or strength parameter. It accepts exactly `completed` and
+  `forced_pass_deadlock` as clean terminals, preserving the engine's existing
+  score/card-count adjudication, and rejects every cutoff or stall.
+- `042` uses 100 entirely fresh paired seeds against raw `035`; only a full
+  pass unlocks fresh shallow/`016`/`023` blocks. No `041` game is reused.
+
 ## 2026-07-18 Frozen Score-Delta Rolling-Horizon Gate
 
 - `040` rejected the fixed event evaluator but left one clean question: its
