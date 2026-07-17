@@ -57,3 +57,29 @@ Only that pass unlocks the same gate versus raw `035` at seeds 386000-386099.
 A direct pass authorizes synchronous search-every-move visit-distribution
 distillation but does not automatically promote a champion. Thresholds may not
 be relaxed or blocks extended post hoc. CPU is sufficient.
+
+## Result
+
+Rejected at the frozen validation gate on 2026-07-17. Epoch 1 was selected:
+
+- epoch-0 score: `3.4039124805`;
+- selected score: `3.3968630308`, a `0.2071%` improvement versus the required
+  `0.5%`;
+- v2 aggregate MAE: `0.2837901023` versus v1 `0.2834403618`;
+- starting-player MAE: `0.2764297573` versus v1 `0.2733698104` (worse by
+  `1.12%`);
+- second-player MAE: `0.2912160264` versus v1 `0.2936006396` (better by
+  `0.81%`, below the `1%` floor).
+
+The three failed gates were
+`selection_improves_at_least_0.5pct_vs_epoch0`,
+`seat0_mae_improves_at_least_1pct_vs_v1`, and
+`seat1_mae_improves_at_least_1pct_vs_v1`. Every original offline gate and both
+seat-correlation gates passed. Successor consistency was also healthy on its
+256-state reservoir (mean Spearman `0.1171`, policy-top value percentile
+`0.7143`, value-best in policy top three `57.42%`).
+
+Per protocol, no confirmation corpus or gameplay was generated and no
+deployment checkpoint was retained. Decision:
+`reject_v2_validation_close_value_puct`. The next direction is hierarchical
+plans/options, not another public-belief leaf-value adjustment.

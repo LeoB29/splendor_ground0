@@ -1,5 +1,27 @@
 # Agent Handoff
 
+## 2026-07-17: Start-role value v2 rejected; value/PUCT branch closed
+
+Experiment `037` completed under the preregistered contract. Epoch 1 was the
+best of six, but its validation selection score improved only 0.207% versus the
+zero-update v1 initialization (required 0.5%). Its overall MAE was marginally
+worse than v1 (0.283790 versus 0.283440). Starting-player MAE worsened 1.12%
+(0.276430 versus 0.273370), while second-player MAE improved only 0.81%
+(0.291216 versus 0.293601); the frozen gate required at least 1% improvement in
+both seats. Both seat-correlation gates and every original offline gate passed,
+including ordering, calibration, no-collapse, and successor consistency.
+
+The runner correctly stopped before fresh confirmation and gameplay. No v2
+deployment checkpoint was written, no PUCT block ran, and `035` remains the
+overall champion. Evidence is in
+`outputs/start_role_public_belief_value_v2_037/validation_selection.json` and
+`gate_final.json`. This is the planned terminal result for the current
+public-belief value/PUCT bootstrap. Do not rescue it with threshold changes,
+extra epochs, learning-rate tuning, or more compute. Move next to a separately
+preregistered hierarchical plan/option diagnostic, beginning with whether
+information-legal multi-turn intent is persistent and predictive enough to be
+a useful decision variable.
+
 ## 2026-07-17: AlphaGo reconstruction lessons and scaled value preregistration
 
 The Dwarkesh Patel / Eric Jang transcript (`https://www.dwarkesh.com/p/eric-jang`)

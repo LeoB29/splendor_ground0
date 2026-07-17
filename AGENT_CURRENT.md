@@ -2,6 +2,28 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-17 Start-Role Value v2 Result and Direction Change
+
+- Final focused value experiment `037` completed under its frozen contract and
+  was rejected at validation. It selected epoch 1 of 6, but improved the frozen
+  selection score only from 3.403912 to 3.396863 (0.207%, below the required
+  0.5%). Later epochs were worse, so this was not an undertraining result.
+- Relative to the unchanged v1 reliability-ramp baseline, aggregate MAE slightly
+  worsened from 0.283440 to 0.283790. Starting-player MAE worsened 1.12%
+  (0.273370 to 0.276430); second-player MAE improved only 0.81% (0.293601 to
+  0.291216), below the required 1% improvement in both seats. Correlation
+  nonregression passed for both seats, and every other original offline,
+  ordering, calibration, and successor-consistency gate passed.
+- The runner therefore generated no fresh confirmation corpus and ran no PUCT
+  games. There is no v2 deployment checkpoint and `035` remains champion. Exact
+  evidence is in
+  `outputs/start_role_public_belief_value_v2_037/{validation_selection,gate_final}.json`.
+- This closes the current public-belief value/PUCT bootstrap as preregistered.
+  Do not tune `037`, relax its gates, add epochs, or spend GPU on the same
+  objective. The next project direction is hierarchical plans/options: first
+  establish that public-state multi-turn intent is stable and action-relevant,
+  then train or search over it only if that diagnostic passes.
+
 ## 2026-07-17 External AlphaGo Lesson and Revised Next Experiment
 
 - The useful lesson from Eric Jang's account of rebuilding AlphaGo is not
