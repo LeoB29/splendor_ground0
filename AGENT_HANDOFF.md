@@ -1,5 +1,32 @@
 # Agent Handoff
 
+## 2026-07-17: Event-value rolling-horizon diagnostic rejected
+
+After `039` closed explicit hierarchical options, the project tested a genuinely
+different Splendor-specific planner under the frozen
+`event_value_rolling_horizon_040` contract. The implementation evolves two
+root-player action-rank decisions with `(1+1)` branching mutation, uses frozen
+legal `035` for intervening opponent actions, evaluates 32 sequences over two
+observer-relative determinizations, and never chooses cooperative opponent
+moves. A matched control changes only the evaluator from published five-event
+weights to root-relative score delta.
+
+The implementation was checkpointed before evidence at `6856117`; the complete
+suite passed 397 tests. The four-game operational smoke passed every gate in
+43.5 seconds with exact budgets and no failed games. The frozen 30-pair/60-game
+control also completed without a stall, timeout, or other non-completion, but
+event-value lost 15-45-0 to score-delta. Its paired score share was 25.0%, CI95
+[15.0%, 35.0%], and mean paired final-score margin was -3.9833, CI95
+[-5.3000, -2.6667]. The raw-`035` gate remained locked as required.
+
+Reject the fixed published event weighting. Do not tune its weights, horizon,
+or budget after seeing this block. This result does not reject the implemented
+rolling-horizon mechanism: the score-delta control dominated event-value, but
+its strength against raw `035` is still unknown and no further gameplay is
+authorized by `040`. `035` remains champion. Evidence is under
+`outputs/event_value_rolling_horizon_040`; hashes are recorded in the protocol
+and `AGENT_CURRENT.md`.
+
 ## 2026-07-17: Outcome-blind plan persistence preregistration
 
 The suggested high-budget search-oracle diagnostic was discovered to duplicate

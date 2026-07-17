@@ -87,3 +87,35 @@ not itself promote anything.
 
 CPU is required for this diagnostic. GPU use is not authorized because exact
 environment simulation and many small policy calls dominate this bounded run.
+
+## Result
+
+Rejected on 2026-07-17 at the frozen event-versus-score control gate.
+
+Pre-evidence verification passed all 397 tests. The operational smoke completed
+all four games in 43.5 seconds with zero stalls, timeouts, or non-completed
+games, and exact `32 x planning decisions` budgets for both variants.
+
+The complete control block then ran all 30 paired seeds / 60 games without any
+operational failure. `event_value_hc` went 15-45-0 against `score_delta`:
+
+- paired score share `25.0%`, CI95 `[15.0%, 35.0%]`;
+- mean paired final-score margin `-3.9833`, CI95 `[-5.3000, -2.6667]`;
+- 1,899 candidate planning decisions, 60,768 sequence evaluations, and 179,295
+  simulated actions;
+- 1,897 control planning decisions, 60,704 sequence evaluations, and 179,728
+  simulated actions.
+
+Only the zero-failure gate passed. The minimum score share, lower confidence
+bound, and positive-margin gates all failed. The conditional raw-`035` block
+was not generated.
+
+This decisively rejects the published fixed five-event weighting at the tested
+two-decision BMRH budget. It does not show that the rolling-horizon machinery is
+invalid: the matched score-delta control was much stronger, and its strength
+against raw `035` was not tested. It also does not authorize post-result weight,
+horizon, or budget tuning. Exact evidence is under
+`outputs/event_value_rolling_horizon_040`; `control.json` SHA256 is
+`a28c793f822881bdf736bbb0194ef2dbfb55bd25f2a4dabd406108d15fe61eea` and
+`gate_final.json` SHA256 is
+`60f57de76973d5faf9b80df11f5460985ad11056f86d1125bfd23225f5de3608`.

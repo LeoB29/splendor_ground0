@@ -17,6 +17,21 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
   authorized. A four-game operational smoke precedes a frozen 60-game paired
   evaluator gate; a conditional 60-game raw-`035` gate runs only if the event
   evaluator first beats its score-delta control.
+- Result: reject the fixed published event evaluator. All 397 pre-evidence tests
+  passed. The four-game smoke passed every operational gate in 43.5 seconds.
+  The frozen 60-game control completed with zero failures, but event-value lost
+  15-45-0 to score-delta: paired score share 25.0%, CI95 [15.0%, 35.0%], and
+  mean paired margin -3.9833, CI95 [-5.3000, -2.6667]. Only the zero-failure
+  control gate passed; the three strength gates failed.
+- The conditional raw-`035` block was correctly not run. Do not tune the event
+  weights, horizon, or budget after this result. Scope the rejection to the
+  fixed five-event evaluator: the score-delta rolling-horizon control itself
+  was much stronger in this matched block, but has not been tested against raw
+  `035` and is not authorized as a teacher or promotion candidate.
+- Exact result hashes: `control.json`
+  `a28c793f822881bdf736bbb0194ef2dbfb55bd25f2a4dabd406108d15fe61eea`;
+  `gate_final.json`
+  `60f57de76973d5faf9b80df11f5460985ad11056f86d1125bfd23225f5de3608`.
 
 ## 2026-07-17 Outcome-Blind Plan Persistence Diagnostic
 
