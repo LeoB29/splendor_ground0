@@ -3215,6 +3215,33 @@ Preregistered broad gate and result:
   continuation seeds begin at 34000000. A separate eight-game/two-state
   mechanics smoke on throwaway seeds completed all 96 continuations and is
   ineligible evidence.
+- Result: the complete diagnostic is valid and closes AWR as the primary
+  improvement direction. All 640 source games completed normally with exact
+  80-game opponent/seat balance, 20,365 acting-`035` turns, and zero stalls,
+  timeouts, or fallbacks. Outcome-blind scanning found 351 distinct canonical-
+  successor disagreements and selected 80 unique games with exact 10-state
+  opponent/seat balance; phase coverage was 35 early, 29 mid, and 16 late.
+- All 3,840 continuation branches terminated with zero cutoffs. The action-
+  conditional measurements are highly reproducible: split-half correlation
+  was 0.8669 with CI95 [0.7885, 0.9204], 67 states had sign-eligible half
+  effects with 85.07% agreement, and 40/80 states met the fixed resolved rule.
+  Every preregistered signal-stability condition passes.
+- The `033` direction nevertheless has no aggregate local advantage. Mean
+  candidate-minus-`035` return was -0.01109, equivalent to -0.2219 final-score
+  points, with CI95 [-0.9891, +0.5391] points. Resolved states split exactly
+  20 favoring `033` and 20 favoring `035`; raw state signs were 45.0% versus
+  51.25%, with 3.75% ties. Every phase, opponent, and seat aggregate CI spans
+  zero. The frozen diagnosis is `local_effect_unresolved_close_awr`; no model
+  was trained or promoted and `035` remains overall champion.
+- Interpretation: `033`'s failed game gate is not repaired by claiming that
+  its changed actions are locally superior, nor does this audit establish
+  systematic local harm. Instead, it shows that matched action-level returns
+  are stable and frequently resolvable while trajectory AWR is approximately
+  unaligned with them. A separately preregistered, fresh, game-disjoint direct
+  action-preference corpus is now the strongest justified learning direction;
+  do not train on these 80 diagnostic states. Frozen results are in
+  `outputs/policy_delta_causal_audit_034/audit_final.json` and the concise
+  decision is in `operational_decision.json`.
 
 ### Active Overnight Reserve Corpus
 
