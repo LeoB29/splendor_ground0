@@ -126,7 +126,13 @@ def run_league_generation(config: LeagueGenerationConfig) -> dict[str, Any]:
     calibration = calibrate_exploration(config)
     if not calibration["passed"]:
         return _finalize(config, calibration=calibration, decision="calibration_failed")
-    sampling = SamplingSpec(**calibration["selected"])
+    selected = calibration["selected"]
+    sampling = SamplingSpec(
+        epsilon=float(selected["epsilon"]),
+        temperature=float(selected["temperature"]),
+        top_k=int(selected["top_k"]),
+        expected_nongreedy_rate=float(selected["expected_nongreedy_rate"]),
+    )
 
     collection = collect_league_groups(config, sampling)
     if not collection["passed"]:
@@ -713,4 +719,3 @@ def _validate(config: LeagueGenerationConfig) -> None:
     ):
         if not path.exists():
             raise FileNotFoundError(path)
-
