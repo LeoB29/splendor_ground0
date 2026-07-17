@@ -58,7 +58,9 @@ from splendor_ai.training.run_league_generation import (
 OPPONENTS = ("035", "016", "shallow", "023")
 PHASES = ("0-14", "15-29", "30-44", "45+")
 SOURCE_NAMES = ("032", "033")
-MAX_ENTITIES = 64
+# This is a lossless storage ceiling, not a model truncation width. Legal games
+# in 032 include 65 public entities late in long zero-point-card trajectories.
+MAX_ENTITIES = 96
 MARGIN_BINS = 41
 MARGIN_CLIP = 20
 
