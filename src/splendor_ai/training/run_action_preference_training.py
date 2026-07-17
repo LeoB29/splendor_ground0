@@ -61,7 +61,6 @@ def train_and_gate_action_preferences(config: ActionPreferenceTrainingConfig) ->
     parent.eval()
     train_loader = _loader(config.train_replay, parent, config, shuffle=True)
     validation_loader = _loader(config.validation_replay, parent, config, shuffle=False)
-    confirmation_loader = _loader(config.confirmation_replay, parent, config, shuffle=False)
     parent_validation = evaluate_preference_model(parent, parent, validation_loader, config.device)
     optimizer = AdamW(
         model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
@@ -109,6 +108,9 @@ def train_and_gate_action_preferences(config: ActionPreferenceTrainingConfig) ->
     )
 
     # Confirmation is first touched here, after epoch and interpolation selection are frozen.
+    confirmation_loader = _loader(
+        config.confirmation_replay, parent, config, shuffle=False
+    )
     flags = _load_challenger_flags(config.confirmation_replay)
     parent_confirmation = evaluate_preference_model(
         parent, parent, confirmation_loader, config.device, flags

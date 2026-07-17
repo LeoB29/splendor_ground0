@@ -3294,16 +3294,53 @@ than another trajectory-AWR update.
   completed source games froze this worker history explicitly in the protocol.
   Worker count cannot affect the fixed per-game/per-continuation seeds; all
   selection, split, continuation, threshold, and promotion rules are unchanged.
-- Active run status (2026-07-17): all 2,880 source games are complete with
+- Final result (2026-07-17): all 2,880 source games completed with
   exact 360-game balance in every opponent/seat cell, 91,340 acting-`035`
   turns, zero stalls, zero timeouts, and zero loop fallbacks. Outcome-blind
   selection passed with exactly 2,304 unique games and frozen 1,536/384/384
   splits; all 24 strata have their exact allocation and no source game lacked
-  its assigned phase. Matched evaluation is running in the background as PID
-  37764 with resumable progress in
-  `outputs/action_preference_generation_001/preference_evaluation.progress.jsonl`
-  and log `runner.resume.stdout.log`. Do not launch a duplicate process while
-  that PID or an equivalent runner is active.
+  its assigned phase. All 2,304 states and 110,592 action branches were
+  evaluated. Signal quality was strong: split-half correlation 0.8332, 87.63%
+  sign agreement across 1,899 eligible states, and 1,057 resolved states
+  (696/172/189 train/validation/confirmation) with approximately balanced
+  preference directions in every split. Aggregate top-two return was neutral:
+  -0.0095 score points with CI95 [-0.1336, +0.1140]. The corpus nevertheless
+  failed its strict operational gate because one confirmation-state candidate
+  continuation entered a score-stable repetition loop: 1 cutoff among 110,592
+  branches. No training occurred and `035` remains champion.
+
+### Preregistered Action-Preference Loop Repair 002
+
+Generation 002 repairs the sole operational failure without changing or
+discarding Generation 001 evidence.
+
+- Reuse exactly the frozen 2,304 outcome-blind source states, game-disjoint
+  splits, action pairs, and opponent/seat/phase allocation. Previous
+  continuation outcomes are forbidden; reevaluate every state using fresh
+  continuation seed namespace 36000000.
+- Normal actions use the unchanged stochastic `035` continuation policy. Only
+  at the exact repetition/no-progress boundary where the old evaluator would
+  stop, select the highest-scored canonical buy if available; otherwise select
+  the highest-scored least-used distinct canonical successor. Record every
+  fallback trigger.
+- If 64 fallback actions cannot escape a score-stable loop, resolve it by its
+  limiting score margin rather than treating it as missing data. Require zero
+  unresolved continuations, zero 400-turn hard caps, and no more than 0.1% loop
+  adjudications, in addition to every frozen Generation 001 signal, resolved-
+  count, label-balance, training, movement, direct, and broad gate.
+- The known failed branch was used only as a pre-protocol operational test. A
+  plain canonical-diversification fallback and a buy-prioritized variant both
+  remained score-stable for 400 turns; the fixed 64-trigger adjudication
+  resolved it after 98 turns. This diagnostic uses the old seed and is
+  ineligible learning evidence.
+- Implementation is isolated in `run_action_preference_repair.py`; outputs go
+  to `outputs/action_preference_generation_002_loop_repair`. No repaired
+  continuation outcome may be generated before this protocol is tested and
+  checkpointed.
+- Pre-evidence verification: the final full suite passed with 350 tests in 148.98
+  seconds, including canonical buy priority, least-used canonical-successor
+  diversification, bounded loop-adjudication contracts, and literal post-model-
+  selection confirmation loading.
 
 ### Active Overnight Reserve Corpus
 
@@ -3341,7 +3378,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 347 passed after legal hidden-information search, PUCT batching, root-visit
+- 350 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,

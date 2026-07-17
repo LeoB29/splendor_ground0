@@ -190,11 +190,14 @@ def audit_preference_movement(config, candidate_checkpoint: Path) -> dict[str, A
         return json.loads(path.read_text(encoding="utf-8"))
     parent, _ = _load_attention_model(config.parent_checkpoint, config.device)
     candidate, _ = _load_attention_model(candidate_checkpoint, config.device)
+    on_policy_replay = getattr(
+        config, "on_policy_replay", config.data_dir / "source_replays.jsonl"
+    )
     audit = ActorMovementAuditConfig(
         parent_checkpoint=config.parent_checkpoint,
         candidate_checkpoint=candidate_checkpoint,
         training_metrics_path=config.output_dir / "candidate" / "offline_preference_gate.json",
-        on_policy_replay_paths=(config.data_dir / "source_replays.jsonl",),
+        on_policy_replay_paths=(on_policy_replay,),
         broad_replay_paths=(config.broad_replay,),
         output_path=path,
         max_rows_per_stream=5_000,
