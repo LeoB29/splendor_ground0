@@ -21,6 +21,22 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
   score/card-count adjudication, and rejects every cutoff or stall.
 - `042` uses 100 entirely fresh paired seeds against raw `035`; only a full
   pass unlocks fresh shallow/`016`/`023` blocks. No `041` game is reused.
+- Result: clean rejection on strength. All 405 pre-evidence tests passed. The
+  100-pair/200-game direct block had 200 ordinary completions, zero valid
+  deadlocks, invalid terminations, timeouts, or stalls, and exact budget
+  accounting: 6,422 candidate decisions and 205,504 sequence evaluations.
+- Score-delta BMRH went 96-104-0 versus raw `035`, paired share 48.0% with CI95
+  [41.0%, 55.0%], and paired margin -0.43 with CI95 [-1.26, +0.39]. It failed
+  the frozen 55% share, lower-CI-above-50%, and positive-margin gates. Candidate
+  results by seat were 46-54 from seat 0 and 50-50 from seat 1.
+- The conditional broad blocks were correctly not run. The contrast with
+  `041`'s 117-83 positive block means the apparent gain did not replicate on
+  fresh seeds; do not pool the blocks for promotion or tune this planner after
+  the result. Close rolling horizon and keep raw legal `035` champion.
+- Result hashes: `direct_vs_035.json`
+  `aff56aa33a4f2e6e4d11190b9432b9c4f51062d91b023c77d76a887640895314`;
+  `gate_final.json`
+  `e8e97d2e0a01e865dd3f22b945869f67d3d63d4850eddb5c55c47af44f0bd5ac`.
 
 ## 2026-07-18 Frozen Score-Delta Rolling-Horizon Gate
 

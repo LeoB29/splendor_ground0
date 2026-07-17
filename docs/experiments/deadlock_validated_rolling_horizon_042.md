@@ -78,3 +78,36 @@ share, lower-CI-above-50%, and positive-margin conditions. All three must pass.
 A complete pass establishes the planner as a stronger search teacher and only
 then authorizes a separately preregistered search-every-move corpus. It does not
 promote a neural checkpoint itself. GPU use is not authorized.
+
+## Result (2026-07-18)
+
+Reject the fresh replication and close rolling horizon. Protocol commit
+`c8ce1bb` preceded implementation commit `e6edd6e`; the complete pre-evidence
+suite passed 405 tests with the repository source path exported.
+
+The direct block completed all 100 pairs / 200 games in 1,085.56 seconds. All
+200 games ended through ordinary `completed`; there were zero forced-pass
+deadlocks, invalid terminations, timeouts, or stalls. The candidate used 6,422
+planning decisions and exactly 205,504 sequence evaluations, so every integrity
+and budget gate passed.
+
+The strength result did not replicate `041`: candidate 96-104-0, paired score
+share 48.0% with CI95 [41.0%, 55.0%], and mean paired final-score margin -0.43
+with CI95 [-1.26, +0.39]. It therefore failed all three frozen strength gates:
+55% share, lower CI strictly above 50%, and positive margin. The result was not
+driven by one seat: candidate went 46-54 from seat 0 and 50-50 from seat 1.
+Across paired seeds it swept 23, split 50, and was swept 27 times.
+
+The conditional broad blocks were correctly not generated. `041` remains a
+valid positive result on its own seed block after correcting our interpretation
+of its genuine forced deadlock, but `042` shows that the apparent gain is not
+stable across fresh seeds. Do not pool the blocks for promotion, tune the
+planner, or generate a search teacher from this operator. Raw legal `035`
+remains champion.
+
+Evidence hashes:
+
+- `direct_vs_035.json`:
+  `aff56aa33a4f2e6e4d11190b9432b9c4f51062d91b023c77d76a887640895314`;
+- `gate_final.json`:
+  `e8e97d2e0a01e865dd3f22b945869f67d3d63d4850eddb5c55c47af44f0bd5ac`.

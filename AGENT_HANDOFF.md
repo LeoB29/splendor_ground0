@@ -1,5 +1,37 @@
 # Agent Handoff
 
+## 2026-07-18: Deadlock-valid rolling-horizon replication rejected
+
+The audit after `041` established that seed `403078` was a genuine locked
+Splendor position: each player had exactly one legal action, `PASS`, on
+consecutive turns. The repository had already tested and adopted two forced
+passes as a clean `forced_pass_deadlock`, adjudicated by score and the standard
+fewest-purchased-cards tie-break. Thus `041` cannot be retroactively passed
+under its literal frozen rule, but its one non-`completed` match was not a
+planner failure.
+
+Experiment `042` corrected only that terminal taxonomy and ran an entirely
+fresh replication. Protocol commit `c8ce1bb` and implementation commit
+`e6edd6e` preceded evidence; all 405 tests passed. Its 100 paired seeds / 200
+games all ended through ordinary `completed`, with zero deadlocks, invalid
+terminations, timeouts, or stalls. Candidate accounting was exact at 6,422
+planning decisions and 205,504 sequence evaluations.
+
+The strength signal did not replicate. Score-delta BMRH went 96-104-0 versus
+raw legal `035`: paired share 48.0%, CI95 [41.0%, 55.0%], and paired score
+margin -0.43, CI95 [-1.26, +0.39]. It failed all three strength gates. Candidate
+went 46-54 from seat 0 and 50-50 from seat 1; paired seeds contained 23
+candidate sweeps, 50 splits, and 27 baseline sweeps. Broad gates remained
+locked as required.
+
+This resolves the ambiguity correctly: `041` is positive evidence on one seed
+block, but it is not stable enough to promote after a fresh direct replication
+lost. Do not pool `041` and `042` for promotion, tune this BMRH formulation, or
+use it as a self-play/search teacher. Close rolling horizon and retain raw legal
+`035` as champion. Evidence is under
+`outputs/deadlock_validated_rolling_horizon_042`; exact hashes are in
+`AGENT_CURRENT.md` and the protocol.
+
 ## 2026-07-18: Score-delta rolling horizon passed strength, failed integrity
 
 `score_delta_rolling_horizon_041` froze the exact score-delta BMRH control from
