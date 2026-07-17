@@ -2,6 +2,38 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-17 External AlphaGo Lesson and Revised Next Experiment
+
+- The useful lesson from Eric Jang's account of rebuilding AlphaGo is not
+  "add more MCTS." AlphaGo is supervised policy iteration around a search
+  operator that is already demonstrably stronger than the current network.
+  Search is run on every encountered state, including games later lost, and the
+  complete soft visit distribution is distilled. Collection and training are
+  kept synchronous enough that the targets remain close to the current policy.
+- A value model must be grounded before search can be assumed to improve play.
+  With inaccurate leaves or too few simulations, MCTS can be worse than the raw
+  policy. Warm-starting near competent behavior matters more than random-start
+  purity, while architecture is secondary to a valid target and improvement
+  operator.
+- Splendor is not Go: hidden deck/refill information makes naive determinization
+  biased. Any analogue must use acting-player-visible public belief features and
+  information-legal search. The project has not yet established search as a
+  stronger operator than `035`; prior PUCT and one-shot rollout results therefore
+  do not justify mass search distillation.
+- The materially new fact is scale. Legal value `029` used only 240 games, while
+  the fresh balanced `032`+`033` leagues provide 4,096 games and 129,482
+  acting-035 turns. This justifies one serious scaled public-belief value
+  bootstrap before moving to hierarchical plan modeling.
+- Frozen experiment `036` is documented in
+  `docs/experiments/scaled_public_belief_value_036.md`. It uses the original
+  032/033 group-disjoint train/validation boundaries, exact
+  generation/opponent/seat/phase training balance, the compatible promoted `023`
+  entity representation, categorical score-margin and WDL heads, calibration
+  and ordering selection, and a completely fresh 512-game confirmation corpus.
+  Only a full offline pass unlocks learned-value PUCT64 versus heuristic-leaf
+  PUCT64, then raw `035`. Only a direct search pass authorizes synchronous
+  search-every-move visit-distribution collection. `035` remains champion.
+
 ## Goal
 
 Build a strong 2-player Splendor AI with exact rules, legal observations/actions, structured legal-action scorers, search/PGS diagnostics, and disciplined promotion gates.

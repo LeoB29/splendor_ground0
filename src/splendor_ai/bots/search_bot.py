@@ -25,6 +25,7 @@ from splendor_ai.training.model import (
     CanonicalEntityActionScorerConfig,
     CanonicalEntityActionScorerModel,
     CanonicalEntityValueConfig,
+    CanonicalEntityDistributionalValueModel,
     CanonicalEntityValueModel,
     LegalActionAttentionScorerConfig,
     LegalActionAttentionScorerModel,
@@ -96,8 +97,20 @@ class CheckpointValueEvaluator:
         self._prediction_mode = prediction_mode
         self._outcome_blend_weight = outcome_blend_weight
         checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
-        self._canonical_entity = checkpoint.get("model_kind") == "canonical_entity_value"
-        if self._canonical_entity:
+        model_kind = checkpoint.get("model_kind")
+        self._canonical_distributional = (
+            model_kind == "canonical_entity_distributional_value"
+        )
+        self._canonical_entity = model_kind == "canonical_entity_value"
+        if self._canonical_distributional:
+            self._model = CanonicalEntityDistributionalValueModel(
+                CanonicalEntityValueConfig(**checkpoint.get("model_config", {})),
+                margin_bins=int(checkpoint.get("margin_bins", 41)),
+            )
+            self._checkpoint_blend_weight = float(
+                checkpoint.get("search_wdl_blend_weight", outcome_blend_weight)
+            )
+        elif self._canonical_entity:
             if prediction_mode != "value":
                 raise ValueError(
                     "canonical_entity_value checkpoints support prediction_mode='value' only."
@@ -120,6 +133,24 @@ class CheckpointValueEvaluator:
     ) -> list[float]:
         if not states_and_players:
             return []
+        if self._canonical_distributional:
+            batch = collate_canonical_state_batch(
+                states_and_players,
+                device=self._device,
+            )
+            with torch.no_grad():
+                margin_logits, wdl_logits = self._model(**batch)
+                margin_values, wdl_values = self._model.expected_values(
+                    margin_logits, wdl_logits
+                )
+                normalized_values = (
+                    (1.0 - self._checkpoint_blend_weight) * margin_values
+                    + self._checkpoint_blend_weight * wdl_values
+                )
+            return [
+                float(value) * self._value_scale
+                for value in normalized_values.detach().cpu().tolist()
+            ]
         if self._canonical_entity:
             batch = collate_canonical_state_batch(
                 states_and_players,

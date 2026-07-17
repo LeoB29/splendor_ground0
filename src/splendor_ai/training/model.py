@@ -696,6 +696,104 @@ class CanonicalEntityValueModel(nn.Module):
         return self.value_head(pooled).squeeze(-1)
 
 
+class CanonicalEntityDistributionalValueModel(nn.Module):
+    """Public-belief value model with score-margin and WDL distributions."""
+
+    def __init__(
+        self,
+        config: CanonicalEntityValueConfig | None = None,
+        margin_bins: int = 41,
+    ) -> None:
+        super().__init__()
+        self.config = config or CanonicalEntityValueConfig()
+        if self.config.hidden_size % self.config.attention_heads != 0:
+            raise ValueError("hidden_size must be divisible by attention_heads.")
+        if margin_bins < 3 or margin_bins % 2 == 0:
+            raise ValueError("margin_bins must be an odd integer of at least three.")
+        self.margin_bins = margin_bins
+        id_size = self.config.id_embedding_size
+        self.entity_type_embedding = nn.Embedding(
+            ENTITY_TYPE_COUNT, id_size, padding_idx=0
+        )
+        self.card_embedding = nn.Embedding(
+            card_vocabulary_size(), id_size, padding_idx=0
+        )
+        self.noble_embedding = nn.Embedding(
+            noble_vocabulary_size(), id_size, padding_idx=0
+        )
+        self.entity_input = nn.Sequential(
+            nn.Linear(ENTITY_NUMERIC_SIZE + 3 * id_size, self.config.hidden_size),
+            nn.GELU(),
+            nn.LayerNorm(self.config.hidden_size),
+        )
+        self.entity_encoder = nn.TransformerEncoder(
+            _transformer_encoder_layer(
+                self.config.hidden_size,
+                self.config.attention_heads,
+                self.config.attention_feedforward_size,
+                self.config.dropout,
+            ),
+            num_layers=self.config.layers,
+            enable_nested_tensor=False,
+        )
+        head_size = self.config.hidden_size // 2
+        self.margin_head = nn.Sequential(
+            nn.Linear(self.config.hidden_size, head_size),
+            nn.GELU(),
+            nn.Linear(head_size, margin_bins),
+        )
+        self.wdl_head = nn.Sequential(
+            nn.Linear(self.config.hidden_size, head_size),
+            nn.GELU(),
+            nn.Linear(head_size, 3),
+        )
+
+    def forward(
+        self,
+        entity_type_ids: torch.Tensor,
+        entity_card_ids: torch.Tensor,
+        entity_noble_ids: torch.Tensor,
+        entity_numeric_features: torch.Tensor,
+        entity_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        embedded = torch.cat(
+            [
+                entity_numeric_features,
+                self.entity_type_embedding(entity_type_ids),
+                self.card_embedding(entity_card_ids),
+                self.noble_embedding(entity_noble_ids),
+            ],
+            dim=-1,
+        )
+        hidden = self.entity_encoder(
+            self.entity_input(embedded), src_key_padding_mask=~entity_mask
+        )
+        hidden = hidden.masked_fill(~entity_mask.unsqueeze(-1), 0.0)
+        counts = entity_mask.sum(dim=1, keepdim=True).clamp_min(1).to(hidden.dtype)
+        pooled = hidden.sum(dim=1) / counts
+        return self.margin_head(pooled), self.wdl_head(pooled)
+
+    def expected_values(
+        self,
+        margin_logits: torch.Tensor,
+        wdl_logits: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        half = self.margin_bins // 2
+        support = torch.linspace(
+            -1.0,
+            1.0,
+            self.margin_bins,
+            device=margin_logits.device,
+            dtype=margin_logits.dtype,
+        )
+        if half <= 0:
+            raise RuntimeError("Invalid distributional margin support.")
+        margin_value = (torch.softmax(margin_logits, dim=-1) * support).sum(dim=-1)
+        wdl_probabilities = torch.softmax(wdl_logits, dim=-1)
+        wdl_value = wdl_probabilities[..., 2] - wdl_probabilities[..., 0]
+        return margin_value, wdl_value
+
+
 class PrivilegedEntityCritic(nn.Module):
     """Centralized full-state value critic used only while training an actor."""
 

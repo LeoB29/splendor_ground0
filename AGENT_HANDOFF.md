@@ -1,5 +1,33 @@
 # Agent Handoff
 
+## 2026-07-17: AlphaGo reconstruction lessons and scaled value preregistration
+
+The Dwarkesh Patel / Eric Jang transcript (`https://www.dwarkesh.com/p/eric-jang`)
+was reviewed against this project's evidence. The durable lessons are:
+
+- AlphaGo's core loop is search-backed supervised policy iteration, not generic
+  trajectory policy gradient. First prove that search improves the current
+  network; then search every state, save the full visit distribution from both
+  wins and losses, train, and recollect synchronously.
+- Value accuracy is a precondition. Limited-budget MCTS with an inaccurate value
+  function can degrade a strong policy, which matches this project's weak PUCT
+  and failed one-shot-search gameplay results.
+- Start from the strongest compatible representation and stay near successful
+  play. Do not confuse random initialization with scientific cleanliness.
+- Splendor requires a public-belief analogue, because hidden deck/refill state
+  makes naive Go-style perfect-information search invalid.
+- Lateral hypothesis changes are warranted when repeated local tuning fails.
+  Here the new evidence is not a learning-rate tweak: `032`+`033` offer 4,096
+  balanced fresh games versus only 240 games in legal value experiment `029`.
+
+Accordingly, experiment `scaled_public_belief_value_036` was preregistered before
+training. Its exact splits, distributional margin/WDL target, phase balancing,
+fresh confirmation, offline gates, and conditional PUCT sequence are frozen in
+`docs/experiments/scaled_public_belief_value_036.md`. The implementation is
+`src/splendor_ai/training/run_scaled_public_belief_value.py`. A direct PUCT win
+only authorizes the later synchronous AlphaGo loop; it does not automatically
+replace champion `035`.
+
 Short current-state handoff: read `AGENT_CURRENT.md` first.
 
 This file is now the long historical record of the project. Keep detailed experiment history here, but put the active goals/takeaways/next steps in `AGENT_CURRENT.md`.
