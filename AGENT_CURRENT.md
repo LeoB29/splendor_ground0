@@ -3147,6 +3147,26 @@ Preregistered broad gate and result:
   `run_trust_region_generation.py`, and `run_awr_trust_region.py` implement the
   hash-bound, resumable protocol and parameter projection. CPU remains
   appropriate because replay reconstruction and game simulation dominate.
+- Result: reject `033` at the untouched direct `035` gate; do not run the
+  conditional broad gates or retune alpha on these data. The fresh corpus
+  completed all 2,048 games with exact opponent/seat balance, zero stalls or
+  timeouts, 64,630 actor turns, a 14.875% non-greedy rate, and all 512 groups
+  informative. Behavior reconstruction MAE was `1.13e-7`.
+- The frozen unrestricted proposal improved game-disjoint validation policy
+  loss from 0.71479 to 0.60470 but had raw KL 0.04081. Twelve-step structural
+  projection selected `alpha=0.435791015625`, yielding validation raw KL
+  0.007992 and policy loss 0.65919, a 7.78% improvement. Offline movement gates
+  all passed: greedy action movement was 3.06% on-policy and 3.60% broad, with
+  mean raw KL 0.00831 and 0.00815 respectively.
+- In the preregistered 200 paired seeds/400 games versus `035`, the projected
+  candidate scored 46.875% share (paired CI95 43.50%-50.25%), mean outcome
+  -6.25%, and mean final-score margin -0.2525. All games completed normally,
+  but both strength thresholds failed. Seeds 357000-359049 remain unused;
+  candidate `033` is rejected and `035` remains overall champion. This result
+  separates the blocker from update magnitude: enforcing the KL constraint
+  succeeded, but the AWR direction did not translate offline improvement into
+  stronger play. Frozen evidence is in
+  `outputs/trust_region_generation_033/gate_final.json`.
 
 ### Active Overnight Reserve Corpus
 
@@ -3184,7 +3204,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 312 passed after legal hidden-information search, PUCT batching, root-visit
+- 338 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -3206,7 +3226,9 @@ Current full test status:
   resumable three-way-heldout clean entity foundation scaling, actor-source
   filtering, and coherent shallow-self-play corpus contracts.
   Coherent single-width promotion training, matched broad strength gates, and
-  one-shot integrity replacement contracts are also covered.
+  one-shot integrity replacement contracts are also covered. Fresh balanced
+  AWR league collection and deterministic parameter-space trust-region
+  projection contracts for `032`/`033` are covered as well.
 
 ## Files To Read Next
 
