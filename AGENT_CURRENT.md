@@ -3168,6 +3168,54 @@ Preregistered broad gate and result:
   stronger play. Frozen evidence is in
   `outputs/trust_region_generation_033/gate_final.json`.
 
+### Preregistered Policy-Delta Causal Audit `034`
+
+- Purpose: explain `033`'s failed full-game gate by measuring the local causal
+  value of only the actions it changes relative to frozen `035`. This is a
+  diagnostic, not another AWR update, checkpoint promotion, router, or
+  permission to select actions from their evaluated returns. No training or
+  gameplay promotion is reachable from this runner.
+- Generate 640 completely fresh deterministic-`035` source games at seeds
+  360000-360639, exactly 80 in each of the eight opponent/actor-seat cells for
+  opponents `035`, `016`, exact gate-030 shallow, and promoted clean `023`.
+  Store snapshot-enabled replays and require exact balance, zero stalls, and
+  zero timeouts. The candidate never acts during source collection.
+- Compare frozen `035` with projected `033` on every acting-`035` source state.
+  Selection may read only seed, turn, actor seat, and the pre-action snapshot;
+  it must not read winner, final scores, final value, or any other outcome.
+  Exclude raw-action changes that share the same canonical public successor.
+  Deterministically select 80 disagreements from unique source games, exactly
+  10 per opponent/seat cell. Phase is measured rather than forced because an
+  outcome-free planning subset showed that canonical disagreements are sparse
+  and uneven by phase; report early/mid/late counts and results explicitly.
+- At every selected state compare exactly two fixed actions: the deployed
+  `035` top action and the projected `033` top action. Use three independent
+  observer-relative legal determinizations and eight matched continuation seeds
+  per determinization/action. Both branches use the same frozen `035`
+  continuation policy with epsilon 0.1, temperature 0.5, top-3 sampling,
+  maximum 120 additional turns, and normalized final score margin `/20`.
+  Require continuation cutoffs at most 1% for an interpretable result.
+- The unique source game/state is the statistical unit. Report candidate-minus-
+  parent mean return and a 20,000-resample CI95, split-half correlation and
+  sign agreement, resolved-state frequency, candidate/parent resolved wins,
+  and phase, opponent, seat, and opponent/seat/phase breakdowns. A state is
+  resolved only when absolute paired mean is at least 0.025 and exceeds 1.96
+  paired standard errors.
+- Call the action signal stable only if continuation integrity passes, the
+  split-half correlation CI95 lower bound is positive, at least 20 states have
+  half-effects of magnitude 0.01 with at least 65% sign agreement, and at least
+  10% of states are resolved. Stable aggregate CI95 wholly below zero supports
+  local harm and closes AWR; stable CI95 wholly above zero supports a separate
+  compounding/distribution-shift hypothesis. Any other outcome is unresolved
+  and also closes AWR as the primary direction. None of these diagnoses trains
+  or promotes a model.
+- `run_policy_delta_causal_audit_034.py` and
+  `src/splendor_ai/training/run_policy_delta_causal_audit.py` implement the
+  hash-bound, outcome-blind, pair-matched, resumable CPU contract. The fixed
+  continuation seeds begin at 34000000. A separate eight-game/two-state
+  mechanics smoke on throwaway seeds completed all 96 continuations and is
+  ineligible evidence.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
@@ -3204,7 +3252,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 338 passed after legal hidden-information search, PUCT batching, root-visit
+- 343 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
@@ -3228,7 +3276,9 @@ Current full test status:
   Coherent single-width promotion training, matched broad strength gates, and
   one-shot integrity replacement contracts are also covered. Fresh balanced
   AWR league collection and deterministic parameter-space trust-region
-  projection contracts for `032`/`033` are covered as well.
+  projection contracts for `032`/`033` are covered as well, together with the
+  outcome-blind, unique-game, matched-continuation causal audit contract for
+  `034`.
 
 ## Files To Read Next
 
