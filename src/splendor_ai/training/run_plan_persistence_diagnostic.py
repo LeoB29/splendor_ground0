@@ -165,7 +165,11 @@ def collect_outcome_blind_games(config: PlanPersistenceConfig) -> dict[str, Any]
     for game_index in range(config.games):
         summary_path = _summary_path(config, game_index)
         replay_path = _replay_path(config, game_index)
-        if summary_path.exists() and replay_path.exists():
+        if (
+            summary_path.exists()
+            and replay_path.exists()
+            and _stored_replay_contract_valid(replay_path)
+        ):
             completed[game_index] = json.loads(summary_path.read_text(encoding="utf-8"))
         else:
             pending.append(game_index)
@@ -781,6 +785,29 @@ def _mean(rows: list[dict[str, Any]], key: str) -> float:
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     with path.open("r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+
+
+def _stored_replay_contract_valid(path: Path) -> bool:
+    forbidden = {"game_winner", "game_final_scores", "final_value", "winner"}
+    try:
+        for row in _read_jsonl(path):
+            if forbidden.intersection(row):
+                return False
+            snapshot = row.get("public_state_snapshot")
+            if not isinstance(snapshot, dict) or "winner" in snapshot:
+                return False
+            if any(snapshot.get("hidden_tier_decks", {}).values()):
+                return False
+            observer = int(row["actor_seat"])
+            for player in snapshot.get("players", []):
+                if (
+                    int(player["player_id"]) != observer
+                    and player.get("reserved_card_ids")
+                ):
+                    return False
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+    return True
 
 
 def _protocol(config: PlanPersistenceConfig) -> dict[str, Any]:

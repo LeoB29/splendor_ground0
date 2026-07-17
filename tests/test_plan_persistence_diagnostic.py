@@ -14,6 +14,7 @@ from splendor_ai.training.run_plan_persistence_diagnostic import (
     plan_persistence_gates,
     remaining_card_cost,
     sanitize_snapshot,
+    _stored_replay_contract_valid,
 )
 
 
@@ -181,3 +182,13 @@ def test_parser_preregisters_fresh_cpu_defaults() -> None:
     assert args.horizon_own_turns == 4
     assert args.workers == 4
     assert args.device == "cpu"
+
+
+def test_resume_rejects_rows_containing_even_null_winner(tmp_path) -> None:
+    path = tmp_path / "replay.jsonl"
+    path.write_text(
+        '{"actor_seat": 0, "public_state_snapshot": {"winner": null}}\n',
+        encoding="utf-8",
+    )
+
+    assert not _stored_replay_contract_valid(path)
