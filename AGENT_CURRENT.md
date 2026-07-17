@@ -2,6 +2,23 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-17 Outcome-Blind Plan Persistence Diagnostic
+
+- A repository audit showed that the proposed high-budget search-oracle test
+  had already been completed as the 320-state s64-versus-s512 all-legal matched-
+  return ablation. Do not repeat or extend that rejected budget sweep.
+- The next diagnostic is instead `outcome_blind_plan_persistence_038`, frozen in
+  `docs/experiments/outcome_blind_plan_persistence_038.md`. It generates 256
+  fresh greedy-035 games in two game-disjoint, exactly opponent/seat-balanced
+  halves, strips hidden deck order and opponent-private reserves, and never
+  stores or reads outcomes.
+- For each qualifying token take, it asks whether the chosen legal take advances
+  the first already-visible/self-reserved card bought or visibly reserved in the
+  next four own turns more than the alternative legal takes from the exact same
+  state. Both halves, multi-take episodes, opponent/seat cells, and phases must
+  pass frozen persistence gates. A pass authorizes only a separate hierarchy
+  design; failure closes hierarchy. No training or promotion is allowed.
+
 ## 2026-07-17 Start-Role Value v2 Result and Direction Change
 
 - Final focused value experiment `037` completed under its frozen contract and

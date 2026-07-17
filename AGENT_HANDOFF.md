@@ -1,5 +1,23 @@
 # Agent Handoff
 
+## 2026-07-17: Outcome-blind plan persistence preregistration
+
+The suggested high-budget search-oracle diagnostic was discovered to duplicate
+the completed PUCT512 action-quality ablation. That prior run already used 320
+disjoint states and all-legal matched-continuation returns; PUCT512 slightly
+worsened regret and oracle agreement. It must not be repeated as another budget
+sweep.
+
+The genuinely new experiment is `outcome_blind_plan_persistence_038`, specified
+in `docs/experiments/outcome_blind_plan_persistence_038.md` and implemented by
+`src/splendor_ai/training/run_plan_persistence_diagnostic.py`. It uses two fresh,
+game-disjoint balanced halves and compares every chosen token take with all
+alternative legal takes from the exact same public state, using a later
+already-visible/self-reserved card commitment as an outcome-free target. It
+stores no outcomes and strips hidden information. Training and promotion are
+forbidden. Only a replicated full pass permits a separately preregistered
+hierarchical option design; failure closes the proposed hierarchy.
+
 ## 2026-07-17: Start-role value v2 rejected; value/PUCT branch closed
 
 Experiment `037` completed under the preregistered contract. Epoch 1 was the
