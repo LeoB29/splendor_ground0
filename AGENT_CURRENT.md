@@ -3341,6 +3341,12 @@ discarding Generation 001 evidence.
   seconds, including canonical buy priority, least-used canonical-successor
   diversification, bounded loop-adjudication contracts, and literal post-model-
   selection confirmation loading.
+- Active run status (2026-07-17): Generation 002 was launched from preregistration
+  commit `1856aad` as PID 24212 with 10 CPU workers. Resumable progress is in
+  `outputs/action_preference_generation_002_loop_repair/preference_evaluation_repaired.progress.jsonl`;
+  stdout/stderr are `runner.stdout.log` and `runner.stderr.log` in the same
+  directory. Do not launch a duplicate while this runner or an equivalent
+  resumed process is active.
 
 ### Active Overnight Reserve Corpus
 
