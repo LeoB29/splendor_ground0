@@ -47,6 +47,14 @@ Fresh confirmation uses seeds 381000-381127. See
 `docs/experiments/reliability_blend_value_036b.md` and
 `src/splendor_ai/training/run_reliability_blend_value.py`.
 
+`036b` completed. The selected `(0, 0.5, 0.75, 1)` phase ramp passed all
+validation and fresh-confirmation offline gates, repairing both `036` failures.
+The resulting PUCT64 was directionally better than heuristic-leaf PUCT64 but not
+resolved: 108-92, 54.0% share, CI95 [48%, 60%], +0.595 score margin, zero
+failures. It failed the preregistered 55% and CI gates, so raw-035 evaluation was
+correctly skipped and the AlphaGo loop was not authorized. Do not pool or extend
+this block post hoc merely to cross 55%; `035` remains champion.
+
 Short current-state handoff: read `AGENT_CURRENT.md` first.
 
 This file is now the long historical record of the project. Keep detailed experiment history here, but put the active goals/takeaways/next steps in `AGENT_CURRENT.md`.

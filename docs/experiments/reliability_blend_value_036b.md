@@ -53,3 +53,37 @@ Only a complete offline pass unlocks:
 No threshold may be relaxed after evidence. A direct search pass authorizes the
 synchronous search-every-move AlphaGo-style loop but does not itself promote a
 new champion. CPU is sufficient for this experiment.
+
+## Result
+
+Validation selected `ramp_conf0.00`: phase weights `(0, 0.5, 0.75, 1)` and no
+confidence cutoff. All 12 grid candidates passed the unchanged validation gate
+set; the selected candidate minimized the frozen score. On validation it reduced
+macro opponent/seat MAE to 0.28353 from 0.36595, raised ordering to 64.09% from
+59.08%, and reached 56.08% successor top-three consistency.
+
+The untouched corpus at seeds 381000-381127 completed all 128 groups / 512 games
+with exact opponent/seat balance and zero stalls or timeouts. On its 16,246
+acting-035 positions, every offline gate passed:
+
+- macro MAE 0.28939 versus heuristic 0.36724, a 21.2% improvement;
+- paired-game MAE CI95 upper bound -0.06963;
+- ordering 63.24% versus 58.77%, and macro correlation 0.343 versus 0.214;
+- no opponent/phase collapse and useful midgame ordering;
+- WDL ECE10 9.40%;
+- successor Spearman +0.126, policy-top value percentile 69.73%, and value-best
+  in policy top three 58.98%.
+
+Deployable checkpoint:
+`outputs/reliability_blend_value_036b/canonical_entity_reliability_blend.pt`,
+SHA256 `615f27ce807ce68aeab31760ae795ffa19335750fbd28c8f24d598b41da31e0b`.
+
+The conditional PUCT A/B then ran all 100 paired seeds / 200 games. Reliability-
+value PUCT64 beat heuristic-leaf PUCT64 108-92 with zero failures, a 54.0% score
+share and +0.595 mean final-score margin. The frozen requirements were at least
+55% share and CI95 lower bound above 50%; observed score-share CI95 was
+[48%, 60%]. Both strength gates failed.
+
+Decision: `reject_search_ab_keep_035`. Do not run the raw-035 gate, do not
+authorize search-every-move target generation, and do not reinterpret the
+directional 54% result as a promotion. `035` remains champion.

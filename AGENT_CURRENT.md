@@ -53,6 +53,16 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
   512-game confirmation block at seeds 381000-381127. Only a full fresh pass
   unlocks reliability-value PUCT64 versus heuristic-leaf PUCT64 and then raw
   `035`. Until those conditional gates pass, `035` remains champion.
+- Result: `036b` selected the phase ramp `(0, 0.5, 0.75, 1.0)` with no WDL
+  confidence cutoff. It passed every original offline gate on a second fresh,
+  exactly balanced 512-game corpus: macro MAE improved 21.2%, ordering improved
+  4.47 points, successor top-three consistency reached 58.98%, and there were
+  zero failures. This unlocked the matched PUCT A/B, where reliability-value
+  PUCT64 went 108-92 against heuristic-leaf PUCT64 over 200 games: 54.0% score
+  share, CI95 [48%, 60%], mean margin +0.595, zero failures. It missed both the
+  frozen 55% share floor and CI-lower-above-50% gate. Reject at the search A/B;
+  do not run raw `035`, do not generate search-every-move targets, and keep `035`
+  champion. Evidence is under `outputs/reliability_blend_value_036b`.
 
 ## Goal
 
