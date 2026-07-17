@@ -3522,6 +3522,38 @@ source state, continuation, or gameplay seed.
   focused contracts, and the complete suite are checkpointed.
 - Pre-evidence verification (2026-07-17): the combined focused rollout suite
   passed 17/17 and the complete suite passed 360 tests in 140.61 seconds.
+- Final result: `005` passed every fresh offline gate and failed the final
+  direct `035` gameplay gate. All 960 source games completed normally with
+  exact 120-game opponent/seat balance, 30,422 actor turns, and zero stalls,
+  timeouts, or fallbacks. The online-causal first-trigger rule found 920
+  eligible games and implied a 3.024% search-turn rate. Selection produced the
+  exact 480-state, 20-per-stratum confirmation block.
+- All 23,040 confirmation branches resolved naturally with zero fallbacks,
+  adjudications, or hard caps. The fixed 0.075 rule switched 145/480 states.
+  Mean independent evaluation gain including unchanged states was +0.04592,
+  CI95 [+0.03711, +0.05521]; switched actions gained +0.15201, CI95
+  [+0.13037, +0.17382], and 91.72% were positive. Every phase, opponent, seat,
+  integrity, breadth, and capacity gate passed. Projected changed-turn rate was
+  only 0.914%.
+- In the preregistered 200 paired seeds/400 games versus raw `035`, the one-shot
+  candidate went 189-206-5: score share 47.875%, pair-bootstrap CI95
+  [44.625%, 51.125%], and mean final-score margin -0.0825, CI95
+  [-0.5125, +0.34]. All 400 games completed normally. It searched 384/12,864
+  candidate turns (2.985%) and changed 115 (0.894%), with every phase covered
+  and zero rollout fallbacks, adjudications, or hard caps. Only the 55% score-
+  share and lower-bound-above-50% gates failed.
+- Decision: reject `005`, keep `035` overall champion, and close direct matched-
+  terminal-rollout search as an improvement line. Two independent fresh state
+  blocks show that its local estimates are reproducible, but the intervention
+  does not translate to trajectory strength; do not tune its threshold, phase
+  schedule, rollout count, continuation policy, or routing budget. The next
+  project branch must be the architectural reset, not another rollout-search
+  repair. Frozen evidence is `fresh_action_quality.json` (SHA256
+  `6a83255ca81f1d137f55d221afb14eeb39fa93412e294786f001cb170abccae5`),
+  `direct_vs_035.json` (SHA256
+  `e694e4dec1e766e3766007c6538dba3f03937d76514adb1d1d1531f6f546e01c`),
+  and `gate_final.json` (SHA256
+  `0b18b647ea920786088329970bc2f7928c44481cb7a72c0b67b9b4be8e7e8e90`).
 
 ### Completed Overnight Reserve Corpus
 
