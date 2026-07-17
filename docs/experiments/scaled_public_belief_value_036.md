@@ -68,3 +68,31 @@ If and only if every offline gate passes:
 CPU is appropriate for this falsification. A GPU becomes justified for repeated
 synchronous search/distillation iterations, not for fixing an invalid value
 target or weak search operator.
+
+## Result
+
+Completed on CPU in 754 seconds. The tensor ceiling was raised losslessly from
+64 to 96 after compilation encountered a legal 65-entity position; this happened
+before any tensor artifact or model evidence and did not alter the protocol.
+
+- Compiled 113,248 training and 16,234 validation positions. Exact phase
+  balancing yielded 2,205 rows per stratum and 141,120 samples per epoch.
+- Epoch 3 was selected. Checkpoint:
+  `outputs/scaled_public_belief_value_036/canonical_entity_distributional_value_width64_best.pt`,
+  SHA256 `537b3100980d18093042bf377a009da11a90f4fa63ad4beeee5c9cd5b95c0fa6`.
+- The fresh confirmation corpus contained all 128 groups / 512 games, exactly
+  16 groups per opponent/seat cell, 0 stalls, 0 timeouts, and 16,164 acting-035
+  positions. Observed nongreedy rate was 14.54%.
+- Candidate macro opponent/seat MAE was 0.28768 versus heuristic 0.36015, a
+  20.1% improvement; paired-game MAE CI95 upper bound was -0.06068.
+- Ordering concordance was 66.38% versus 61.47%; macro ordering correlation was
+  0.446 versus 0.299. Turns 15-29 reached 61.50% versus 53.98%, and turns 30-44
+  reached 69.81% versus 55.58%. WDL ECE10 was 4.51%.
+- Successor Spearman was +0.202 and the 035-top successor's mean value percentile
+  was 70.35%.
+
+Decision: `reject_offline_keep_035`. Two frozen gates failed. Turn 0-14 MAE was
+0.32 versus heuristic 0.30, a 6.7% regression exceeding the 5% limit. The
+value-best successor was in 035's policy top three on 48.05% of sampled states,
+below the 50% limit. Thresholds were not relaxed after evidence. No PUCT games
+ran, no search teacher was authorized, and `035` remains champion.

@@ -33,6 +33,19 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
   Only a full offline pass unlocks learned-value PUCT64 versus heuristic-leaf
   PUCT64, then raw `035`. Only a direct search pass authorizes synchronous
   search-every-move visit-distribution collection. `035` remains champion.
+- Result: `036` is a strong offline near-pass but is rejected under its frozen
+  contract. Epoch 3 trained from 113,248 positions and was checked on 16,164
+  positions from 512 completely fresh, exactly balanced games with zero
+  failures. Macro MAE improved 20.1% (0.28768 vs 0.36015), ordering improved to
+  66.38% from 61.47%, macro correlation to 0.446 from 0.299, midgame ordering
+  improved by 7.5-14.2 points, and WDL ECE10 was 4.51%. However turn-0-14 MAE
+  regressed 6.7% versus the heuristic, beyond the frozen 5% allowance, and the
+  value-best successor was in `035`'s top three only 48.05% of the time versus
+  the 50% requirement. All other gates passed. Do not relax these thresholds or
+  run PUCT post hoc; no gameplay ran and `035` remains champion. Evidence is in
+  `outputs/scaled_public_belief_value_036/{selection,offline_gate,gate_final}.json`.
+  Checkpoint SHA256 is
+  `537b3100980d18093042bf377a009da11a90f4fa63ad4beeee5c9cd5b95c0fa6`.
 
 ## Goal
 

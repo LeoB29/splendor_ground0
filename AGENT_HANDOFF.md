@@ -28,6 +28,17 @@ fresh confirmation, offline gates, and conditional PUCT sequence are frozen in
 only authorizes the later synchronous AlphaGo loop; it does not automatically
 replace champion `035`.
 
+Experiment `036` completed and was rejected offline without gameplay. It selected
+epoch 3 after 113,248 train / 16,234 validation positions and generated a fresh
+512-game confirmation set (16,164 actor positions, exact eight-cell group
+balance, zero failures). It substantially beat the heuristic on aggregate error,
+ordering, correlation, calibration, and midgame ordering. The two failures were
+the preregistered early-phase no-collapse gate (6.7% MAE regression vs a 5%
+ceiling) and successor policy/value top-three consistency (48.05% vs a 50%
+floor). All other gates passed. No PUCT block ran. Preserve this as evidence that
+the scaled belief-value direction has real signal but is not yet a fully safe
+search leaf; do not retrospectively waive the two narrow failures.
+
 Short current-state handoff: read `AGENT_CURRENT.md` first.
 
 This file is now the long historical record of the project. Keep detailed experiment history here, but put the active goals/takeaways/next steps in `AGENT_CURRENT.md`.
