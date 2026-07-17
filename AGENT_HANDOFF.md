@@ -37,6 +37,19 @@ replicated card-acquisition option signal, not general long-horizon planning.
 The only authorization is to preregister a state-only versus option-conditioned
 predictive probe. Do not train a gameplay policy or run strength games yet.
 
+That probe is now preregistered as `option_predictive_probe_039`; see
+`docs/experiments/option_predictive_probe_039.md` and
+`src/splendor_ai/training/run_option_predictive_probe.py`. It uses a new 512-game
+outcome-blind corpus at seeds 391000--391511, with exact 192/64/256
+train/validation/confirmation splits. The frozen `023` transformer supplies
+contextual state, candidate-card, and take embeddings. Two identically
+initialized and parameterized heads differ only because the baseline receives
+a zero option vector and the conditioned probe receives the selected-take
+embedding. Only heads train, and confirmation is not loaded until both epochs
+are frozen. The gate requires strong overall NLL/top1/MRR improvement,
+multi-turn improvement, and no major-stratum collapse. A pass authorizes only a
+separate supervised high-level/low-level hierarchy reconstruction experiment.
+
 ## 2026-07-17: Start-role value v2 rejected; value/PUCT branch closed
 
 Experiment `037` completed under the preregistered contract. Epoch 1 was the

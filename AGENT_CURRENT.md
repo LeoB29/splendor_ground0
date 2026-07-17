@@ -35,6 +35,16 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
   planning. It authorizes a separately frozen option-representation predictive
   probe, not policy training or gameplay. Exact evidence is under
   `outputs/plan_persistence_diagnostic_038`.
+- The authorized predictive experiment is `option_predictive_probe_039`, frozen
+  in `docs/experiments/option_predictive_probe_039.md`. It generates 512 new
+  outcome-blind balanced games with 192/64/256 game-disjoint
+  train/validation/confirmation splits. Both identical probe heads use the
+  frozen `023` canonical transformer and contextual candidate-card entities;
+  the state-only head receives an all-zero option vector while the conditioned
+  head receives the frozen embedding of the selected take. Only probe heads
+  train. Confirmation is not loaded until both validation-selected epochs are
+  fixed. A full incremental overall, multi-turn, and no-collapse pass only
+  authorizes supervised hierarchy reconstruction, not gameplay.
 
 ## 2026-07-17 Start-Role Value v2 Result and Direction Change
 
