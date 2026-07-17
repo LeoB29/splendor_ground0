@@ -3400,10 +3400,62 @@ are predictable but require a much lower-capacity learner.
   `outputs/action_preference_learnability_probe_003/probe_final.json`; its
   SHA256 is `5fd1c5f6a2fe3a1d01f4338b2bf9322a423b9f0d36355d3fd3dcf347e85645a9`.
 
-### Active Overnight Reserve Corpus
+### Preregistered Selective Matched-Rollout Gate `004`
 
-A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
-time through `run_reserve_training_500_overnight.ps1`.
+The negative learnability result closes compression of the action-preference
+signal, not the direct signal itself. Generation 002's 0.8323 split-half
+correlation, 86.92% eligible sign agreement, and 1,071 resolved states justify
+one distinct search operator that consumes matched terminal returns directly.
+
+- Freeze legal `035` as both the normal action policy and stochastic
+  continuation policy. Search only when its top two distinct canonical public
+  successors have raw logit gap at most 0.5, and permit at most two searched
+  decisions per game. Every other decision is unchanged `035` argmax.
+- Development may read only Generation 002 train and validation rows; its
+  confirmation split is forbidden. Select one positive switch threshold from
+  `[0.025, 0.05, 0.075, 0.10]` using symmetric train-half evaluation: maximum
+  held-out-half mean gain among thresholds with 5%-30% switch rate, at least 20
+  switches, and positive mean gain; ties choose the larger threshold. Require
+  the fixed threshold on validation to retain 5%-30% coverage, at least 20
+  switches, at least 60% positive evaluation-half effects, and bootstrap mean
+  gain CI95 wholly above zero. Failure stops before new simulation.
+- Only a development pass generates 960 fresh `035` league games at seeds
+  372000-372959, exactly balanced over `035`, `016`, gate-030 shallow, and
+  clean `023` opponents, both actor seats, and assigned early/mid/late phase.
+  Outcome-blind selection retains the 20 most uncertain eligible unique games
+  per opponent/seat/phase stratum: 480 states total.
+- At each fresh state compare only the two frozen actions with three legal
+  determinizations and eight matched continuations per action. The selector
+  sees the first four continuations per determinization; the other four are an
+  independent evaluation half. Continuations use stochastic `035` at epsilon
+  0.1, temperature 0.5, top-3, score-margin `/20`, the loop-safe 400-turn
+  contract, and fresh seed namespace 38000000.
+- Fresh action quality must have every branch resolved, zero hard caps, at most
+  0.1% loop adjudications, 5%-30% switches, at least 20 switches, at least 60%
+  positive evaluation effects, bootstrap mean evaluation gain CI95 wholly
+  above zero, and phase/opponent/seat breadth: at least three switches and mean
+  switched gain no worse than -0.025 in every bucket.
+- Only a full fresh pass unlocks 200 paired seeds/400 games versus raw `035` at
+  seeds 374000-374199. Require zero game failures, at least 55% score share,
+  pair-bootstrap CI95 lower bound above 50%, both searched and switched turns,
+  search on at most 10% of candidate turns, zero rollout hard caps, and at most
+  0.1% rollout adjudications. A pass establishes a stronger non-learning
+  teacher and authorizes a separately preregistered iterative corpus; it does
+  not promote a neural checkpoint. A failure closes this direct-rollout
+  operator. CPU remains appropriate because environment simulation dominates.
+- Implementation is isolated in `run_selective_rollout_gate.py` and
+  `src/splendor_ai/eval/run_selective_rollout_gate.py`. No development metrics,
+  fresh games, continuation outcomes, or gameplay may be generated until the
+  protocol, tests, and full-suite verification are checkpointed.
+- Pre-evidence verification (2026-07-17): the focused rollout/preference suite
+  passed 14/14 and the complete suite passed 357 tests in 142.63 seconds.
+
+### Completed Overnight Reserve Corpus
+
+A 500-state matched-return corpus job launched at 2026-07-14 01:28 local and
+completed at 04:37 through `run_reserve_training_500_overnight.ps1`. Its pass
+and the downstream rejected `042`-`044` experiments are documented in the
+reserve sections above; it is no longer an active process.
 
 - Source: `data/corpus_generation1_policy035_vs016_038_retry/replays.jsonl`,
   seeds 48000-48499. These 500 games are disjoint from the 60-state validation
@@ -3436,7 +3488,7 @@ $env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
 
 Current full test status:
 
-- 352 passed after legal hidden-information search, PUCT batching, root-visit
+- 357 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
   pilot, the held-out uptake audit, conflict-free root-visit correction,
   counterfactual leaf-quality audit, action-value corpus export/training,
