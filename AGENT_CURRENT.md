@@ -3106,6 +3106,48 @@ Preregistered broad gate and result:
   results are under `outputs/league_generation_032/gate_final.json`, with the
   concise gate evidence in `movement_gate.json`.
 
+### Preregistered Trust-Region League Generation `033`
+
+- Purpose: retain `032`'s independently replicated AWR proposal recipe while
+  enforcing the failed raw-KL constraint structurally. This is not permission
+  to tune `032`, reuse its training rows, or choose an interpolation from game
+  results. Frozen `035` remains the parent and overall champion.
+- Generate a completely fresh 512-group/2,048-game corpus at environment seeds
+  355000-355511 and sampling seeds beginning 33000000. Preserve the exact
+  eight opponent/seat cells and 448/64 game-disjoint train/validation split
+  from `032`. Use the already behavior-calibrated epsilon 0.50, temperature
+  1.0, top-3 sampler; require 10%-20% observed non-greedy actions, zero
+  stalls/timeouts, all four trajectories per group, at least 75% informative
+  groups, and exact behavior reconstruction. No file under
+  `data/league_generation_032` is an eligible training source.
+- Train exactly one unrestricted proposal with the frozen `032` AWR recipe:
+  one full-model epoch, learning rate `1e-5`, batch 256, advantage temperature
+  0.25, maximum weight 10, KL weight 1.0, entropy weight 0.001, score-margin
+  scale 20, and leave-one-out four-trajectory group returns.
+- Construct the deployable candidate by linear parameter interpolation
+  `theta = theta035 + alpha * (theta_proposal - theta035)`. Select `alpha`
+  without gameplay using exactly 12 deterministic bisection steps on all fresh
+  validation rows. Choose the largest tested `alpha` whose validation mean raw
+  policy KL is at most 0.008. If the unrestricted proposal is already below
+  0.008, use `alpha=1`. Do not select on validation loss or action movement.
+- Before games, require positive alpha, projected validation raw KL at most
+  0.008001, at least 3% validation AWR policy-loss improvement over `035`,
+  1%-10% greedy action movement on both 5,000-row on-policy and broad streams,
+  mean raw policy KL at most 0.01 on both streams, and behavior reconstruction
+  MAE at most `1e-5`. Failure rejects `033` without an alpha, optimizer, or
+  threshold correction.
+- A complete offline pass unlocks 200 paired-seat seeds 356000-356199 against
+  `035` (400 games). Require zero failures, score share at least 55%, and
+  pair-aware CI95 lower bound above 50%. Only that pass unlocks matched
+  candidate and frozen-`035` control blocks of 50 paired seeds versus `016` at
+  357000, exact shallow at 358000, and `023` at 359000. Broad blocks require
+  zero failures, at least 25% candidate share, and no more than a 5-point
+  regression from matched `035`.
+- `run_trust_region_generation_033.py`,
+  `run_trust_region_generation.py`, and `run_awr_trust_region.py` implement the
+  hash-bound, resumable protocol and parameter projection. CPU remains
+  appropriate because replay reconstruction and game simulation dominate.
+
 ### Active Overnight Reserve Corpus
 
 A 500-state matched-return corpus job was launched at 2026-07-14 01:28 local
