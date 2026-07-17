@@ -55,6 +55,16 @@ failures. It failed the preregistered 55% and CI gates, so raw-035 evaluation wa
 correctly skipped and the AlphaGo loop was not authorized. Do not pool or extend
 this block post hoc merely to cross 55%; `035` remains champion.
 
+The `036b` seat audit found 61% candidate wins from seat 0 but 47% from seat 1.
+This led to an objective contract finding: start-player role is present in the
+canonical public-belief key but absent from v1 entity tensors. Experiment `037`
+is the final value bet and is preregistered in
+`docs/experiments/start_role_public_belief_value_v2_037.md`. It keeps v1 frozen,
+adds a zero-initialized explicit start-role embedding that initially reproduces
+`036` exactly, trains with differential learning rates, and requires both fresh
+per-seat offline improvement and at least 50% gameplay share from each seat. If
+it fails, close this value/PUCT bootstrap rather than tune further.
+
 Short current-state handoff: read `AGENT_CURRENT.md` first.
 
 This file is now the long historical record of the project. Keep detailed experiment history here, but put the active goals/takeaways/next steps in `AGENT_CURRENT.md`.

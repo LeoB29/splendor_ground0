@@ -63,6 +63,16 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
   frozen 55% share floor and CI-lower-above-50% gate. Reject at the search A/B;
   do not run raw `035`, do not generate search-every-move targets, and keep `035`
   champion. Evidence is under `outputs/reliability_blend_value_036b`.
+- Post-`036b` seat audit found the directional gain was asymmetric: reliability-value
+  search scored 61% from seat 0 (+1.60 margin) but only 47% from seat 1 (-0.41),
+  while the two seed halves were 53% and 55%. A concrete representation issue
+  was then confirmed: `canonical_public_belief_key` records whether the observer
+  is the starting player, but the v1 entity tensor does not. The final authorized
+  value experiment is `start_role_public_belief_value_v2_037`, frozen in
+  `docs/experiments/start_role_public_belief_value_v2_037.md`. It preserves v1,
+  warm-starts exactly from `036`, adds a zero-initialized explicit start-role
+  embedding, requires separate improvement for both seats, and adds a per-seat
+  gameplay floor. Failure closes value/PUCT and moves to hierarchical plans.
 
 ## Goal
 

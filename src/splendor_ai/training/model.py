@@ -794,6 +794,61 @@ class CanonicalEntityDistributionalValueModel(nn.Module):
         return margin_value, wdl_value
 
 
+class CanonicalEntityDistributionalValueV2Model(
+    CanonicalEntityDistributionalValueModel
+):
+    """Distributional value model with explicit observer/start-player context.
+
+    The new embedding is added only to the canonical global entity before the
+    transformer.  It is initialized to zero so a v1 checkpoint transfers with
+    exactly identical predictions before v2 training.
+    """
+
+    def __init__(
+        self,
+        config: CanonicalEntityValueConfig | None = None,
+        margin_bins: int = 41,
+    ) -> None:
+        super().__init__(config=config, margin_bins=margin_bins)
+        self.start_role_embedding = nn.Embedding(2, self.config.hidden_size)
+        nn.init.zeros_(self.start_role_embedding.weight)
+
+    def forward(
+        self,
+        entity_type_ids: torch.Tensor,
+        entity_card_ids: torch.Tensor,
+        entity_noble_ids: torch.Tensor,
+        entity_numeric_features: torch.Tensor,
+        entity_mask: torch.Tensor,
+        observer_is_start_player: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if observer_is_start_player.ndim != 1:
+            raise ValueError("observer_is_start_player must have shape [batch].")
+        if observer_is_start_player.shape[0] != entity_type_ids.shape[0]:
+            raise ValueError("Start-role batch size must match entity tensors.")
+        embedded = torch.cat(
+            [
+                entity_numeric_features,
+                self.entity_type_embedding(entity_type_ids),
+                self.card_embedding(entity_card_ids),
+                self.noble_embedding(entity_noble_ids),
+            ],
+            dim=-1,
+        )
+        transformer_input = self.entity_input(embedded)
+        transformer_input[:, 0, :] = (
+            transformer_input[:, 0, :]
+            + self.start_role_embedding(observer_is_start_player.long())
+        )
+        hidden = self.entity_encoder(
+            transformer_input, src_key_padding_mask=~entity_mask
+        )
+        hidden = hidden.masked_fill(~entity_mask.unsqueeze(-1), 0.0)
+        counts = entity_mask.sum(dim=1, keepdim=True).clamp_min(1).to(hidden.dtype)
+        pooled = hidden.sum(dim=1) / counts
+        return self.margin_head(pooled), self.wdl_head(pooled)
+
+
 class PrivilegedEntityCritic(nn.Module):
     """Centralized full-state value critic used only while training an actor."""
 

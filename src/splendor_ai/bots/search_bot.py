@@ -26,6 +26,7 @@ from splendor_ai.training.model import (
     CanonicalEntityActionScorerModel,
     CanonicalEntityValueConfig,
     CanonicalEntityDistributionalValueModel,
+    CanonicalEntityDistributionalValueV2Model,
     CanonicalEntityValueModel,
     LegalActionAttentionScorerConfig,
     LegalActionAttentionScorerModel,
@@ -98,6 +99,9 @@ class CheckpointValueEvaluator:
         self._outcome_blend_weight = outcome_blend_weight
         checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
         model_kind = checkpoint.get("model_kind")
+        self._canonical_reliability_v2 = (
+            model_kind == "canonical_entity_reliability_blend_v2"
+        )
         self._canonical_reliability = (
             model_kind == "canonical_entity_reliability_blend"
         )
@@ -105,25 +109,18 @@ class CheckpointValueEvaluator:
             model_kind == "canonical_entity_distributional_value"
         )
         self._canonical_entity = model_kind == "canonical_entity_value"
-        if self._canonical_reliability:
+        if self._canonical_reliability_v2:
+            self._model = CanonicalEntityDistributionalValueV2Model(
+                CanonicalEntityValueConfig(**checkpoint.get("model_config", {})),
+                margin_bins=int(checkpoint.get("margin_bins", 41)),
+            )
+            self._load_reliability_contract(checkpoint, outcome_blend_weight)
+        elif self._canonical_reliability:
             self._model = CanonicalEntityDistributionalValueModel(
                 CanonicalEntityValueConfig(**checkpoint.get("model_config", {})),
                 margin_bins=int(checkpoint.get("margin_bins", 41)),
             )
-            weights = checkpoint.get("phase_learned_weights")
-            if not isinstance(weights, list) or len(weights) != 4:
-                raise ValueError("Reliability blend requires four phase weights.")
-            self._phase_learned_weights = tuple(float(value) for value in weights)
-            if any(not 0.0 <= value <= 1.0 for value in self._phase_learned_weights):
-                raise ValueError("Reliability blend phase weights must be in [0, 1].")
-            self._wdl_confidence_floor = float(
-                checkpoint.get("wdl_confidence_floor", 0.0)
-            )
-            if not 0.0 <= self._wdl_confidence_floor <= 1.0:
-                raise ValueError("WDL confidence floor must be in [0, 1].")
-            self._checkpoint_blend_weight = float(
-                checkpoint.get("search_wdl_blend_weight", outcome_blend_weight)
-            )
+            self._load_reliability_contract(checkpoint, outcome_blend_weight)
         elif self._canonical_distributional:
             self._model = CanonicalEntityDistributionalValueModel(
                 CanonicalEntityValueConfig(**checkpoint.get("model_config", {})),
@@ -146,6 +143,26 @@ class CheckpointValueEvaluator:
         self._model.to(device)
         self._model.eval()
 
+    def _load_reliability_contract(
+        self,
+        checkpoint: dict[str, object],
+        outcome_blend_weight: float,
+    ) -> None:
+        weights = checkpoint.get("phase_learned_weights")
+        if not isinstance(weights, list) or len(weights) != 4:
+            raise ValueError("Reliability blend requires four phase weights.")
+        self._phase_learned_weights = tuple(float(value) for value in weights)
+        if any(not 0.0 <= value <= 1.0 for value in self._phase_learned_weights):
+            raise ValueError("Reliability blend phase weights must be in [0, 1].")
+        self._wdl_confidence_floor = float(
+            checkpoint.get("wdl_confidence_floor", 0.0)
+        )
+        if not 0.0 <= self._wdl_confidence_floor <= 1.0:
+            raise ValueError("WDL confidence floor must be in [0, 1].")
+        self._checkpoint_blend_weight = float(
+            checkpoint.get("search_wdl_blend_weight", outcome_blend_weight)
+        )
+
     def evaluate_state(self, state: SplendorState, player_id: int) -> float:
         return self.evaluate_states([(state, player_id)])[0]
 
@@ -155,6 +172,29 @@ class CheckpointValueEvaluator:
     ) -> list[float]:
         if not states_and_players:
             return []
+        if self._canonical_reliability_v2:
+            batch = collate_canonical_state_batch(
+                states_and_players,
+                device=self._device,
+            )
+            batch["observer_is_start_player"] = torch.tensor(
+                [state.start_player == player_id for state, player_id in states_and_players],
+                dtype=torch.long,
+                device=self._device,
+            )
+            with torch.no_grad():
+                margin_logits, wdl_logits = self._model(**batch)
+                margin_values, wdl_values = self._model.expected_values(
+                    margin_logits, wdl_logits
+                )
+                learned_values = (
+                    (1.0 - self._checkpoint_blend_weight) * margin_values
+                    + self._checkpoint_blend_weight * wdl_values
+                )
+                confidences = torch.softmax(wdl_logits, dim=-1).max(dim=-1).values
+            return self._apply_reliability_blend(
+                states_and_players, learned_values, confidences
+            )
         if self._canonical_reliability:
             batch = collate_canonical_state_batch(
                 states_and_players,
@@ -170,19 +210,9 @@ class CheckpointValueEvaluator:
                     + self._checkpoint_blend_weight * wdl_values
                 )
                 confidences = torch.softmax(wdl_logits, dim=-1).max(dim=-1).values
-            results = []
-            for index, (state, player_id) in enumerate(states_and_players):
-                phase = _value_phase_index(state.turn_index)
-                weight = self._phase_learned_weights[phase]
-                if float(confidences[index]) < self._wdl_confidence_floor:
-                    weight = 0.0
-                heuristic = _public_heuristic_value(state, player_id, scale=4_000.0)
-                blended = (
-                    weight * float(learned_values[index])
-                    + (1.0 - weight) * heuristic
-                )
-                results.append(blended * self._value_scale)
-            return results
+            return self._apply_reliability_blend(
+                states_and_players, learned_values, confidences
+            )
         if self._canonical_distributional:
             batch = collate_canonical_state_batch(
                 states_and_players,
@@ -243,6 +273,26 @@ class CheckpointValueEvaluator:
             float(value) * self._value_scale
             for value in normalized_values.detach().cpu().tolist()
         ]
+
+    def _apply_reliability_blend(
+        self,
+        states_and_players: list[tuple[SplendorState, int]],
+        learned_values: torch.Tensor,
+        confidences: torch.Tensor,
+    ) -> list[float]:
+        results = []
+        for index, (state, player_id) in enumerate(states_and_players):
+            phase = _value_phase_index(state.turn_index)
+            weight = self._phase_learned_weights[phase]
+            if float(confidences[index]) < self._wdl_confidence_floor:
+                weight = 0.0
+            heuristic = _public_heuristic_value(state, player_id, scale=4_000.0)
+            blended = (
+                weight * float(learned_values[index])
+                + (1.0 - weight) * heuristic
+            )
+            results.append(blended * self._value_scale)
+        return results
 
 
 def _value_phase_index(turn_index: int) -> int:
