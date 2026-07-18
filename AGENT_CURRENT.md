@@ -2,6 +2,26 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-18 CFR Strategic-Equivalence Diagnostic
+
+- `044` remains formally failed on deep raw-policy TV despite converged regret,
+  96.1% information-set coverage, and near-identical root play. Experiment
+  `045` is frozen in `docs/experiments/cfr_strategic_equivalence_045.md` to
+  determine whether those differences create strategic value loss.
+- Reconstruct the exact `044` policies by frozen recipe and require their
+  canonical hashes to match. Implement information-set-consistent exact best
+  responses, never perfect-information responses, plus exact-continuation
+  action values and conservative exact/external profile reach.
+- The fixed pass requires exact/external exploitability at most `0.005/0.020`,
+  external-minus-exact exploitability at most `0.015`, all TV-above-0.30 sets
+  either reach below `0.0001` or value loss at most `0.02`, each player's total
+  reach-weighted loss at most `0.002`, and cross-play within `0.02` of exact
+  self-play value. Determinism, legality, finiteness, and zero-sum checks are
+  mandatory.
+- A complete pass authorizes only a separately frozen full-game neural Deep CFR
+  feasibility pilot. No training, GPU rental, gameplay, promotion, or BGA data
+  is authorized in `045`; raw legal `035` remains champion.
+
 ## 2026-07-18 Reduced Splendor CFR Viability Gate
 
 - `044` implemented a history-aware information-legal key, a finite four-action
