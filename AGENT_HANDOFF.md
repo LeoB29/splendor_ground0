@@ -1,5 +1,36 @@
 # Agent Handoff
 
+## 2026-07-18: Large rolling-horizon robustness gate resolves near parity
+
+Because identical 100-pair `041` and `042` blocks estimated score-delta BMRH at
+58.5% and 48.0%, respectively, `043` froze a final large estimate rather than
+accepting either small block as definitive. It excluded both historical blocks
+from promotion evidence and preregistered five non-contiguous fresh 100-pair
+bands, with all games required regardless of interim results. Protocol commit
+`feb7ae1` and implementation commit `2212606` preceded evidence; all 409 tests
+passed.
+
+The complete 500-pair / 1,000-game direct experiment ran cleanly. All games
+ended through ordinary `completed`; there were zero deadlocks, invalid
+terminations, timeouts, or stalls. Budget accounting was exact: 31,954 planning
+decisions, 1,022,528 sequence evaluations, and 3,025,656 simulated actions.
+
+Candidate finished 505-494-1 against raw legal `035`: 50.55% paired share,
+CI95 [47.75%, 53.40%], and paired margin +0.211, CI95 [-0.141, +0.561]. Block
+shares were 47.00%, 52.50%, 49.25%, 50.00%, and 54.00%; only two of five were
+strictly above parity. Candidate share split 53.40% from seat 0 versus 47.70%
+from seat 1, which the paired design balanced. Thus aggregate share, confidence,
+and four-of-five consistency gates failed; only the positive point-margin gate
+passed. Broad games remained locked.
+
+This is the final resolution of `041`/`042`: the operator is near parity and
+the 58.5% block was not a stable effect. Across all three experiments the
+descriptive, non-promotional total is 718-681-1 / 51.32%, consistent with the
+large fresh estimate. Do not collect more BMRH strength games, tune this
+formulation, or use it as a teacher. Raw legal `035` remains champion. Evidence
+is under `outputs/rolling_horizon_robustness_043`; exact hashes are in the
+protocol and `AGENT_CURRENT.md`.
+
 ## 2026-07-18: Deadlock-valid rolling-horizon replication rejected
 
 The audit after `041` established that seed `403078` was a genuine locked

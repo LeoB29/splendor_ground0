@@ -78,3 +78,50 @@ three must pass.
 A complete pass authorizes only a separately preregistered search-every-move
 teacher corpus. It does not promote a neural checkpoint. GPU use is not
 authorized for `043`.
+
+## Result (2026-07-18)
+
+Reject the candidate as a robust improvement and close this rolling-horizon
+formulation. Protocol commit `feb7ae1` preceded implementation commit
+`2212606`; all 409 pre-evidence tests passed.
+
+All five blocks and all 500 paired seeds / 1,000 games ran in 4,922.37 seconds.
+Every game ended through ordinary `completed`; there were zero forced-pass
+deadlocks, invalid terminations, timeouts, or stalls. The candidate made 31,954
+planning decisions and exactly 1,022,528 sequence evaluations, with 3,025,656
+simulated actions. Every per-block and aggregate integrity/budget gate passed.
+
+The aggregate result was 505-494-1: score share 50.55%, paired-bootstrap CI95
+[47.75%, 53.40%]. Mean paired final-score margin was +0.211, CI95
+[-0.141, +0.561]. The positive point margin passed its gate, but score share
+was far below 55% and its lower confidence bound was below 50%.
+
+The five block shares were:
+
+- A: 94-106-0, 47.00%, margin -0.170;
+- B: 105-95-0, 52.50%, margin +0.365;
+- C: 98-101-1, 49.25%, margin +0.170;
+- D: 100-100-0, 50.00%, margin +0.395;
+- E: 108-92-0, 54.00%, margin +0.295.
+
+Only B and E were strictly above 50%, so the four-of-five consistency gate
+also failed. Candidate share was 53.40% from seat 0 and 47.70% from seat 1;
+paired seating correctly cancelled that start-role asymmetry. The sole draw was
+a normal 15-15 completed game at seed `457041`, candidate seat 1.
+
+The conditional broad blocks were correctly not generated. As historical
+context only, not promotion evidence, `041` + `042` + `043` total 718-681-1
+(51.32%) across 1,400 games. The large fresh `043` estimate resolves the earlier
+conflict: this operator is near parity, perhaps slightly positive, but not a
+robust 55% search teacher. Do not add games, tune it, or reopen promotion.
+Raw legal `035` remains champion.
+
+Evidence hashes:
+
+- block A: `a811de4d0d3a2374bbb324dbadb8e38252992df4a31a638e082ced0c5ebf5f9d`;
+- block B: `29cb64348dc8f71bcdc2b27c500e1f29c96ff07930008cf1af140c284cc74748`;
+- block C: `4e59c18856e51aeb2c9859eaf01b81280637b548d451151bb35598765fb81d6c`;
+- block D: `9e1e8fb34e26d99153c5f5c7156928b2ff8789f93616622c424f900fccb0ea9b`;
+- block E: `3118b5b29e4c1f1bd46a6804148b9b8f2ec0b1d2b4f806b1d74b96bd6529a54e`;
+- direct aggregate: `a18f8d5e494b2422e23dcbaf8a778d261fc856f30df959392d054d6bd8308e8a`;
+- final gate: `aeb56fa318b43ad9913a3cef728a3d281c12991c0793d9b0e5bd397b7b4a43f2`.

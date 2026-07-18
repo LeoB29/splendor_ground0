@@ -21,6 +21,25 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
 - The candidate, opponent, evaluator, search parameters, seed derivations, and
   clean forced-deadlock semantics are unchanged. CPU only; `035` remains
   champion unless every authorized gate passes.
+- Result: definitive near-parity rejection. All 409 pre-evidence tests passed.
+  The five blocks completed all 500 pairs / 1,000 games with zero invalid
+  terminals, deadlocks, timeouts, or stalls and exact budget: 31,954 candidate
+  decisions and 1,022,528 sequence evaluations.
+- Aggregate result was 505-494-1, share 50.55% with paired CI95 [47.75%,
+  53.40%], and paired margin +0.211 with CI95 [-0.141, +0.561]. Share and
+  confidence gates failed; only the positive point-margin strength gate passed.
+- Block shares were A 47.00%, B 52.50%, C 49.25%, D 50.00%, E 54.00%. Only
+  two of five were strictly above 50%, failing the consistency gate. Candidate
+  share was 53.40% from seat 0 and 47.70% from seat 1, validating the paired
+  design rather than a promotion claim.
+- Broad blocks were correctly not run. Historical `041` + `042` + `043` is
+  718-681-1 / 51.32% descriptively, but is forbidden from promotion pooling.
+  Treat BMRH as near parity and close it permanently; do not add games, tune,
+  or generate teacher data. Raw legal `035` remains champion.
+- Result hashes: `direct_aggregate.json`
+  `a18f8d5e494b2422e23dcbaf8a778d261fc856f30df959392d054d6bd8308e8a`;
+  `gate_final.json`
+  `aeb56fa318b43ad9913a3cef728a3d281c12991c0793d9b0e5bd397b7b4a43f2`.
 
 ## 2026-07-18 Deadlock-Validated Rolling-Horizon Replication
 
