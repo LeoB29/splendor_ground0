@@ -4,22 +4,31 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
 
 ## 2026-07-18 Reduced Splendor CFR Viability Gate
 
-- The large `043` result closes the latest local search family near parity.
-  The next architectural branch is counterfactual-regret self-play, chosen
-  because Splendor has chance/private information and because stable direct
-  action-conditional returns are the strongest surviving learning signal.
-- `deep_cfr_viability_044` is frozen in
-  `docs/experiments/deep_cfr_viability_044.md`. It first adds a versioned,
-  history-aware, information-legal acting-player key and a finite reduced
-  Splendor reserve duel using the production engine.
-- Exact full-tree CFR is the 10,000-iteration reference. A seeded 50,000-
-  iteration external-sampling MCCFR solver must reproduce its strategies and
-  regret convergence under fixed privacy, legality, coverage, and total-
-  variation gates. Failure stops before full-game neural training or GPU use.
-- A complete pass authorizes only a separately preregistered full-game neural
-  Deep CFR pilot. BGA/expert replays remain a future authorized-data-dependent
-  warm-start/validation possibility; no BGA data is used in `044`. Raw legal
-  `035` remains champion.
+- `044` implemented a history-aware information-legal key, a finite four-action
+  production-engine Splendor duel, exact alternating CFR, and seeded external-
+  sampling MCCFR. Protocol/implementation/cache checkpoints are `c506cba`,
+  `6406c10`, and `e072cd9`. All 415 pre-evidence tests passed.
+- The evidence run completed normally and formally failed two of thirteen
+  gates. Exact CFR converged deterministically at 10,000 iterations: normalized
+  positive regret was `0.0000292944` / `0.00000373672`, more than 99% below the
+  iteration-100 values. Privacy, stable action sets, and legality all passed.
+- Seeded 50,000-iteration external MCCFR was byte-deterministic, covered
+  `96.1165%` of exact information sets, had regret `0.000137200` /
+  `0.00000775862`, and matched the exact root strategy at TV `0.000211297`.
+- Deeper raw policy agreement failed over 30 sufficiently observed shared
+  information sets: mean TV `0.1503728` narrowly exceeded `0.15`, while p90 TV
+  `0.6666667` exceeded `0.30`. Several large differences were exact-uniform
+  versus sampled-concentrated policies, consistent with but not proving
+  strategically interchangeable actions/non-unique equilibria.
+- Honor the failed gate: do not start full-game neural Deep CFR or rent a GPU.
+  Next preregister exact best-response exploitability plus reach/value-weighted
+  action-equivalence diagnostics on the same reduced game. This distinguishes
+  harmless policy non-uniqueness from a sampled-solver defect without tuning
+  `044` after its result.
+- Evidence is in `outputs/deep_cfr_viability_044/result.json`; SHA-256 is
+  `6b7edee724b98cc149d8bbc1826a75fa7592e246a7d85ea384e703734fbaf632`.
+  BGA replays remain a future authorized-data-dependent warm-start/validation
+  possibility; none were collected. Raw legal `035` remains champion.
 
 ## 2026-07-18 Final Rolling-Horizon Robustness Gate
 

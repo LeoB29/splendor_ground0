@@ -1,5 +1,60 @@
 # Agent Handoff
 
+## 2026-07-18: Reduced Splendor CFR gate narrowly fails policy-shape replication
+
+Experiment `044` implemented the first direct regret-based self-play machinery:
+a versioned history-aware information-state key, a four-action imperfect-
+information Splendor duel driven by the production engine, exact alternating
+CFR, and external-sampling MCCFR. Protocol commit was `c506cba`; implementation
+was checkpointed at `6406c10`. The initial evidence invocation exceeded the
+shell limit before writing a result because immutable information keys were
+recomputed millions of times. Commit `e072cd9` cached those graph lookups
+without changing the game, solvers, iteration counts, seed, metrics, or gates;
+the evidence run then restarted from zero. All 415 tests passed first.
+
+The reduced game exhaustively contains 985 nodes, 750 terminal paths, and 206
+information sets. Every path ends after exactly four player actions. All
+privacy checks passed, including owner-only knowledge of blind-reserved cards,
+and neither solver encountered an illegal action or unstable information-set
+action set. Both deterministic reruns were byte-identical.
+
+Exact CFR passed every gate after 10,000 iterations. Normalized positive regret
+fell from 0.00292944/0.000373672 at iteration 100 to
+0.0000292944/0.00000373672. External MCCFR also had very low regret after
+50,000 seeded iterations (0.000137200/0.00000775862), covered 96.1165% of exact
+information sets, and matched the exact root policy at TV 0.000211297.
+
+The formal result is still a fail because deeper policy shapes did not
+replicate closely enough. Across 30 shared information sets with at least 100
+external observations, mean TV was 0.1503728 against a maximum of 0.15 and p90
+TV was 0.6666667 against 0.30. A post-result descriptive inspection found that
+several largest differences were uniform exact mixtures versus concentrated
+sampled choices. Together with tiny regrets and root agreement, this may mean
+the actions are strategically equivalent and the equilibrium is non-unique;
+it may instead expose a sampled-solver issue. `044` cannot decide that because
+it did not preregister exploitability or value-equivalence metrics.
+
+Do not retroactively pass `044`, start neural full-game CFR, or rent a GPU. The
+next experiment should preregister exact best-response exploitability and
+reach/value-weighted action-equivalence diagnostics on this same reduced game.
+Only a clean strategic-equivalence result should authorize the full-game neural
+pilot. Evidence is under `outputs/deep_cfr_viability_044`; result SHA-256 is
+`6b7edee724b98cc149d8bbc1826a75fa7592e246a7d85ea384e703734fbaf632`.
+Raw legal `035` remains champion.
+
+BGA/expert replays remain a possible later warm start or independent validation
+source if an authorized and reproducible acquisition path is found. No BGA
+data was collected or used in `044`.
+
+Simple explanation for the project status: we have not entered full-game
+self-play because self-play only improves a bot when its learning rule can
+reliably tell which new choices are better. Previous value, search, and
+trajectory teachers failed fresh gameplay gates, so using them would risk
+amplifying the bot's own mistakes. CFR now works on the small test game, but its
+sampled form still differs from the exact reference in some later positions;
+we must prove those differences harmless or fix them before scaling to GPU
+training and full Splendor self-play.
+
 ## 2026-07-18: Large rolling-horizon robustness gate resolves near parity
 
 Because identical 100-pair `041` and `042` blocks estimated score-delta BMRH at
