@@ -2,6 +2,26 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-18 Final Rolling-Horizon Robustness Gate
+
+- `041` and `042` used identical gameplay but produced conflicting 100-pair
+  estimates: 58.5% and 48.0% against raw `035`. Direct replay checks reproduced
+  representative seeds, checkpoint hashes and budgets match, and the effective
+  sample is only 100 paired units per block. A larger final estimate is
+  justified to resolve seed variance without tuning the planner.
+- `rolling_horizon_robustness_043` is frozen in
+  `docs/experiments/rolling_horizon_robustness_043.md`. It runs five fresh,
+  non-contiguous 100-pair blocks, 500 pairs / 1,000 games total, without interim
+  outcome inspection or early stopping. `041` and `042` are forbidden from the
+  promotion calculation.
+- The frozen direct gate requires complete integrity and exact budget in every
+  block, aggregate share at least 55%, aggregate paired CI95 lower bound above
+  50%, positive aggregate margin, and share above 50% in at least four of five
+  blocks. Only a full pass unlocks fresh shallow/`016`/`023` broad gates.
+- The candidate, opponent, evaluator, search parameters, seed derivations, and
+  clean forced-deadlock semantics are unchanged. CPU only; `035` remains
+  champion unless every authorized gate passes.
+
 ## 2026-07-18 Deadlock-Validated Rolling-Horizon Replication
 
 - A post-`041` audit reconstructed seed `403078`: turns 28 and 29 each had the
