@@ -2,6 +2,25 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-18 Reduced Splendor CFR Viability Gate
+
+- The large `043` result closes the latest local search family near parity.
+  The next architectural branch is counterfactual-regret self-play, chosen
+  because Splendor has chance/private information and because stable direct
+  action-conditional returns are the strongest surviving learning signal.
+- `deep_cfr_viability_044` is frozen in
+  `docs/experiments/deep_cfr_viability_044.md`. It first adds a versioned,
+  history-aware, information-legal acting-player key and a finite reduced
+  Splendor reserve duel using the production engine.
+- Exact full-tree CFR is the 10,000-iteration reference. A seeded 50,000-
+  iteration external-sampling MCCFR solver must reproduce its strategies and
+  regret convergence under fixed privacy, legality, coverage, and total-
+  variation gates. Failure stops before full-game neural training or GPU use.
+- A complete pass authorizes only a separately preregistered full-game neural
+  Deep CFR pilot. BGA/expert replays remain a future authorized-data-dependent
+  warm-start/validation possibility; no BGA data is used in `044`. Raw legal
+  `035` remains champion.
+
 ## 2026-07-18 Final Rolling-Horizon Robustness Gate
 
 - `041` and `042` used identical gameplay but produced conflicting 100-pair
