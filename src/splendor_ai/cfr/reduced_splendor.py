@@ -47,6 +47,7 @@ class ReducedSplendorCFRGame:
         self._chance_cache: dict[int, ReducedSplendorCFRState] = {}
         self._action_cache: dict[int, dict[ActionKey, Action]] = {}
         self._successor_cache: dict[tuple[int, ActionKey], ReducedSplendorCFRState] = {}
+        self._information_key_cache: dict[tuple[int, int], InformationKey] = {}
 
     def root(self) -> ReducedSplendorCFRState:
         return self._root
@@ -95,11 +96,16 @@ class ReducedSplendorCFRGame:
         if node.state is None or node.chance_pending:
             raise ValueError("Chance root has no player information state.")
         observer = node.state.current_player if player_id is None else player_id
-        return canonical_information_state_history_key(
-            node.state,
-            observer,
-            node.public_history,
-        )
+        cache_key = (id(node), observer)
+        key = self._information_key_cache.get(cache_key)
+        if key is None:
+            key = canonical_information_state_history_key(
+                node.state,
+                observer,
+                node.public_history,
+            )
+            self._information_key_cache[cache_key] = key
+        return key
 
     def legal_action_keys(self, node: ReducedSplendorCFRState) -> tuple[ActionKey, ...]:
         if node.state is None or node.chance_pending or node.state.terminal:

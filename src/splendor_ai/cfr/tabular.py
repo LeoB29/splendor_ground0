@@ -42,10 +42,14 @@ class _BaseCFRSolver:
     def __init__(self, game: ReducedSplendorCFRGame) -> None:
         self.game = game
         self.nodes: dict[InformationKey, RegretNode] = {}
+        self._graph_node_cache: dict[int, RegretNode] = {}
         self.illegal_actions = 0
         self.unstable_action_sets = 0
 
     def _node(self, state: ReducedSplendorCFRState) -> RegretNode:
+        cached = self._graph_node_cache.get(id(state))
+        if cached is not None:
+            return cached
         key = self.game.information_state_key(state)
         actions = self.game.legal_action_keys(state)
         player = self.game.current_player(state)
@@ -56,6 +60,7 @@ class _BaseCFRSolver:
         elif node.player != player or node.actions != actions:
             self.unstable_action_sets += 1
             raise ValueError("Unstable action set for one information state.")
+        self._graph_node_cache[id(state)] = node
         return node
 
     def normalized_positive_regret(self, iterations: int) -> dict[str, float]:
