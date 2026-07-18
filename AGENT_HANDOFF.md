@@ -1,5 +1,53 @@
 # Agent Handoff
 
+## 2026-07-18: Exact best response exposes rare-state MCCFR averaging defect
+
+Experiment `045` tested whether the two failed raw-policy-TV gates in `044`
+were strategically meaningful. Protocol commit `d038a47` froze exact policy
+hashes, information-set-consistent best-response semantics, exploitability,
+reach/value-weighted discrepancy loss, and cross-play gates. Implementation
+commit `6ac8b4e` added the analyzer and tests. All 419 tests passed before the
+70.2-second evidence run, and both reconstructed `044` policy hashes matched.
+
+The exact CFR reference passed easily at exploitability `0.000177429`. Every
+best response committed to one legal semantic action across all hidden
+histories in an information set, the complete analysis repeated identically,
+and finiteness/nonnegative-deviation/zero-sum checks passed.
+
+The external sampled average policy failed badly at exploitability `0.293314`
+versus its `0.020` limit. Its self-play value was nearly zero, but player 0's
+best response achieved `0.558514` and player 1's achieved `0.0281131`. Both the
+absolute exploitability and external-minus-exact gap gates failed. This is the
+important lesson: self-play or play against an equilibrium-like policy can hide
+a large vulnerability because neither opponent deliberately enters the weak
+branch.
+
+The seven high-TV states that motivated `045` were not the problem. All passed
+the frozen reach-or-value-loss rule; total conservative weighted loss was only
+`0.0000171397` for player 0 and zero for player 1. Both cross-play values were
+within `0.000523` of exact self-play. Raw policy non-uniqueness was harmless,
+but a separate defect existed outside that observed-at-least-100 set.
+
+A bounded post-result localization reconstructed the policies without changing
+any gate. Filling all eight missing external information sets from exact CFR
+left exploitability unchanged at `0.293314`. Replacing only stored averages
+with fewer than 100 observations by exact strategies reduced it to `0.000401`;
+thresholds of 1,000/10,000/25,000 yielded approximately
+`0.000249/0.000257/0.000267`. The final regret-matched external policy itself
+measured exactly zero exploitability on this reduced game. Thus regret learning
+converged, but the visit-accumulated average policy was badly estimated in rare,
+adversarially reachable information sets.
+
+Do not abandon CFR, loosen `045`, add iterations blindly, deploy the current
+regret policy, or rent a GPU. The next experiment should preregister a correct
+tabular average-policy estimator following MCCFR reach/sampling weighting or
+Deep CFR's explicit strategy-memory approach, then replicate over multiple
+fixed seeds with exact exploitability and rare-band gates. Only that pass can
+authorize a separately frozen full-game neural Deep CFR feasibility pilot.
+Raw legal `035` remains champion. Evidence SHA-256 is
+`528e0b0582d2c39c752e88d0cfb5c82188fba510fa0caba8dd915b281a691701`.
+BGA remains a separate future authorized-data option; none was used.
+
 ## 2026-07-18: Reduced Splendor CFR gate narrowly fails policy-shape replication
 
 Experiment `044` implemented the first direct regret-based self-play machinery:

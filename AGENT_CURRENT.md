@@ -4,23 +4,31 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
 
 ## 2026-07-18 CFR Strategic-Equivalence Diagnostic
 
-- `044` remains formally failed on deep raw-policy TV despite converged regret,
-  96.1% information-set coverage, and near-identical root play. Experiment
-  `045` is frozen in `docs/experiments/cfr_strategic_equivalence_045.md` to
-  determine whether those differences create strategic value loss.
-- Reconstruct the exact `044` policies by frozen recipe and require their
-  canonical hashes to match. Implement information-set-consistent exact best
-  responses, never perfect-information responses, plus exact-continuation
-  action values and conservative exact/external profile reach.
-- The fixed pass requires exact/external exploitability at most `0.005/0.020`,
-  external-minus-exact exploitability at most `0.015`, all TV-above-0.30 sets
-  either reach below `0.0001` or value loss at most `0.02`, each player's total
-  reach-weighted loss at most `0.002`, and cross-play within `0.02` of exact
-  self-play value. Determinism, legality, finiteness, and zero-sum checks are
-  mandatory.
-- A complete pass authorizes only a separately frozen full-game neural Deep CFR
-  feasibility pilot. No training, GPU rental, gameplay, promotion, or BGA data
-  is authorized in `045`; raw legal `035` remains champion.
+- `045` reconstructed the frozen `044` policies with exact matching hashes and
+  added deterministic information-set-consistent best response plus
+  reach/value-weighted action analysis. Protocol/implementation checkpoints are
+  `d038a47` and `6ac8b4e`; all 419 pre-evidence tests passed.
+- Formal result: fail two of ten gates. Exact CFR exploitability was only
+  `0.000177429`, but the external stored average policy was `0.293314`, failing
+  both its `0.020` absolute gate and `0.015` excess-over-exact gate. Player 0's
+  best response achieved value `0.558514` against a profile whose self-play
+  value was nearly zero.
+- The seven `044` high-TV discrepancies were all harmless: conservative total
+  reach-weighted loss was `0.0000171397` for player 0 and zero for player 1.
+  Cross-play with exact remained within `0.000523`. Those tests passed because
+  equilibrium-like play does not seek the rare vulnerabilities.
+- Post-result localization showed the defect is sampled average-policy quality
+  in information sets with fewer than 100 observations. Filling missing sets
+  changed nothing; replacing only sub-100-observation averages with exact
+  reduced exploitability to `0.000401`. The final regret-matched sampled policy
+  itself measured `0.0` exploitability on this reduced game.
+- Do not abandon CFR and do not scale yet. Preregister a tabular repair of
+  reach/sampling-correct average-strategy accumulation (or Deep CFR-style
+  strategy memory), replicate across multiple fixed seeds, and require exact
+  best-response robustness in rare-observation bands. No GPU until it passes.
+- Evidence is under `outputs/cfr_strategic_equivalence_045`; result SHA-256 is
+  `528e0b0582d2c39c752e88d0cfb5c82188fba510fa0caba8dd915b281a691701`.
+  Raw legal `035` remains champion; no BGA data was used.
 
 ## 2026-07-18 Reduced Splendor CFR Viability Gate
 
