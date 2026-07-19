@@ -2,6 +2,37 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-20 Eligibility-Safe Bounded Resolver Replication Pass
+
+- `049b` prospectively repaired only `049`'s source contract. Protocol and
+  implementation checkpoints are `688d1a0` and `c0c39ce`; the full suite passed
+  `441/441` before evidence. All resolver widths, belief semantics, leaf policy,
+  budgets, solver rules, and numerical gates remained frozen from `049`.
+- Six disjoint seed bands produced exactly 32 valid candidate-bearing `035`
+  mirror games per seat/phase cell: 192 attempts, 192 admissions, zero invalid
+  terminal, zero missing-phase skip. Selection yielded 48 unique roots, exactly
+  eight per cell, with zero structural failure.
+- All 18,432 continuations resolved naturally with zero hard cap, loop
+  adjudication, fallback, or illegal action. Privacy/action structure passed,
+  and a from-zero repeat of the first eight roots was byte-identical.
+- Leaf discovery/evaluation correlation was `0.91803`, MAE `0.07371`, and sign
+  agreement `92.95%` over 2,127 eligible leaves. Four-action resolved values
+  correlated at `0.97532`; best actions agreed on `83.33%` of roots.
+- The resolver changed 34/48 roots. Effect signs agreed on 30/32 eligible roots
+  (`93.75%`), with 28/48 roots resolved. Untouched mean gain over raw `035` was
+  `+0.09601` normalized margin, bootstrap CI95
+  `[+0.05842,+0.13498]`. Both seats and all phases were positive; every frozen
+  gate passed.
+- Formal decision: `049b` authorizes a separately preregistered fresh paired
+  resolver-versus-raw-`035` gameplay gate for this exact resolver. It does not
+  authorize training or promotion. The next protocol must freeze when resolving
+  is invoked, legal fallbacks for structurally ineligible/terminal states,
+  matched paired seeds/seats, compute budgets, integrity rules, and strength
+  thresholds before gameplay. CPU remains appropriate; no GPU is justified.
+  Raw legal `035` remains champion until the gameplay gate passes.
+- Evidence is in `outputs/bounded_public_belief_resolving_049b`; result SHA-256
+  is `1a539d66b4596e074076319b96f4e0114fd3ce930fb2dc2cc646c973b3a813a7`.
+
 ## 2026-07-19 Bounded Public-Belief Resolving Diagnostic Result
 
 - `049` implemented the fixed two-ply Bayesian resolver over three legal

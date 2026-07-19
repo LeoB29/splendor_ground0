@@ -1,5 +1,54 @@
 # Agent Handoff
 
+## 2026-07-20: Eligibility-safe resolver replication passes every gate
+
+Experiment `049b` was preregistered at `688d1a0` and implemented at `c0c39ce`.
+It changed only the source-eligibility contract and fresh random namespaces from
+`049`: six disjoint seat/phase seed bands were scanned until each admitted 32
+valid candidate-bearing `035` mirror games. Determinization count, top-four
+root and opponent widths, information-set-constrained minimization, eight
+continuations split 4/4, stochastic continuation policy, loop handling, score
+scale, bootstrap, and every numerical gate remained frozen. The full suite
+passed 441/441 before evidence.
+
+Collection completed without needing any skip: 192 attempts produced 192 valid
+admissions, exactly 32 in every seat/phase cell, with zero invalid terminal and
+zero missing assigned-phase candidate. Outcome-blind selection produced 48
+unique roots, exactly eight per cell, with zero structural failure. This
+prospectively resolves the sole operational defect that prevented `049` from
+being declared a pass.
+
+All 18,432 continuation branches resolved naturally with zero fallback action,
+loop adjudication, hard cap, or illegal action. Checkpoint/configuration,
+hidden-information privacy, root action mapping, opponent information-set
+stability, and the from-zero first-eight repeat all passed; the repeat was
+byte-identical.
+
+The replicated target signal remained strong. Across 2,304 leaves,
+discovery/evaluation payoff correlation was 0.91803 and MAE 0.07371; sign
+agreement was 92.95% over 2,127 eligible leaves. The 192 root/action values
+correlated at 0.97532, and best actions agreed on 40/48 roots (83.33%). The
+resolver changed 34/48 parent actions, effect signs agreed on 30/32 eligible
+roots (93.75%), and 28/48 met the resolved definition.
+
+On the untouched evaluation halves, discovery-selected actions improved over
+raw `035` by +0.09601 normalized score margin on average, with bootstrap CI95
+[+0.05842,+0.13498]. Both seats were positive (seat 0 +0.10122, seat 1
++0.09080), as were all phases (early +0.06797, mid +0.13672, late +0.08333).
+Every preregistered gate passed.
+
+This authorizes the first separately preregistered paired resolver-versus-raw-
+`035` gameplay gate, not training, distillation, promotion, or retrospective
+use of `049`. Before gameplay, freeze a deployable resolver wrapper: invocation
+rule, fallback behavior for fewer-than-four actions/terminal opponent replies or
+unstable information-set structure, matched seat-swapped seed design, exact
+compute budget, clean deadlock semantics, and promotion thresholds. The teacher
+must demonstrate full-game strength before any data generation. CPU remains
+appropriate and raw legal `035` remains champion.
+
+Evidence is under `outputs/bounded_public_belief_resolving_049b`; result SHA-256
+is `1a539d66b4596e074076319b96f4e0114fd3ce930fb2dc2cc646c973b3a813a7`.
+
 ## 2026-07-19: Bounded resolver targets pass, but source contract formally fails
 
 Experiment `049` tested the bounded-subgame branch required after terminal
