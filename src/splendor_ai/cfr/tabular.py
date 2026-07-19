@@ -243,6 +243,85 @@ class ExternalSamplingMCCFRSolver(_BaseCFRSolver):
         return node_utility
 
 
+class CorrectedExternalSamplingMCCFRSolver(_BaseCFRSolver):
+    """Two-player external MCCFR with the standard simple average policy.
+
+    During one player's regret pass, the opponent is the sampled player. The
+    sampled visit frequency supplies that opponent's own reach weighting, so
+    the opponent strategy is accumulated once at each reached information set.
+    """
+
+    def __init__(self, game: ReducedSplendorCFRGame, seed: int) -> None:
+        super().__init__(game)
+        self.rng = random.Random(seed)
+
+    def run(self, iterations: int, snapshot_iterations: tuple[int, ...] = (100,)) -> dict[str, Any]:
+        snapshots: dict[str, dict[str, float]] = {}
+        for iteration in range(1, iterations + 1):
+            for traverser in (0, 1):
+                self._traverse(self.game.root(), traverser)
+            if iteration in snapshot_iterations:
+                snapshots[str(iteration)] = self.normalized_positive_regret(iteration)
+        snapshots[str(iterations)] = self.normalized_positive_regret(iterations)
+        return self.payload(iterations, snapshots)
+
+    def average_policy(self) -> dict[InformationKey, tuple[float, ...]]:
+        policy: dict[InformationKey, tuple[float, ...]] = {}
+        for key, node in self.nodes.items():
+            total = sum(node.strategy_sum)
+            if total <= 0.0:
+                policy[key] = tuple([1.0 / len(node.actions)] * len(node.actions))
+            else:
+                policy[key] = tuple(value / total for value in node.strategy_sum)
+        return policy
+
+    def payload(self, iterations: int, snapshots: dict[str, dict[str, float]]) -> dict[str, Any]:
+        payload = super().payload(iterations, snapshots)
+        policy = self.average_policy()
+        payload["average_policy_semantics"] = "two_player_external_simple_opponent_node_v1"
+        payload["root_average_strategy"] = list(policy[self.root_key()])
+        ordered_keys = sorted(self.nodes, key=repr)
+        for record, key in zip(payload["nodes"], ordered_keys, strict=True):
+            record["average_strategy"] = list(policy[key])
+        return payload
+
+    def _traverse(self, state: ReducedSplendorCFRState, traverser: int) -> float:
+        if self.game.is_terminal(state):
+            return self.game.utility(state, traverser)
+        if self.game.is_chance_node(state):
+            outcomes = self.game.chance_outcomes(state)
+            selected = _sample_index([probability for _outcome, probability in outcomes], self.rng)
+            return self._traverse(
+                self.game.apply_chance(state, outcomes[selected][0]),
+                traverser,
+            )
+
+        player = self.game.current_player(state)
+        node = self._node(state)
+        strategy = node.strategy()
+        if player != traverser:
+            for index, probability in enumerate(strategy):
+                node.strategy_sum[index] += probability
+            node.average_observations += 1
+            selected = _sample_index(strategy, self.rng)
+            return self._traverse(
+                self.game.apply_action(state, node.actions[selected]),
+                traverser,
+            )
+
+        action_utilities = [
+            self._traverse(self.game.apply_action(state, action), traverser)
+            for action in node.actions
+        ]
+        node_utility = sum(
+            probability * utility
+            for probability, utility in zip(strategy, action_utilities, strict=True)
+        )
+        for index, utility in enumerate(action_utilities):
+            node.regrets[index] += utility - node_utility
+        return node_utility
+
+
 def expected_utility(
     game: ReducedSplendorCFRGame,
     policy0: dict[InformationKey, tuple[float, ...]],

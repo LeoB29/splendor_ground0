@@ -6,11 +6,16 @@ from .analysis import (
     profile_exploitability,
 )
 from .reduced_splendor import ReducedSplendorCFRGame, ReducedSplendorCFRState
-from .tabular import ExactCFRSolver, ExternalSamplingMCCFRSolver
+from .tabular import (
+    CorrectedExternalSamplingMCCFRSolver,
+    ExactCFRSolver,
+    ExternalSamplingMCCFRSolver,
+)
 
 __all__ = [
     "ExactCFRSolver",
     "ExternalSamplingMCCFRSolver",
+    "CorrectedExternalSamplingMCCFRSolver",
     "ReducedSplendorCFRGame",
     "ReducedSplendorCFRState",
     "discrepant_action_value_analysis",
