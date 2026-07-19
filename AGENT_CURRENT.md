@@ -2,6 +2,25 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-19 Outcome-Sampling CFR Feasibility Gate Pending
+
+- `048` is frozen in
+  `docs/experiments/outcome_sampling_cfr_feasibility_048.md` as the CPU-only
+  successor to `047`. It performs no neural training, gameplay, promotion, or
+  GPU work.
+- First validate the unclipped log-space outcome-sampling regret estimator
+  against exact counterfactual increments and exploitability on reduced
+  Splendor. Then collect 256 full-game single trajectories under frozen `023`
+  softmax targets and a 0.1 full-support uniform behavior mixture.
+- The full-game object is explicitly finite: native completion and forced
+  deadlock remain natural terminals, while fourth repetition, 60 non-progress
+  actions, and turn 200 become separately labelled score/card-count learning-
+  game adjudications. Natural terminals must remain at least 95%.
+- Neural fitting requires every reduced correctness and full-game variance gate,
+  including at least 2,048 rows, overall/per-phase ESS ratio at least 0.01,
+  bounded tail weights, split-half stability, exact reproducibility, privacy,
+  and bounded reservoir memory. Do not clip a failed estimator or rent a GPU.
+
 ## 2026-07-19 Full-Game Deep CFR CPU Feasibility Result
 
 - `047` implemented chronological information-legal public-history tensors,
