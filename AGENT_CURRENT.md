@@ -2,6 +2,26 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-19 MCCFR Average-Policy Repair
+
+- `046` is frozen in
+  `docs/experiments/mccfr_average_policy_repair_046.md`. It preserves the
+  reduced game, regret updates, and legacy `044` solver, and adds the standard
+  two-player external-sampling simple average: accumulate the sampled
+  opponent's current strategy during the other player's regret pass, not the
+  traverser's strategy on its enumerated branch.
+- Reconstruct the exact `044` reference by hash. Run corrected 50,000-iteration
+  average policies at seeds `440046` through `440050`, with a deterministic
+  repeat of `440046`, and evaluate every policy using the exact `045`
+  information-set-consistent best response.
+- The fixed gate requires every seed at exploitability at most `0.020`, median
+  at most `0.010`, excess over exact at most `0.015`, each player's deviation
+  incentive at most `0.040`, clean integrity/regret/coverage/cross-play, and no
+  meaningful dependence on missing or sub-100-observation exact substitutions.
+- A pass authorizes only a separately preregistered full-game neural Deep CFR
+  feasibility pilot. No GPU, full-game training, gameplay, promotion, or BGA
+  data is authorized by `046`; raw legal `035` remains champion.
+
 ## 2026-07-18 CFR Strategic-Equivalence Diagnostic
 
 - `045` reconstructed the frozen `044` policies with exact matching hashes and
