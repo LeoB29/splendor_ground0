@@ -5,6 +5,15 @@ from .analysis import (
     exact_best_response,
     profile_exploitability,
 )
+from .full_game import (
+    DeepCFRSchemaRow,
+    FullGameTraversalProbe,
+    PublicHistoryEncoding,
+    ReservoirMemory,
+    build_schema_row,
+    collate_deep_cfr_rows,
+    encode_public_history,
+)
 from .reduced_splendor import ReducedSplendorCFRGame, ReducedSplendorCFRState
 from .tabular import (
     CorrectedExternalSamplingMCCFRSolver,
@@ -21,4 +30,11 @@ __all__ = [
     "discrepant_action_value_analysis",
     "exact_best_response",
     "profile_exploitability",
+    "DeepCFRSchemaRow",
+    "FullGameTraversalProbe",
+    "PublicHistoryEncoding",
+    "ReservoirMemory",
+    "build_schema_row",
+    "collate_deep_cfr_rows",
+    "encode_public_history",
 ]
