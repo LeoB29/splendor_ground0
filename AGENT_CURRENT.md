@@ -2,6 +2,26 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-19 Bounded Public-Belief Resolving Diagnostic Pending
+
+- `049` is frozen in
+  `docs/experiments/bounded_public_belief_resolving_049.md`. It is CPU-only and
+  cannot train, play strength games, promote, or authorize GPU use.
+- Generate 192 fresh outcome-blind `035` mirror games and select 48 uncertain
+  roots with exact actor-seat/phase balance. At each root solve a fixed two-ply
+  Bayesian subgame over three information-legal determinizations, four root
+  actions, and four opponent responses constrained by opponent information-set
+  identity.
+- Leaf payoffs use eight matched loop-safe terminal continuations split 4/4
+  into discovery and untouched evaluation. This differs from `005`: it tests
+  whether opponent-response resolving, not a direct top-two rollout switch,
+  yields stable four-action regret targets.
+- Every belief/privacy, 18,432-continuation integrity, split-leaf consistency,
+  root ordering, action agreement, resolved frequency, untouched gain, and
+  seat/phase breadth gate must pass. A pass authorizes only a fresh resolver
+  gameplay gate; teacher distillation still requires the resolver to beat
+  `035`. Raw legal `035` remains champion.
+
 ## 2026-07-19 Outcome-Sampling CFR Feasibility Result
 
 - `048` implemented an unclipped log-space outcome-sampling regret estimator,
