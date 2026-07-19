@@ -29,6 +29,12 @@ from .outcome_sampling import (
     exact_fixed_policy_regret_increments,
     sample_reduced_outcome_updates,
 )
+from .public_belief_resolving import (
+    ResolvedLeaf,
+    TwoPlyResolution,
+    deterministic_belief_range,
+    resolve_two_ply,
+)
 from .reduced_splendor import ReducedSplendorCFRGame, ReducedSplendorCFRState
 from .tabular import (
     CorrectedExternalSamplingMCCFRSolver,
@@ -63,4 +69,8 @@ __all__ = [
     "behavior_mixture",
     "exact_fixed_policy_regret_increments",
     "sample_reduced_outcome_updates",
+    "ResolvedLeaf",
+    "TwoPlyResolution",
+    "deterministic_belief_range",
+    "resolve_two_ply",
 ]
