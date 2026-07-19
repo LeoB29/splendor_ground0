@@ -1,5 +1,51 @@
 # Agent Handoff
 
+## 2026-07-19: Full-game terminal external Deep CFR is computationally mismatched
+
+Experiment `047` tested the CPU prerequisite authorized by corrected CFR
+reference `046`. Protocol commit `c944b4f` froze an information-legal
+perfect-recall history representation, variable semantic action rows, bounded
+reservoir memories, exact terminal rules, and four production-engine external
+traversals. It performed no training, gameplay, or promotion. The implementation
+adds `src/splendor_ai/cfr/full_game.py`, a reproducible runner, and six focused
+integrity tests. The entire suite passes at 429 tests.
+
+Every representation-side gate passed. Eight fresh loop-safe width-64 `023`
+mirror games at seeds 470000--470007 all ended through ordinary completion and
+produced 498 schema-only rows (160 early, 240 mid, 98 late), with legal-action
+counts from 2 to 186. The exact checkpoint hash/config loaded, and 63 batches of
+eight passed finite CPU forward and target-alignment checks. Hidden-deck and
+blind-reserve privacy, public reveal timing, state/action permutation invariance,
+and privileged-entity rejection all passed. Two capacity-128 Algorithm-R
+reservoirs repeated byte-identically, round-tripped losslessly, and serialized
+to 4,653,242 bytes, well under 32 MiB.
+
+The formal result nevertheless fails because none of four standard terminal
+external traversals completed. Three exhausted exactly 25,000 nodes, at maximum
+depths 130, 170, and 262. The fourth encountered the separately invalid
+400-turn safeguard after 9,929 nodes. Some traverser nodes exposed up to 550
+semantic legal actions. There were zero illegal actions, partial attempts
+correctly exposed zero trainable rows, and the first attempt repeated exactly
+after excluding elapsed time. Thus the result is not caused by the historical
+forced-deadlock mistake: only completed or two-sole-PASS deadlocks are terminal
+utilities, while node/turn cutoffs remain invalid.
+
+Do not rent a GPU, train neural Deep CFR on partial trees, increase the node cap
+blindly, or revive a learned value bootstrap. The blocker is structural:
+external sampling still enumerates every traverser action across a long game,
+and uniform policies can enter very long nonterminal behavior. The next
+authorized direction should be separately preregistered outcome-sampling CFR
+with (1) an explicit finite-game loop/turn utility, (2) full-support behavior
+sampling and unbiased importance ratios, (3) an exact reduced-game comparison
+to corrected `046`, and (4) full-game variance, effective-sample-size, legality,
+and reproducibility gates. Only a pass may authorize neural fitting and GPU
+rental. Raw legal `035` remains champion; BGA remains unused.
+
+Evidence is under `outputs/full_game_deep_cfr_feasibility_047`. Result SHA-256
+is `7e59f4b8d91c2b2c3be2c593820706cc4167987aa482469b93570abd9e8dfd44`;
+the serialized reservoirs SHA-256 is
+`9a31a1cd27717c418b5f5be0570bc48382e1f5a539b28f7517786f7555f2d7cd`.
+
 ## 2026-07-19: Corrected MCCFR average policy passes every adversarial gate
 
 Experiment `046` repaired the exact defect localized by `045`. The legacy

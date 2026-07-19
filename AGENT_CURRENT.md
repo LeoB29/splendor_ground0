@@ -2,28 +2,40 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
-## 2026-07-19 Full-Game Deep CFR CPU Feasibility Pilot
+## 2026-07-19 Full-Game Deep CFR CPU Feasibility Result
 
-- `047` is frozen in `docs/experiments/full_game_deep_cfr_feasibility_047.md`.
-  It is the bounded CPU prerequisite authorized by the corrected `046` pass;
-  no neural training, GPU, gameplay, or promotion is allowed.
-- Reuse the information-legal canonical `023` entity/action representation and
-  add chronological public-history tensors for perfect recall. Eight fresh
-  loop-safe `023` games at seeds `470000--470007` exercise privacy, semantic
-  invariance, variable shapes, CPU forward passes, and two deterministic
-  capacity-128 schema-only reservoir memories.
-- The corrected terminal contract is explicit: ordinary completion and two
-  forced sole-`PASS` actions are clean; repetition, no-progress, max-turn,
-  stalls, and traversal-budget cutoffs are invalid and emit no training target.
-- The decisive feasibility probe runs full terminal external traversal for both
-  players at root seeds `470100/470101`, uniformly sampling the opponent and
-  enumerating every traverser action, with `25,000` nodes per attempt. All four
-  entire trees must complete; partial attempts produce zero eligible rows.
-- A full pass authorizes a separately frozen neural-fit stage and may justify a
-  rented GPU. If representation passes but traversal explodes, do not add a
-  value bootstrap: move to a separately preregistered outcome-sampling or
-  continual-resolving CFR design. Raw legal `035` remains champion; BGA is not
-  used.
+- `047` implemented chronological information-legal public-history tensors,
+  variable legal-action targets, deterministic Algorithm-R reservoirs, and a
+  production-engine terminal external-traversal probe. The preregistration is
+  `c944b4f`; all 429 tests pass.
+- Representation passed completely. Eight fresh `023` mirror games at seeds
+  `470000--470007` all completed normally, yielding 498 rows: 160 early, 240
+  mid, and 98 late. Legal-action counts were 2--186. The frozen width-64 `023`
+  hash/config loaded exactly and all 63 CPU batches were finite and aligned.
+- All privacy and invariance checks passed: hidden-deck permutations were
+  invisible, blind reserves hid identity from the opponent and history until
+  purchase, cosmetic state/action permutations were stable, and privileged
+  entities were rejected. Both capacity-128 reservoirs repeated exactly,
+  round-tripped losslessly, and occupied 4,653,242 bytes combined.
+- Standard full terminal external traversal failed the frozen feasibility gate.
+  Attempts `(470100,p0)`, `(470101,p0)`, and `(470101,p1)` reached the 25,000-
+  node cap at depths 130, 170, and 262. `(470100,p1)` reached the invalid
+  400-turn limit after 9,929 nodes. No attempt completed its entire tree; all
+  correctly emitted zero eligible training rows, with zero illegal actions.
+  The repeated first attempt was byte-identical excluding elapsed time.
+- This is not a representation, privacy, memory, checkpoint, or CPU-speed
+  failure. It is the expected mismatch between enumerating every traverser
+  action and Splendor's long, occasionally cyclic full-game tree. Neural fitting
+  and GPU rental are not authorized; more external-traversal budget would not
+  repair the finite-game/branching contract.
+- Next preregister a bounded full-game outcome-sampling CFR feasibility stage.
+  It must define an explicit finite-game loop utility before evidence, use
+  full-support behavior probabilities and unbiased importance weighting, prove
+  correctness against exact `046`, and gate full-game target variance/ESS before
+  any neural fit. Do not add a learned value bootstrap. Raw legal `035` remains
+  champion; BGA remains unused.
+- Evidence is in `outputs/full_game_deep_cfr_feasibility_047`; result SHA-256 is
+  `7e59f4b8d91c2b2c3be2c593820706cc4167987aa482469b93570abd9e8dfd44`.
 
 ## 2026-07-19 MCCFR Average-Policy Repair
 
