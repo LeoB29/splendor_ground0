@@ -2,6 +2,29 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-19 Full-Game Deep CFR CPU Feasibility Pilot
+
+- `047` is frozen in `docs/experiments/full_game_deep_cfr_feasibility_047.md`.
+  It is the bounded CPU prerequisite authorized by the corrected `046` pass;
+  no neural training, GPU, gameplay, or promotion is allowed.
+- Reuse the information-legal canonical `023` entity/action representation and
+  add chronological public-history tensors for perfect recall. Eight fresh
+  loop-safe `023` games at seeds `470000--470007` exercise privacy, semantic
+  invariance, variable shapes, CPU forward passes, and two deterministic
+  capacity-128 schema-only reservoir memories.
+- The corrected terminal contract is explicit: ordinary completion and two
+  forced sole-`PASS` actions are clean; repetition, no-progress, max-turn,
+  stalls, and traversal-budget cutoffs are invalid and emit no training target.
+- The decisive feasibility probe runs full terminal external traversal for both
+  players at root seeds `470100/470101`, uniformly sampling the opponent and
+  enumerating every traverser action, with `25,000` nodes per attempt. All four
+  entire trees must complete; partial attempts produce zero eligible rows.
+- A full pass authorizes a separately frozen neural-fit stage and may justify a
+  rented GPU. If representation passes but traversal explodes, do not add a
+  value bootstrap: move to a separately preregistered outcome-sampling or
+  continual-resolving CFR design. Raw legal `035` remains champion; BGA is not
+  used.
+
 ## 2026-07-19 MCCFR Average-Policy Repair
 
 - `046` corrected only the external sampled average-policy rule: accumulate the
