@@ -14,6 +14,21 @@ from .full_game import (
     collate_deep_cfr_rows,
     encode_public_history,
 )
+from .full_game_outcome import (
+    FINITE_ADJUDICATIONS,
+    NATURAL_TERMINALS,
+    FrozenEntityTargetPolicy,
+    FullGameOutcomeSampler,
+    finite_learning_terminal_reason,
+)
+from .outcome_sampling import (
+    OutcomeSamplingAdvantageRow,
+    OutcomeSamplingMCCFRSolver,
+    OutcomeSamplingUpdate,
+    behavior_mixture,
+    exact_fixed_policy_regret_increments,
+    sample_reduced_outcome_updates,
+)
 from .reduced_splendor import ReducedSplendorCFRGame, ReducedSplendorCFRState
 from .tabular import (
     CorrectedExternalSamplingMCCFRSolver,
@@ -37,4 +52,15 @@ __all__ = [
     "build_schema_row",
     "collate_deep_cfr_rows",
     "encode_public_history",
+    "FINITE_ADJUDICATIONS",
+    "NATURAL_TERMINALS",
+    "FrozenEntityTargetPolicy",
+    "FullGameOutcomeSampler",
+    "finite_learning_terminal_reason",
+    "OutcomeSamplingAdvantageRow",
+    "OutcomeSamplingMCCFRSolver",
+    "OutcomeSamplingUpdate",
+    "behavior_mixture",
+    "exact_fixed_policy_regret_increments",
+    "sample_reduced_outcome_updates",
 ]
