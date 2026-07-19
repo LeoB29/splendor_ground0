@@ -1,5 +1,45 @@
 # Agent Handoff
 
+## 2026-07-19: Corrected MCCFR average policy passes every adversarial gate
+
+Experiment `046` repaired the exact defect localized by `045`. The legacy
+external solver accumulated average strategy at the traverser's enumerated
+nodes. The standard two-player simple rule instead accumulates the sampled
+opponent's strategy during the other player's regret pass, where visit
+frequency supplies own reach weighting. The new solver is separately named so
+`044/045` remain reproducible. Matched-seed tests prove the repair leaves every
+regret and current regret-matched strategy unchanged and changes only averaging.
+
+Protocol commit `e20f249` and implementation commit `368df81` preceded
+evidence. All 423 tests passed. The run reconstructed the exact `044` hash,
+solved corrected external MCCFR for 50,000 iterations at seeds 440046--440050,
+and repeated 440046 byte-identically. Every run had zero illegal/unstable
+actions, finite metrics, low regret, and 95.63--99.03% exact-information-set
+coverage.
+
+All ten gates passed with large margins. Corrected average exploitability was
+0.000374336, 0.000383431, 0.000470736, 0.000336231, and 0.000401162; median was
+0.000383431, versus frozen limits of 0.020 per seed and 0.010 median. Exact CFR
+was 0.000177429. The worst one-player deviation incentive was 0.000618184,
+cross-play differed from exact self-play by at most 0.000283, and missing-set
+exact substitution changed exploitability by zero.
+
+Rare-state robustness also passed decisively. Replacing every corrected
+strategy with fewer than 100 observations by its exact counterpart changed
+exploitability by at most 0.00006302, far below 0.005. This contrasts with the
+legacy average's 0.293314 exploitability and establishes that the old failure
+was an averaging implementation defect, not a failure of CFR or insufficient
+sampling iterations.
+
+`046` authorizes a separately preregistered full-game neural Deep CFR
+feasibility pilot, not gameplay or promotion. The next step is to freeze the
+full-game information-state/action encoding, external traversal and reservoir
+memory semantics, network targets, CPU collection smoke, GPU-fit budget, and
+offline rare-state/held-out gates. Preserve opponent-node strategy-memory
+sampling exactly. Raw legal `035` remains champion. Evidence SHA-256 is
+`bc025be45cbb8afd1c907f4e74b587a3647f2414ac11e5d5aba55b2223622449`.
+BGA remains a separate future authorized-data option; none was used.
+
 ## 2026-07-18: Exact best response exposes rare-state MCCFR averaging defect
 
 Experiment `045` tested whether the two failed raw-policy-TV gates in `044`

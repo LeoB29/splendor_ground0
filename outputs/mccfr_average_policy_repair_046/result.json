@@ -1,0 +1,767 @@
+{
+  "aggregate": {
+    "max_exploitability": 0.00047073584042675695,
+    "median_exploitability": 0.0003834306939205442,
+    "min_exploitability": 0.0003362307176366872
+  },
+  "configuration": {
+    "average_policy_semantics": "two_player_external_simple_opponent_node_v1",
+    "exact_iterations": 10000,
+    "external_iterations_per_seed": 50000,
+    "external_seeds": [
+      440046,
+      440047,
+      440048,
+      440049,
+      440050
+    ]
+  },
+  "decision": "Authorize a separately preregistered full-game neural Deep CFR feasibility pilot.",
+  "exact_reference": {
+    "expected_044_hash": "b8184ec7c9dbfa3611d014f98c674efbeae27728429b2fa90c7939e1bbe043ab",
+    "payload_hash": "b8184ec7c9dbfa3611d014f98c674efbeae27728429b2fa90c7939e1bbe043ab",
+    "strategic_analysis": {
+      "best_response_contract": {
+        "0": {
+          "expected_information_sets": 31,
+          "legal": true,
+          "missing_selections": 0,
+          "selected_information_sets": 31,
+          "unstable_action_sets": 0
+        },
+        "1": {
+          "expected_information_sets": 175,
+          "legal": true,
+          "missing_selections": 0,
+          "selected_information_sets": 175,
+          "unstable_action_sets": 0
+        }
+      },
+      "best_response_integrity": true,
+      "best_response_value_p0": 7.928282378218737e-05,
+      "best_response_value_p1": 0.00027557584535706274,
+      "deviation_incentive_p0": 0.00023374099217338403,
+      "deviation_incentive_p1": 0.00012111767696586608,
+      "exploitability": 0.00017742933456962504,
+      "nash_conv": 0.0003548586691392501,
+      "profile_value_p0": -0.00015445816839119666,
+      "profile_value_p1": 0.00015445816839119666
+    }
+  },
+  "experiment": "046_mccfr_average_policy_repair",
+  "first_seed_repeat_hashes": [
+    "3a0850d16156869a453204dd9b68bbad234e0a4f0a10683c91afe17c2e7d4df3",
+    "3a0850d16156869a453204dd9b68bbad234e0a4f0a10683c91afe17c2e7d4df3"
+  ],
+  "gates": {
+    "every_average_exploitability_at_most_0_020": true,
+    "every_cross_play_delta_at_most_0_020": true,
+    "every_excess_over_exact_at_most_0_015": true,
+    "every_player_deviation_incentive_at_most_0_040": true,
+    "exact_payload_hash_matches_044": true,
+    "first_seed_byte_deterministic": true,
+    "median_average_exploitability_at_most_0_010": true,
+    "missing_substitution_change_at_most_0_001": true,
+    "per_seed_integrity_regret_and_coverage": true,
+    "sub100_substitution_change_at_most_0_005": true
+  },
+  "passed": true,
+  "protocol": "docs/experiments/mccfr_average_policy_repair_046.md",
+  "seed_results": [
+    {
+      "average_policy": {
+        "best_response_contract": {
+          "0": {
+            "expected_information_sets": 31,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 31,
+            "unstable_action_sets": 0
+          },
+          "1": {
+            "expected_information_sets": 175,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 175,
+            "unstable_action_sets": 0
+          }
+        },
+        "best_response_integrity": true,
+        "best_response_value_p0": 0.0002387128154337362,
+        "best_response_value_p1": 0.0005099598369390048,
+        "deviation_incentive_p0": 0.00041656594062871254,
+        "deviation_incentive_p1": 0.0003321067117440285,
+        "exploitability": 0.0003743363261863705,
+        "nash_conv": 0.000748672652372741,
+        "profile_value_p0": -0.00017785312519497633,
+        "profile_value_p1": 0.00017785312519497633
+      },
+      "cross_play": {
+        "corrected0_absolute_delta_from_exact_self": 9.238873125472252e-05,
+        "corrected0_vs_exact1_value_p0": -0.0002468468996459192,
+        "corrected1_absolute_delta_from_exact_self": 0.00011936859581118714,
+        "exact0_vs_corrected1_value_p0": -3.508957258000952e-05
+      },
+      "current_regret_matched_policy": {
+        "best_response_contract": {
+          "0": {
+            "expected_information_sets": 31,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 31,
+            "unstable_action_sets": 0
+          },
+          "1": {
+            "expected_information_sets": 175,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 175,
+            "unstable_action_sets": 0
+          }
+        },
+        "best_response_integrity": true,
+        "best_response_value_p0": 0.0,
+        "best_response_value_p1": -0.0,
+        "deviation_incentive_p0": 0.0,
+        "deviation_incentive_p1": 0.0,
+        "exploitability": 0.0,
+        "nash_conv": 0.0,
+        "profile_value_p0": 0.0,
+        "profile_value_p1": -0.0
+      },
+      "exact_information_set_coverage": 0.9854368932038835,
+      "illegal_actions": 0,
+      "information_sets": 203,
+      "missing_exact_substitution": {
+        "absolute_exploitability_change": 0.0,
+        "policy": {
+          "best_response_contract": {
+            "0": {
+              "expected_information_sets": 31,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 31,
+              "unstable_action_sets": 0
+            },
+            "1": {
+              "expected_information_sets": 175,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 175,
+              "unstable_action_sets": 0
+            }
+          },
+          "best_response_integrity": true,
+          "best_response_value_p0": 0.0002387128154337362,
+          "best_response_value_p1": 0.0005099598369390048,
+          "deviation_incentive_p0": 0.00041656594062871254,
+          "deviation_incentive_p1": 0.0003321067117440285,
+          "exploitability": 0.0003743363261863705,
+          "nash_conv": 0.000748672652372741,
+          "profile_value_p0": -0.00017785312519497633,
+          "profile_value_p1": 0.00017785312519497633
+        }
+      },
+      "normalized_positive_regret": {
+        "0": 0.00010480119579047132,
+        "1": 8.706086965705429e-06
+      },
+      "observation_bands_over_exact_information_sets": {
+        "100_999": 0,
+        "10_99": 6,
+        "1_9": 101,
+        "at_least_1000": 72,
+        "missing_or_zero": 27
+      },
+      "payload_hash": "3a0850d16156869a453204dd9b68bbad234e0a4f0a10683c91afe17c2e7d4df3",
+      "seed": 440046,
+      "sub100_exact_substitution": {
+        "absolute_exploitability_change": 6.302042558277502e-05,
+        "policy": {
+          "best_response_contract": {
+            "0": {
+              "expected_information_sets": 31,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 31,
+              "unstable_action_sets": 0
+            },
+            "1": {
+              "expected_information_sets": 175,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 175,
+              "unstable_action_sets": 0
+            }
+          },
+          "best_response_integrity": true,
+          "best_response_value_p0": 0.0002387128154337362,
+          "best_response_value_p1": 0.000636000688104555,
+          "deviation_incentive_p0": 0.0004959907597275523,
+          "deviation_incentive_p1": 0.00037872274381073876,
+          "exploitability": 0.00043735675176914554,
+          "nash_conv": 0.0008747135035382911,
+          "profile_value_p0": -0.0002572779442938162,
+          "profile_value_p1": 0.0002572779442938162
+        }
+      },
+      "unstable_action_sets": 0
+    },
+    {
+      "average_policy": {
+        "best_response_contract": {
+          "0": {
+            "expected_information_sets": 31,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 31,
+            "unstable_action_sets": 0
+          },
+          "1": {
+            "expected_information_sets": 175,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 175,
+            "unstable_action_sets": 0
+          }
+        },
+        "best_response_integrity": true,
+        "best_response_value_p0": 0.0002724810496655852,
+        "best_response_value_p1": 0.0004943803381755032,
+        "deviation_incentive_p0": 0.0004193149868600051,
+        "deviation_incentive_p1": 0.0003475464009810833,
+        "exploitability": 0.0003834306939205442,
+        "nash_conv": 0.0007668613878410884,
+        "profile_value_p0": -0.0001468339371944199,
+        "profile_value_p1": 0.0001468339371944199
+      },
+      "cross_play": {
+        "corrected0_absolute_delta_from_exact_self": 0.00011851701119966425,
+        "corrected0_vs_exact1_value_p0": -0.0002729751795908609,
+        "corrected1_absolute_delta_from_exact_self": 0.00017644664235307733,
+        "exact0_vs_corrected1_value_p0": 2.1988473961880655e-05
+      },
+      "current_regret_matched_policy": {
+        "best_response_contract": {
+          "0": {
+            "expected_information_sets": 31,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 31,
+            "unstable_action_sets": 0
+          },
+          "1": {
+            "expected_information_sets": 175,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 175,
+            "unstable_action_sets": 0
+          }
+        },
+        "best_response_integrity": true,
+        "best_response_value_p0": 0.0,
+        "best_response_value_p1": -0.0,
+        "deviation_incentive_p0": 0.0,
+        "deviation_incentive_p1": 0.0,
+        "exploitability": 0.0,
+        "nash_conv": 0.0,
+        "profile_value_p0": 0.0,
+        "profile_value_p1": -0.0
+      },
+      "exact_information_set_coverage": 0.9902912621359223,
+      "illegal_actions": 0,
+      "information_sets": 204,
+      "missing_exact_substitution": {
+        "absolute_exploitability_change": 0.0,
+        "policy": {
+          "best_response_contract": {
+            "0": {
+              "expected_information_sets": 31,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 31,
+              "unstable_action_sets": 0
+            },
+            "1": {
+              "expected_information_sets": 175,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 175,
+              "unstable_action_sets": 0
+            }
+          },
+          "best_response_integrity": true,
+          "best_response_value_p0": 0.0002724810496655852,
+          "best_response_value_p1": 0.0004943803381755032,
+          "deviation_incentive_p0": 0.0004193149868600051,
+          "deviation_incentive_p1": 0.0003475464009810833,
+          "exploitability": 0.0003834306939205442,
+          "nash_conv": 0.0007668613878410884,
+          "profile_value_p0": -0.0001468339371944199,
+          "profile_value_p1": 0.0001468339371944199
+        }
+      },
+      "normalized_positive_regret": {
+        "0": 0.00016434654947520842,
+        "1": 8.34039086493125e-06
+      },
+      "observation_bands_over_exact_information_sets": {
+        "100_999": 0,
+        "10_99": 4,
+        "1_9": 97,
+        "at_least_1000": 89,
+        "missing_or_zero": 16
+      },
+      "payload_hash": "e841e437c954cc0011732580629e7e3691d9cb58508a2b0ff031391fa2c6a929",
+      "seed": 440047,
+      "sub100_exact_substitution": {
+        "absolute_exploitability_change": 1.5432700341711718e-05,
+        "policy": {
+          "best_response_contract": {
+            "0": {
+              "expected_information_sets": 31,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 31,
+              "unstable_action_sets": 0
+            },
+            "1": {
+              "expected_information_sets": 175,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 175,
+              "unstable_action_sets": 0
+            }
+          },
+          "best_response_integrity": true,
+          "best_response_value_p0": 0.0002724810496655852,
+          "best_response_value_p1": 0.0005252457388589267,
+          "deviation_incentive_p0": 0.00043088732544579447,
+          "deviation_incentive_p1": 0.0003668394630787174,
+          "exploitability": 0.00039886339426225593,
+          "nash_conv": 0.0007977267885245119,
+          "profile_value_p0": -0.00015840627578020928,
+          "profile_value_p1": 0.00015840627578020928
+        }
+      },
+      "unstable_action_sets": 0
+    },
+    {
+      "average_policy": {
+        "best_response_contract": {
+          "0": {
+            "expected_information_sets": 31,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 31,
+            "unstable_action_sets": 0
+          },
+          "1": {
+            "expected_information_sets": 175,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 175,
+            "unstable_action_sets": 0
+          }
+        },
+        "best_response_integrity": true,
+        "best_response_value_p0": 0.0002757031112527479,
+        "best_response_value_p1": 0.000665768569600766,
+        "deviation_incentive_p0": 0.0006181838545640695,
+        "deviation_incentive_p1": 0.00032328782628944443,
+        "exploitability": 0.00047073584042675695,
+        "nash_conv": 0.0009414716808535139,
+        "profile_value_p0": -0.0003424807433113216,
+        "profile_value_p1": 0.0003424807433113216
+      },
+      "cross_play": {
+        "corrected0_absolute_delta_from_exact_self": 0.00021050763434122426,
+        "corrected0_vs_exact1_value_p0": -0.0003649658027324209,
+        "corrected1_absolute_delta_from_exact_self": 0.00017849082667478972,
+        "exact0_vs_corrected1_value_p0": 2.4032658283593064e-05
+      },
+      "current_regret_matched_policy": {
+        "best_response_contract": {
+          "0": {
+            "expected_information_sets": 31,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 31,
+            "unstable_action_sets": 0
+          },
+          "1": {
+            "expected_information_sets": 175,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 175,
+            "unstable_action_sets": 0
+          }
+        },
+        "best_response_integrity": true,
+        "best_response_value_p0": 0.0,
+        "best_response_value_p1": -0.0,
+        "deviation_incentive_p0": 0.0,
+        "deviation_incentive_p1": 0.0,
+        "exploitability": 0.0,
+        "nash_conv": 0.0,
+        "profile_value_p0": 0.0,
+        "profile_value_p1": -0.0
+      },
+      "exact_information_set_coverage": 0.9757281553398058,
+      "illegal_actions": 0,
+      "information_sets": 201,
+      "missing_exact_substitution": {
+        "absolute_exploitability_change": 0.0,
+        "policy": {
+          "best_response_contract": {
+            "0": {
+              "expected_information_sets": 31,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 31,
+              "unstable_action_sets": 0
+            },
+            "1": {
+              "expected_information_sets": 175,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 175,
+              "unstable_action_sets": 0
+            }
+          },
+          "best_response_integrity": true,
+          "best_response_value_p0": 0.0002757031112527479,
+          "best_response_value_p1": 0.000665768569600766,
+          "deviation_incentive_p0": 0.0006181838545640695,
+          "deviation_incentive_p1": 0.00032328782628944443,
+          "exploitability": 0.00047073584042675695,
+          "nash_conv": 0.0009414716808535139,
+          "profile_value_p0": -0.0003424807433113216,
+          "profile_value_p1": 0.0003424807433113216
+        }
+      },
+      "normalized_positive_regret": {
+        "0": 0.00016067369687633305,
+        "1": 8.16324613345416e-06
+      },
+      "observation_bands_over_exact_information_sets": {
+        "100_999": 0,
+        "10_99": 14,
+        "1_9": 93,
+        "at_least_1000": 72,
+        "missing_or_zero": 27
+      },
+      "payload_hash": "60faf1b788ed49072e064e28beb9c8b87e2ed1b37c0d3a23e4773d471b26485f",
+      "seed": 440048,
+      "sub100_exact_substitution": {
+        "absolute_exploitability_change": 3.449718515572916e-05,
+        "policy": {
+          "best_response_contract": {
+            "0": {
+              "expected_information_sets": 31,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 31,
+              "unstable_action_sets": 0
+            },
+            "1": {
+              "expected_information_sets": 175,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 175,
+              "unstable_action_sets": 0
+            }
+          },
+          "best_response_integrity": true,
+          "best_response_value_p0": 0.0002757031112527479,
+          "best_response_value_p1": 0.0007347629399122245,
+          "deviation_incentive_p0": 0.0006701043102024398,
+          "deviation_incentive_p1": 0.0003403617409625325,
+          "exploitability": 0.0005052330255824861,
+          "nash_conv": 0.0010104660511649722,
+          "profile_value_p0": -0.00039440119894969196,
+          "profile_value_p1": 0.00039440119894969196
+        }
+      },
+      "unstable_action_sets": 0
+    },
+    {
+      "average_policy": {
+        "best_response_contract": {
+          "0": {
+            "expected_information_sets": 31,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 31,
+            "unstable_action_sets": 0
+          },
+          "1": {
+            "expected_information_sets": 175,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 175,
+            "unstable_action_sets": 0
+          }
+        },
+        "best_response_integrity": true,
+        "best_response_value_p0": 0.0003212057438194894,
+        "best_response_value_p1": 0.00035125569145388495,
+        "deviation_incentive_p0": 0.0002861069454148944,
+        "deviation_incentive_p1": 0.00038635448985848,
+        "exploitability": 0.0003362307176366872,
+        "nash_conv": 0.0006724614352733744,
+        "profile_value_p0": 3.509879840459504e-05,
+        "profile_value_p1": -3.509879840459504e-05
+      },
+      "cross_play": {
+        "corrected0_absolute_delta_from_exact_self": 1.1120498838472904e-05,
+        "corrected0_vs_exact1_value_p0": -0.00016557866722966957,
+        "corrected1_absolute_delta_from_exact_self": 0.00018393470933837053,
+        "exact0_vs_corrected1_value_p0": 2.947654094717387e-05
+      },
+      "current_regret_matched_policy": {
+        "best_response_contract": {
+          "0": {
+            "expected_information_sets": 31,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 31,
+            "unstable_action_sets": 0
+          },
+          "1": {
+            "expected_information_sets": 175,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 175,
+            "unstable_action_sets": 0
+          }
+        },
+        "best_response_integrity": true,
+        "best_response_value_p0": 0.0,
+        "best_response_value_p1": -0.0,
+        "deviation_incentive_p0": 0.0,
+        "deviation_incentive_p1": 0.0,
+        "exploitability": 0.0,
+        "nash_conv": 0.0,
+        "profile_value_p0": 0.0,
+        "profile_value_p1": -0.0
+      },
+      "exact_information_set_coverage": 0.970873786407767,
+      "illegal_actions": 0,
+      "information_sets": 200,
+      "missing_exact_substitution": {
+        "absolute_exploitability_change": 0.0,
+        "policy": {
+          "best_response_contract": {
+            "0": {
+              "expected_information_sets": 31,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 31,
+              "unstable_action_sets": 0
+            },
+            "1": {
+              "expected_information_sets": 175,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 175,
+              "unstable_action_sets": 0
+            }
+          },
+          "best_response_integrity": true,
+          "best_response_value_p0": 0.0003212057438194894,
+          "best_response_value_p1": 0.00035125569145388495,
+          "deviation_incentive_p0": 0.00028610704279891135,
+          "deviation_incentive_p1": 0.000386354392474463,
+          "exploitability": 0.0003362307176366872,
+          "nash_conv": 0.0006724614352733744,
+          "profile_value_p0": 3.5098701020578096e-05,
+          "profile_value_p1": -3.5098701020578096e-05
+        }
+      },
+      "normalized_positive_regret": {
+        "0": 0.0001038055854574964,
+        "1": 8.015894200719606e-06
+      },
+      "observation_bands_over_exact_information_sets": {
+        "100_999": 0,
+        "10_99": 2,
+        "1_9": 116,
+        "at_least_1000": 67,
+        "missing_or_zero": 21
+      },
+      "payload_hash": "59b12e54d2929819b868f9f1e146aa6788a1d2b265875121479de866b60cf658",
+      "seed": 440049,
+      "sub100_exact_substitution": {
+        "absolute_exploitability_change": 2.1409547950060554e-06,
+        "policy": {
+          "best_response_contract": {
+            "0": {
+              "expected_information_sets": 31,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 31,
+              "unstable_action_sets": 0
+            },
+            "1": {
+              "expected_information_sets": 175,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 175,
+              "unstable_action_sets": 0
+            }
+          },
+          "best_response_integrity": true,
+          "best_response_value_p0": 0.0003212057438194894,
+          "best_response_value_p1": 0.00035553760104389706,
+          "deviation_incentive_p0": 0.00031502895558667193,
+          "deviation_incentive_p1": 0.00036171438927671455,
+          "exploitability": 0.00033837167243169324,
+          "nash_conv": 0.0006767433448633865,
+          "profile_value_p0": 6.176788232817503e-06,
+          "profile_value_p1": -6.176788232817503e-06
+        }
+      },
+      "unstable_action_sets": 0
+    },
+    {
+      "average_policy": {
+        "best_response_contract": {
+          "0": {
+            "expected_information_sets": 31,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 31,
+            "unstable_action_sets": 0
+          },
+          "1": {
+            "expected_information_sets": 175,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 175,
+            "unstable_action_sets": 0
+          }
+        },
+        "best_response_integrity": true,
+        "best_response_value_p0": 0.00021978702926809217,
+        "best_response_value_p1": 0.0005825365952296277,
+        "deviation_incentive_p0": 0.0005601114652602639,
+        "deviation_incentive_p1": 0.00024221215923745596,
+        "exploitability": 0.0004011618122488599,
+        "nash_conv": 0.0008023236244977198,
+        "profile_value_p0": -0.0003403244359921717,
+        "profile_value_p1": 0.0003403244359921717
+      },
+      "cross_play": {
+        "corrected0_absolute_delta_from_exact_self": 0.00028299981262854343,
+        "corrected0_vs_exact1_value_p0": -0.0004374579810197401,
+        "corrected1_absolute_delta_from_exact_self": 0.00011257854831828237,
+        "exact0_vs_corrected1_value_p0": -4.187962007291429e-05
+      },
+      "current_regret_matched_policy": {
+        "best_response_contract": {
+          "0": {
+            "expected_information_sets": 31,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 31,
+            "unstable_action_sets": 0
+          },
+          "1": {
+            "expected_information_sets": 175,
+            "legal": true,
+            "missing_selections": 0,
+            "selected_information_sets": 175,
+            "unstable_action_sets": 0
+          }
+        },
+        "best_response_integrity": true,
+        "best_response_value_p0": 0.0,
+        "best_response_value_p1": -0.0,
+        "deviation_incentive_p0": 0.0,
+        "deviation_incentive_p1": 0.0,
+        "exploitability": 0.0,
+        "nash_conv": 0.0,
+        "profile_value_p0": 0.0,
+        "profile_value_p1": -0.0
+      },
+      "exact_information_set_coverage": 0.9563106796116505,
+      "illegal_actions": 0,
+      "information_sets": 197,
+      "missing_exact_substitution": {
+        "absolute_exploitability_change": 0.0,
+        "policy": {
+          "best_response_contract": {
+            "0": {
+              "expected_information_sets": 31,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 31,
+              "unstable_action_sets": 0
+            },
+            "1": {
+              "expected_information_sets": 175,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 175,
+              "unstable_action_sets": 0
+            }
+          },
+          "best_response_integrity": true,
+          "best_response_value_p0": 0.00021978702926809217,
+          "best_response_value_p1": 0.0005825365952296277,
+          "deviation_incentive_p0": 0.0005601114652602639,
+          "deviation_incentive_p1": 0.00024221215923745596,
+          "exploitability": 0.0004011618122488599,
+          "nash_conv": 0.0008023236244977198,
+          "profile_value_p0": -0.0003403244359921717,
+          "profile_value_p1": 0.0003403244359921717
+        }
+      },
+      "normalized_positive_regret": {
+        "0": 0.00014751753979408612,
+        "1": 8.364647642523347e-06
+      },
+      "observation_bands_over_exact_information_sets": {
+        "100_999": 0,
+        "10_99": 13,
+        "1_9": 89,
+        "at_least_1000": 77,
+        "missing_or_zero": 27
+      },
+      "payload_hash": "288d63f1c1167f7c7f6af05ea6a0883631bcc61c8962565fed4a27cfe8f7997c",
+      "seed": 440050,
+      "sub100_exact_substitution": {
+        "absolute_exploitability_change": 3.554668346360403e-05,
+        "policy": {
+          "best_response_contract": {
+            "0": {
+              "expected_information_sets": 31,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 31,
+              "unstable_action_sets": 0
+            },
+            "1": {
+              "expected_information_sets": 175,
+              "legal": true,
+              "missing_selections": 0,
+              "selected_information_sets": 175,
+              "unstable_action_sets": 0
+            }
+          },
+          "best_response_integrity": true,
+          "best_response_value_p0": 0.00021978702926809217,
+          "best_response_value_p1": 0.0006536299621568357,
+          "deviation_incentive_p0": 0.0005766042393060807,
+          "deviation_incentive_p1": 0.00029681275211884716,
+          "exploitability": 0.0004367084957124639,
+          "nash_conv": 0.0008734169914249278,
+          "profile_value_p0": -0.00035681721003798857,
+          "profile_value_p1": 0.00035681721003798857
+        }
+      },
+      "unstable_action_sets": 0
+    }
+  ]
+}
