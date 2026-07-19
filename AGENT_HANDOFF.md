@@ -1,5 +1,64 @@
 # Agent Handoff
 
+## 2026-07-19: Outcome sampling is correct but terminal weights are unusable
+
+Experiment `048` tested the non-enumerating alternative required after `047`.
+Protocol commit `d127a4c` froze the standard single-trajectory counterfactual
+weight, 0.1 full-support behavior mixture, reduced exact checks, an explicit
+finite learning-game contract, 256 fresh full-game trajectories, and strict
+variance/ESS gates. Implementation commit `d34ef24` preceded evidence, and all
+434 tests passed. The first evidence invocation was killed by the shell's
+four-minute process limit before producing a result; the identical job restarted
+from zero under a longer allowance and completed normally.
+
+Estimator correctness passed decisively. Fixed-uniform estimates from 200,000
+samples per traverser covered every eligible exact information set. Mean
+absolute regret-component errors were 0.001851 and 0.000709, maximum errors
+0.012526 and 0.004920, and earliest-information-set maximum errors 0.003568 and
+0.002707. All were well inside the preregistered 0.010/0.050/0.010 limits.
+
+Adaptive reduced-game MCCFR also passed. Three 100,000-iteration seeds reached
+98.54%, 99.51%, and 98.54% exact-information-set coverage, with zero illegal or
+unstable action sets and normalized positive regrets at most 0.00828. Every
+current regret-matched profile had exact exploitability zero; seed 480046
+repeated byte-identically. This establishes that the outcome-sampling math is
+correct on a tractable game, while retaining the protocol's warning that the
+current policy is not a deployment-average strategy.
+
+The finite full-game contract was not the blocker. All 256 fresh trajectories
+at seeds 480000--480255 ended through ordinary engine completion; there were no
+forced deadlocks, repetition/no-progress/turn adjudications, illegal actions,
+or nonfinite targets. They produced 7,915 rows (2,560 early, 3,840 mid, 1,515
+late) with legal-action counts 1--470. Privacy, checkpoint identity, semantic
+alignment, the repeated first 16 trajectories, and the repeated capacity-512
+reservoir all passed. The reservoir serialized to 9,697,929 bytes.
+
+The formal experiment fails only the full-game variance gate, but by enormous
+margins. Overall ESS ratio was 0.00016263; phase ratios ranged from 0.000850 to
+0.001575, all far below 0.01. P99 absolute importance weight was 2.92e22 versus
+the 1e6 cap. Maximum log weight was 72.124, corresponding to roughly 2.1e31,
+versus the `log(1e12)` limit 27.631. Split-half median and p95 log-weight deltas
+were 1.017 and 2.598, also above their 1.0/2.0 bounds. The unbiased estimator is
+thus dominated by extremely rare trajectories; a larger corpus or GPU does not
+solve the exponential-horizon variance, and clipping would silently bias CFR.
+
+Do not train on the stored schema/advantage reservoir, tune exploration, add
+samples, or rent a GPU. Together, `047` and `048` close both terminal full-game
+extremes: enumerating traverser actions explodes computationally, while sampling
+one terminal path explodes statistically. The next justified CFR experiment is
+a bounded public-belief subgame/continual-resolving target diagnostic. It must
+freeze a short resolving horizon, opponent range/belief semantics, and an
+information-legal leaf payoff before implementation; validate the leaf contract
+independently and compare local regret targets against exact reduced-game and
+matched continuation references. Do not reuse the failed learned value as an
+unverified leaf oracle. Only stable local targets could authorize neural fitting.
+Raw legal `035` remains champion, and BGA remains a separate future option.
+
+Evidence is under `outputs/outcome_sampling_cfr_feasibility_048`. Result SHA-256
+is `69c4a976fa121178269a31145c3aa645a7696177155bbab57ec02e35ddf478ff`;
+advantage-reservoir SHA-256 is
+`52893897cdcdde4f80ddd82201e1ff7fed4a28ade81f164e7225664f865c3277`.
+
 ## 2026-07-19: Full-game terminal external Deep CFR is computationally mismatched
 
 Experiment `047` tested the CPU prerequisite authorized by corrected CFR

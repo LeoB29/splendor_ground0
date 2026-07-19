@@ -2,24 +2,41 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
-## 2026-07-19 Outcome-Sampling CFR Feasibility Gate Pending
+## 2026-07-19 Outcome-Sampling CFR Feasibility Result
 
-- `048` is frozen in
-  `docs/experiments/outcome_sampling_cfr_feasibility_048.md` as the CPU-only
-  successor to `047`. It performs no neural training, gameplay, promotion, or
-  GPU work.
-- First validate the unclipped log-space outcome-sampling regret estimator
-  against exact counterfactual increments and exploitability on reduced
-  Splendor. Then collect 256 full-game single trajectories under frozen `023`
-  softmax targets and a 0.1 full-support uniform behavior mixture.
-- The full-game object is explicitly finite: native completion and forced
-  deadlock remain natural terminals, while fourth repetition, 60 non-progress
-  actions, and turn 200 become separately labelled score/card-count learning-
-  game adjudications. Natural terminals must remain at least 95%.
-- Neural fitting requires every reduced correctness and full-game variance gate,
-  including at least 2,048 rows, overall/per-phase ESS ratio at least 0.01,
-  bounded tail weights, split-half stability, exact reproducibility, privacy,
-  and bounded reservoir memory. Do not clip a failed estimator or rent a GPU.
+- `048` implemented an unclipped log-space outcome-sampling regret estimator,
+  an explicitly finite full-game learning contract, and deterministic bounded
+  advantage memory. Protocol/implementation checkpoints are `d127a4c` and
+  `d34ef24`; all 434 tests passed before evidence.
+- The estimator is correct on reduced Splendor. Both 200,000-sample fixed-
+  uniform audits covered 100% of eligible information sets; mean component
+  errors were `0.001851/0.000709`, maxima `0.012526/0.004920`, and earliest-
+  information-set maxima `0.003568/0.002707`, all below frozen bounds.
+- All three adaptive 100,000-iteration runs passed with `98.54--99.51%` exact
+  information-set coverage, zero illegal/unstable sets, low normalized regret,
+  and exactly zero current-profile exploitability. Seed `480046` repeated byte-
+  identically. This validates the estimator math, not a deployable current
+  policy.
+- Full-game integrity also passed. All 256 fresh trajectories ended through
+  ordinary completion—zero altered-game adjudications—and emitted 7,915 finite
+  aligned rows: 2,560 early, 3,840 mid, 1,515 late, with 1--470 legal actions.
+  Privacy, exact checkpoint hash, first-16 replay, capacity-512 reservoir repeat,
+  and 9.70 MiB serialization all passed.
+- The sole failed gate was decisive importance-weight variance. Overall ESS
+  ratio was `0.00016263` versus `0.01`; early/mid/late ratios were
+  `0.001575/0.001380/0.000850`. P99 absolute weight was `2.92e22` versus `1e6`,
+  maximum log weight `72.124` versus `log(1e12)=27.631`, and both split-half
+  tail-stability limits narrowly failed. Correct full-game outcome sampling is
+  therefore statistically unusable without forbidden clipping/bias.
+- Do not add samples, rent a GPU, train on the reservoir, or tune exploration
+  after this result. `047` ruled out full terminal external enumeration; `048`
+  rules out single-trajectory terminal importance weighting. The next CFR
+  branch must be separately preregistered bounded subgame/continual resolving
+  with an independently validated, information-legal leaf contract. Start with
+  a CPU target-quality diagnostic, not neural fitting or gameplay. Raw legal
+  `035` remains champion; BGA remains unused.
+- Evidence is in `outputs/outcome_sampling_cfr_feasibility_048`; result SHA-256
+  is `69c4a976fa121178269a31145c3aa645a7696177155bbab57ec02e35ddf478ff`.
 
 ## 2026-07-19 Full-Game Deep CFR CPU Feasibility Result
 
