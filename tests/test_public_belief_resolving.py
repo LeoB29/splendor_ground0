@@ -12,6 +12,13 @@ from splendor_ai.cfr import (
 from splendor_ai.diagnostics import state_signature
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.eval.run_bounded_public_belief_resolving import assigned_stratum
+from splendor_ai.eval.run_bounded_public_belief_resolving_replication import (
+    GATE_THRESHOLDS,
+    SOURCE_BANDS,
+    ReplicationConfig,
+    _frozen_resolver_contract_matches_049,
+    _source_collection_gate,
+)
 
 
 def test_resolver_shares_opponent_response_across_indistinguishable_histories() -> None:
@@ -68,3 +75,55 @@ def test_source_assignment_is_exactly_balanced_before_collection() -> None:
 
     assert len(counts) == 6
     assert set(counts.values()) == {32}
+
+
+def test_replication_source_bands_are_disjoint_and_preregistered() -> None:
+    seeds = [set(range(start, end + 1)) for start, end in SOURCE_BANDS.values()]
+
+    assert len(SOURCE_BANDS) == 6
+    assert all(len(band) == 1_000 for band in seeds)
+    assert all(not left.intersection(right) for index, left in enumerate(seeds) for right in seeds[index + 1 :])
+    assert min(set.union(*seeds)) == 491_000
+    assert max(set.union(*seeds)) == 496_999
+
+
+def test_replication_freezes_049_resolver_and_leaf_contract() -> None:
+    cfg = ReplicationConfig()
+
+    assert _frozen_resolver_contract_matches_049(cfg)
+    assert cfg.continuation_seed_start == 52_000_000
+    assert GATE_THRESHOLDS == {
+        "max_loop_adjudication_fraction": 0.001,
+        "min_leaf_pearson": 0.60,
+        "max_leaf_mae": 0.10,
+        "min_leaf_sign_agreement": 0.70,
+        "min_action_value_pearson": 0.60,
+        "min_best_action_agreement": 0.60,
+        "min_effect_sign_eligible": 24,
+        "min_effect_sign_agreement": 0.70,
+        "min_changed_roots": 8,
+        "min_resolved_fraction": 0.25,
+        "min_stratum_changed": 1,
+        "min_stratum_mean_gain": -0.025,
+    }
+
+
+def test_replication_source_gate_accepts_recorded_skips_but_not_missing_admissions() -> None:
+    cfg = ReplicationConfig()
+    keys = [f"seat{seat}_{phase}" for seat in (0, 1) for phase in ("early", "mid", "late")]
+    source = {
+        "collection_complete": True,
+        "admitted_games": 192,
+        "invalid_admitted_games": 0,
+        "admitted_stratum_counts": {key: 32 for key in keys},
+        "invalid_attempted_games": 2,
+    }
+    selection = {
+        "selected_count": 48,
+        "unique_source_games": 48,
+        "stratum_counts": {key: 8 for key in keys},
+    }
+
+    assert _source_collection_gate(cfg, source, selection)
+    source["admitted_stratum_counts"]["seat1_late"] = 31
+    assert not _source_collection_gate(cfg, source, selection)
