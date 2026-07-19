@@ -1,5 +1,57 @@
 # Agent Handoff
 
+## 2026-07-19: Bounded resolver targets pass, but source contract formally fails
+
+Experiment `049` tested the bounded-subgame branch required after terminal
+external and outcome sampling failed. Protocol commit `4eb9287` froze 192 fresh
+outcome-blind `035` mirror games, 48 exactly seat/phase-balanced uncertain roots,
+three observer-legal determinizations, top-four root actions, top-four opponent
+responses shared across opponent information sets, and eight matched terminal
+continuations split 4/4 into discovery and untouched evaluation. Implementation
+commit `89fe06e` preceded evidence; all 438 tests passed.
+
+The formal result is a fail for one literal source condition. All 192 games
+completed normally, with no cutoff or deadlock. Seed 490083 was assigned seat 1
+and late phase (`50+`) but completed at turn 50 after seat 0's action, so seat 1
+never supplied a late candidate. The preregistration required every assigned
+game to contain its phase. The selection still found 48 unique structurally
+valid roots with exact eight-per-seat/phase balance, using the remaining 31
+candidates in that cell, but this cannot retroactively repair the frozen gate.
+
+All information and continuation integrity passed. Hidden-deck permutation did
+not change the sampled range, root actions mapped across determinizations, and
+opponent response sets were stable whenever information-set keys merged. All
+18,432 terminal continuations resolved naturally with zero fallback actions,
+loop adjudications, hard caps, or illegal actions. Repeating the first eight
+roots produced byte-identical results.
+
+More importantly, every preregistered target-quality gate passed. Across 2,304
+leaves, discovery/evaluation payoff correlation was 0.94004 and MAE 0.06688;
+sign agreement was 93.88% over 2,123 eligible leaves. The 192 root/action values
+correlated at 0.97486, and discovery/evaluation best actions agreed on 75% of
+roots. The resolver changed 38/48 parent choices, effect signs agreed on 32/35
+eligible roots (91.43%), and 32/48 roots met the resolved definition.
+
+Evaluated only in the untouched half, the discovery-selected action improved
+the adversarially resolved value over raw `035` by +0.07769 normalized score
+margin on average, with game-cluster CI95 [+0.05104,+0.10408]. Both seats and
+all phases were positive: early +0.08620, mid +0.10078, late +0.04609; seat 0
++0.08576 and seat 1 +0.06962. Thus `049` supplies strong positive evidence for
+the local resolver contract, unlike the full-game terminal CFR estimators.
+
+Do not call `049` passed or run gameplay from it. The justified next step is a
+separately frozen `049b` replication, not parameter tuning: allocate fresh seed
+bands by seat/phase and continue each band until exactly 32 candidate-bearing
+clean games are collected, then select 48 entirely fresh roots and use a new
+continuation namespace. Freeze determinizations, top-four widths, 4/4 leaf
+halves, continuation policy, solver, and every `049` target threshold. A full
+replication pass may authorize a fresh paired resolver-vs-`035` gameplay gate;
+that gameplay proof must precede distillation. CPU remains appropriate, no GPU
+is authorized, and raw legal `035` remains champion.
+
+Evidence is under `outputs/bounded_public_belief_resolving_049`; result SHA-256
+is `e7b4742bf04b4f1e0448610847494b41c6558fd2d8aa832e088edf2b14c47cbf`.
+
 ## 2026-07-19: Outcome sampling is correct but terminal weights are unusable
 
 Experiment `048` tested the non-enumerating alternative required after `047`.

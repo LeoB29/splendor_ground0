@@ -2,25 +2,40 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
-## 2026-07-19 Bounded Public-Belief Resolving Diagnostic Pending
+## 2026-07-19 Bounded Public-Belief Resolving Diagnostic Result
 
-- `049` is frozen in
-  `docs/experiments/bounded_public_belief_resolving_049.md`. It is CPU-only and
-  cannot train, play strength games, promote, or authorize GPU use.
-- Generate 192 fresh outcome-blind `035` mirror games and select 48 uncertain
-  roots with exact actor-seat/phase balance. At each root solve a fixed two-ply
-  Bayesian subgame over three information-legal determinizations, four root
-  actions, and four opponent responses constrained by opponent information-set
-  identity.
-- Leaf payoffs use eight matched loop-safe terminal continuations split 4/4
-  into discovery and untouched evaluation. This differs from `005`: it tests
-  whether opponent-response resolving, not a direct top-two rollout switch,
-  yields stable four-action regret targets.
-- Every belief/privacy, 18,432-continuation integrity, split-leaf consistency,
-  root ordering, action agreement, resolved frequency, untouched gain, and
-  seat/phase breadth gate must pass. A pass authorizes only a fresh resolver
-  gameplay gate; teacher distillation still requires the resolver to beat
-  `035`. Raw legal `035` remains champion.
+- `049` implemented the fixed two-ply Bayesian resolver over three legal
+  determinizations, four root actions, and information-set-consistent top-four
+  opponent responses. Protocol/implementation checkpoints are `4eb9287` and
+  `89fe06e`; all 438 tests passed before evidence.
+- All 192 fresh `035` mirror games completed normally. One clean game, seed
+  `490083`, ended at turn 50 before assigned seat 1 acted in the frozen late
+  (`50+`) phase. It therefore lacked an assigned-phase candidate and failed the
+  literal source gate requiring all 192 games to contain one. The outcome-blind
+  selector still had enough alternatives and produced 48 unique roots with
+  exact eight-state balance in all six seat/phase cells, but `049` cannot be
+  retroactively passed.
+- Every substantive resolver gate passed. All 18,432 branches resolved naturally
+  with zero fallback, adjudication, hard cap, or illegal action. Privacy,
+  hidden-order invariance, opponent information-set action stability, and the
+  repeated first eight roots passed.
+- Discovery/evaluation leaf correlation was `0.9400`, MAE `0.06688`, and sign
+  agreement `93.88%` over 2,123 eligible leaves. Four-action resolved-value
+  correlation was `0.97486`; best-action agreement was `75%`.
+- The resolver changed 38/48 roots. Effect sign agreement was `91.43%` over 35
+  eligible roots, with 32/48 resolved. Untouched mean discovery-selected gain
+  over raw `035` was `+0.07769` normalized margin, CI95
+  `[+0.05104,+0.10408]`. Every seat and phase was positive; all target-quality
+  gates passed with room.
+- Formal decision: no gameplay or training from `049`. This is an operational
+  source-contract failure, not negative resolver evidence. Next preregister one
+  fresh `049b` replication with eligibility-safe preallocated seed bands that
+  collect exactly 32 candidate-bearing games per seat/phase cell, new 48 roots,
+  and a new continuation namespace while freezing every resolver/leaf parameter
+  and all target thresholds. A complete replication pass may authorize the
+  resolver gameplay gate. No GPU is needed; raw legal `035` remains champion.
+- Evidence is in `outputs/bounded_public_belief_resolving_049`; result SHA-256
+  is `e7b4742bf04b4f1e0448610847494b41c6558fd2d8aa832e088edf2b14c47cbf`.
 
 ## 2026-07-19 Outcome-Sampling CFR Feasibility Result
 
