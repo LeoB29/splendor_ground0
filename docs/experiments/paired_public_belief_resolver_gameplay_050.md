@@ -110,3 +110,27 @@ Any direct strength failure rejects deployment at this frozen budget; do not
 add games, tune widths, route selectively, deepen search, or reuse outcomes.
 Operational integrity failure may be diagnosed, but cannot be called a strength
 pass. Raw legal `035` remains champion throughout `050`. No GPU is authorized.
+
+## Result (2026-07-21)
+
+Pass every preregistered gate. Protocol commit `a3e2aee` and implementation
+commit `0588f4e` preceded all evidence; the full suite passed 446/446.
+
+The smoke passed with four clean games and a byte-identical from-zero repeat.
+The direct block then completed all 100 paired seeds / 200 games through
+ordinary `completed`, with zero invalid termination, timeout, stall, hard cap,
+or model loop fallback. All 1,098,240 continuation branches resolved. Six
+branches used frozen loop-safe adjudication, a fraction of 0.000546%, well below
+the 0.1% limit.
+
+Resolver `035` went 138-62-0 against raw `035`: 69.0% score share, paired
+bootstrap CI95 [62.5%,75.0%], and mean final-score margin +3.595 with CI95
+[+2.70,+4.48]. Score share was 73% from seat 0 and 65% from seat 1. The
+resolver completed 5,720 searches, switched 3,868 actions, and was active in
+every phase. All frozen gates passed.
+
+Decision: authorize only a separately preregistered broad resolver confirmation.
+No training, self-play, distillation, promotion, or GPU rental is authorized by
+`050` alone. Evidence is under
+`outputs/paired_public_belief_resolver_gameplay_050`; `result.json` SHA-256 is
+`68060ffc5270b320a185f618c016f76892ae4dbc972623cd70be34cc63dff195`.

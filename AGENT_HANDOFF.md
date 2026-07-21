@@ -1,5 +1,48 @@
 # Agent Handoff
 
+## 2026-07-21: Public-belief resolver decisively beats raw 035
+
+Experiment `050` was preregistered at `a3e2aee` and implemented at `0588f4e`.
+It deployed the exact discovery half validated in `049b`: three
+observer-relative determinizations, top-four canonical root actions, top-four
+information-set-consistent opponent responses, and four matched stochastic
+terminal continuations per leaf. The resolver was attempted on every candidate
+turn and used only frozen structural fallbacks. The full pre-evidence suite
+passed 446/446.
+
+The deterministic smoke passed, including four clean games, byte-identical
+from-zero replay, exact branch accounting, and zero hard caps or loop
+adjudications. The fresh direct block then ran 100 paired seeds
+`500100--500199`, with resolver `035` playing each seed from both seats against
+a newly constructed raw legal `035`.
+
+All 200 games completed ordinarily. There were zero invalid terminations,
+timeouts, stalls, hard caps, or model loop fallbacks. The resolver completed
+5,720 searches from 6,190 decisions, used exactly 1,098,240 continuation
+branches, resolved every branch, and switched 3,868 actions. Only six
+continuations required the frozen loop-safe adjudication (`0.000546%`, versus
+the `0.1%` maximum). Search and action switching occurred in early, mid, and
+late phases.
+
+The strength result was decisive: resolver `035` went 138-62-0 against raw
+`035`, for 69.0% paired score share with bootstrap CI95 [62.5%,75.0%]. Mean
+final-score margin was +3.595, CI95 [+2.70,+4.48]. Candidate score share was
+73% from seat 0 and 65% from seat 1. Every preregistered gate passed.
+
+This authorizes only a separately preregistered broad strong-opponent
+confirmation. Use fresh paired blocks against gate-`030` information-legal
+shallow search, historical legal scorer `016`, and loop-safe canonical entity
+policy `023`; freeze each opponent/checkpoint hash, resolver contract, random
+namespaces, integrity rules, and independent strength thresholds before any
+game. Do not train, distill, generate search self-play, or rent a GPU yet. Raw
+`035` remains the checkpoint champion until broad confirmation passes.
+
+Evidence is under `outputs/paired_public_belief_resolver_gameplay_050`.
+`result.json` SHA-256 is
+`68060ffc5270b320a185f618c016f76892ae4dbc972623cd70be34cc63dff195`, and
+`direct_vs_035.json` SHA-256 is
+`46e141fb8f146842b28ccda3c409ae18209e84f5eca86c5c4083e0a5f919dcd2`.
+
 ## 2026-07-20: Eligibility-safe resolver replication passes every gate
 
 Experiment `049b` was preregistered at `688d1a0` and implemented at `c0c39ce`.

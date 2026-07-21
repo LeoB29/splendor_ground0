@@ -2,6 +2,34 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-21 Paired Public-Belief Resolver Gameplay Pass
+
+- `050` deployed the exact `049b` discovery resolver on every structurally
+  eligible candidate turn against a fresh raw legal `035`, with paired seats
+  over seeds `500100--500199`. Protocol and implementation commits are
+  `a3e2aee` and `0588f4e`; the full suite passed `446/446` before evidence.
+- All 200 games completed ordinarily with zero invalid termination, timeout,
+  stall, hard cap, or model loop fallback. All `1,098,240` continuation
+  branches resolved; six loop-safe continuation adjudications were only
+  `0.000546%`, well below the frozen `0.1%` ceiling.
+- The resolver completed 5,720/6,190 attempted decision searches and changed
+  raw `035`'s action 3,868 times. It searched and switched in every phase;
+  the 470 structural fallbacks used only preregistered legal reasons.
+- Resolver `035` beat raw `035` by `138-62-0`: paired score share `69.0%`,
+  bootstrap CI95 `[62.5%,75.0%]`, and mean final-score margin `+3.595`, CI95
+  `[+2.70,+4.48]`. Seat shares were `73%` and `65%`. Every integrity,
+  activity, strength, confidence, margin, and seat gate passed.
+- Formal decision: authorize a separately preregistered broad confirmation
+  against fresh gate-`030` information-legal shallow search, historical legal
+  scorer `016`, and loop-safe canonical policy `023`. Do not train, distill,
+  generate self-play, or rent a GPU before that broad gate. Raw `035` remains
+  the checkpoint champion until the broad confirmation passes.
+- Evidence is in `outputs/paired_public_belief_resolver_gameplay_050`.
+  `result.json` SHA-256 is
+  `68060ffc5270b320a185f618c016f76892ae4dbc972623cd70be34cc63dff195`;
+  `direct_vs_035.json` SHA-256 is
+  `46e141fb8f146842b28ccda3c409ae18209e84f5eca86c5c4083e0a5f919dcd2`.
+
 ## 2026-07-20 Eligibility-Safe Bounded Resolver Replication Pass
 
 - `049b` prospectively repaired only `049`'s source contract. Protocol and
