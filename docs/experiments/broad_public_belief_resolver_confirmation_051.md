@@ -124,3 +124,31 @@ Any substantive failure rejects broad deployment of this exact resolver at its
 frozen budget. Do not add games, tune an opponent-specific route, alter widths,
 or pool opponents after seeing results. Raw legal `035` remains champion
 throughout `051`.
+
+## Result (2026-07-21)
+
+Pass every preregistered gate. Protocol commit `e687649`, prospective
+one-character 023-hash correction `7f1e70b`, and implementation commit
+`7f26e54` all preceded evidence. The full suite passed 450/450 before launch.
+
+All three 50-pair blocks completed before strength was summarized. Results were:
+
+- shallow: 74-25-1, 74.5% score share, CI95 [67.0%,82.0%], mean paired margin
+  +4.39, CI95 [+3.50,+5.27], seat shares 76%/73%;
+- `016`: 74-25-1, 74.5% share, CI95 [65.5%,83.0%], margin +4.06, CI95
+  [+2.82,+5.28], seat shares 74%/75%;
+- `023`: 79-21-0, 79.0% share, CI95 [70.0%,87.0%], margin +4.46, CI95
+  [+3.33,+5.53], seat shares 84%/74%.
+
+All 300 games completed ordinarily with zero invalid termination, timeout,
+stall, or hard cap. All 1,655,616 continuation branches resolved with exact
+192-branch accounting. There were 26 frozen loop-safe adjudications
+(`0.00157%`), far below the 0.1% maximum. The resolver completed 8,623 searches,
+switched 5,927 actions, and searched and switched in every phase of every block.
+
+Decision: authorize only a separately preregistered resolver-every-move
+teacher-corpus and distillation experiment. No training, corpus generation,
+checkpoint promotion, or GPU rental is authorized by `051` itself. Evidence is
+under `outputs/broad_public_belief_resolver_confirmation_051`; `result.json`
+SHA-256 is
+`1a731e5edf3c63cffb2b46d8adaebba9fc50b81e490367bb0c8448ef6a885ed4`.

@@ -1,5 +1,56 @@
 # Agent Handoff
 
+## 2026-07-21: Resolver passes broad confirmation decisively
+
+Experiment `051` was preregistered at `e687649`. Validation prospectively
+caught and corrected one missing character in the written 023 checkpoint hash
+at `7f1e70b`, before any game; the artifact and every substantive contract were
+unchanged. Implementation commit `7f26e54` preceded evidence, and the full
+suite passed 450/450 with `PYTHONPATH=src` exported.
+
+The experiment ran all three outcome-blinded 50-pair / 100-game blocks before
+computing strength. It kept the exact `050` resolver, branch width, belief and
+continuation namespaces, stochastic leaf, structural fallbacks, and 192-branch
+budget. Opponents were frozen gate-`030` information-legal shallow search,
+historical legal scorer `016`, and loop-safe canonical entity policy `023`.
+
+All three blocks passed every gate with substantial room:
+
+- shallow: 74-25-1, 74.5% score share, CI95 [67.0%,82.0%], mean paired margin
+  +4.39 with CI95 [+3.50,+5.27], and seat shares 76%/73%;
+- `016`: 74-25-1, 74.5% share, CI95 [65.5%,83.0%], margin +4.06 with CI95
+  [+2.82,+5.28], and seat shares 74%/75%;
+- `023`: 79-21-0, 79.0% share, CI95 [70.0%,87.0%], margin +4.46 with CI95
+  [+3.33,+5.53], and seat shares 84%/74%.
+
+All 300 games ended through ordinary completion. There were zero invalid
+terminations, timeouts, stalls, or hard caps. Across 8,623 completed searches,
+all 1,655,616 continuations resolved with exact 192-branch accounting. Only 26
+continuations used frozen loop-safe adjudication (`0.00157%`, far below 0.1%).
+The resolver switched 5,927 actions and was active in every phase of every
+opponent block. Every integrity, activity, strength, confidence, margin, and
+seat gate passed.
+
+The public-belief resolver is therefore a broad stronger full-game teacher,
+not a raw-035 mirror specialist. The authorized next step is only a separately
+preregistered resolver-every-move teacher-corpus and distillation experiment.
+Before collection, freeze complete root action/value target serialization for
+both wins and losses, synchronous collection/training rounds, checkpoint and
+seed lineage, student initialization, offline gates, and fresh paired promotion
+against raw `035`. Do not treat `051` as direct permission to train, generate a
+corpus, promote a checkpoint, or rent a GPU. Raw `035` remains the neural
+checkpoint champion until a distilled student passes promotion.
+
+Evidence is under `outputs/broad_public_belief_resolver_confirmation_051`.
+SHA-256 hashes are: `result.json`
+`1a731e5edf3c63cffb2b46d8adaebba9fc50b81e490367bb0c8448ef6a885ed4`,
+`vs_shallow.json`
+`54874c9343e432c83af4ca5bf6b67984ec2458d374485717b8d9bbf751d2ff9d`,
+`vs_016.json`
+`713c93995d7a4d52c5d874eff43b8f86b44f534d87689a14bda9ded55e5e683b`,
+and `vs_023.json`
+`a600d8ff1bc2de75194daa3204a1a4353b5b8ea5d974b6393d55e6e555a26046`.
+
 ## 2026-07-21: Public-belief resolver decisively beats raw 035
 
 Experiment `050` was preregistered at `a3e2aee` and implemented at `0588f4e`.

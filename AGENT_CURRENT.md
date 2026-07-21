@@ -2,6 +2,33 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-21 Broad Public-Belief Resolver Confirmation Pass
+
+- `051` froze three independent 50-pair broad blocks before gameplay. Protocol,
+  prospective 023-hash correction, and implementation commits are `e687649`,
+  `7f1e70b`, and `7f26e54`; all `450/450` tests passed before evidence.
+- Resolver `035` passed decisively against every frozen opponent:
+  - gate-`030` shallow: `74-25-1`, score share `74.5%`, CI95
+    `[67.0%,82.0%]`, mean margin `+4.39`, seat shares `76%/73%`;
+  - historical `016`: `74-25-1`, share `74.5%`, CI95
+    `[65.5%,83.0%]`, margin `+4.06`, seats `74%/75%`;
+  - loop-safe canonical `023`: `79-21-0`, share `79.0%`, CI95
+    `[70.0%,87.0%]`, margin `+4.46`, seats `84%/74%`.
+- All 300 games completed ordinarily with zero invalid termination, timeout,
+  stall, or hard cap. All `1,655,616` continuations resolved with exact
+  192-branch accounting; only 26 used loop-safe adjudication (`0.00157%`). The
+  resolver completed 8,623 searches and switched 5,927 actions, with activity
+  in every phase and every opponent block. Every frozen gate passed.
+- Formal decision: authorize only a separately preregistered
+  resolver-every-move teacher-corpus and distillation experiment. `051` itself
+  authorizes no training, corpus generation, neural promotion, or GPU rental.
+  The next protocol must store complete root action/value targets from wins and
+  losses, alternate fresh synchronous collection with supervised updates, and
+  retain raw `035` as the paired promotion control.
+- Evidence is in `outputs/broad_public_belief_resolver_confirmation_051`.
+  `result.json` SHA-256 is
+  `1a731e5edf3c63cffb2b46d8adaebba9fc50b81e490367bb0c8448ef6a885ed4`.
+
 ## 2026-07-21 Paired Public-Belief Resolver Gameplay Pass
 
 - `050` deployed the exact `049b` discovery resolver on every structurally
