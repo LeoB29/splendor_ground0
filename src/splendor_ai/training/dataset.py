@@ -324,7 +324,11 @@ class LegalActionReplayDataset(Dataset[LegalActionReplaySample]):
             len(legal_action_indices),
             dtype=torch.float32,
         )
-        for root_visit in payload.get("root_visit_distribution", []):
+        policy_distribution = payload.get(
+            "resolver_policy_distribution",
+            payload.get("root_visit_distribution", []),
+        )
+        for root_visit in policy_distribution:
             if not isinstance(root_visit, dict):
                 continue
             try:

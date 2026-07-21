@@ -152,7 +152,10 @@ def compute_legal_action_supervised_losses(
     preference_sample_weight: torch.Tensor | None = None,
     preference_loss_weight: float = 0.0,
     preference_margin: float = 1.0,
+    policy_loss_weight: float = 1.0,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if policy_loss_weight < 0.0:
+        raise ValueError("policy_loss_weight must be non-negative.")
     masked_scores = masked_legal_action_scores(action_scores, legal_action_mask)
     policy_loss = _weighted_mean(
         nn.functional.cross_entropy(masked_scores, target_action_row, reduction="none"),
@@ -188,7 +191,7 @@ def compute_legal_action_supervised_losses(
         sample_weight=preference_sample_weight,
     )
     total_loss = (
-        policy_loss
+        policy_loss_weight * policy_loss
         + value_loss_weight * value_loss
         + search_distill_loss_weight * distill_loss
         + root_visit_loss_weight * root_visit_loss
@@ -326,6 +329,7 @@ def train_legal_action_scorer_epoch(
     root_visit_loss_weight: float = 0.0,
     preference_loss_weight: float = 0.0,
     preference_margin: float = 1.0,
+    policy_loss_weight: float = 1.0,
 ) -> TrainMetrics:
     model.train()
     total_policy = 0.0
@@ -382,6 +386,7 @@ def train_legal_action_scorer_epoch(
             preference_sample_weight=preference_sample_weight,
             preference_loss_weight=preference_loss_weight,
             preference_margin=preference_margin,
+            policy_loss_weight=policy_loss_weight,
         )
         predictions = torch.argmax(
             masked_legal_action_scores(action_scores, legal_action_mask),
@@ -440,6 +445,7 @@ def evaluate_legal_action_scorer_epoch(
     root_visit_loss_weight: float = 0.0,
     preference_loss_weight: float = 0.0,
     preference_margin: float = 1.0,
+    policy_loss_weight: float = 1.0,
 ) -> TrainMetrics:
     model.eval()
     total_policy = 0.0
@@ -494,6 +500,7 @@ def evaluate_legal_action_scorer_epoch(
                 preference_sample_weight=preference_sample_weight,
                 preference_loss_weight=preference_loss_weight,
                 preference_margin=preference_margin,
+                policy_loss_weight=policy_loss_weight,
             )
             predictions = torch.argmax(
                 masked_legal_action_scores(action_scores, legal_action_mask),
@@ -532,6 +539,7 @@ def fit_legal_action_scorer_dataloaders_with_artifacts(
     root_visit_loss_weight: float = 0.0,
     preference_loss_weight: float = 0.0,
     preference_margin: float = 1.0,
+    policy_loss_weight: float = 1.0,
 ) -> FitLegalActionScorerArtifacts:
     cfg = config or SupervisedTrainConfig()
     model_instance = model or LegalActionScorerModel()
@@ -562,6 +570,7 @@ def fit_legal_action_scorer_dataloaders_with_artifacts(
             root_visit_loss_weight=root_visit_loss_weight,
             preference_loss_weight=preference_loss_weight,
             preference_margin=preference_margin,
+            policy_loss_weight=policy_loss_weight,
         )
         validation_metrics = None
         if validation_dataloader is not None:
@@ -575,6 +584,7 @@ def fit_legal_action_scorer_dataloaders_with_artifacts(
                 root_visit_loss_weight=root_visit_loss_weight,
                 preference_loss_weight=preference_loss_weight,
                 preference_margin=preference_margin,
+                policy_loss_weight=policy_loss_weight,
             )
             if best_validation_loss is None or validation_metrics.total_loss < best_validation_loss:
                 best_validation_loss = validation_metrics.total_loss

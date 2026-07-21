@@ -15,7 +15,12 @@ from typing import Any
 import torch
 
 from splendor_ai.bots import LegalActionAttentionScorerBot
-from splendor_ai.cfr import ResolvedLeaf, deterministic_belief_range, resolve_two_ply
+from splendor_ai.cfr import (
+    ResolvedLeaf,
+    TwoPlyResolution,
+    deterministic_belief_range,
+    resolve_two_ply,
+)
 from splendor_ai.encoding import canonical_public_belief_key, canonical_successor_action_key
 from splendor_ai.encoding.public_belief import actions_by_canonical_successor_key
 from splendor_ai.engine.actions import Action
@@ -160,18 +165,29 @@ class FrozenPublicBeliefResolverBot:
         self._decisions += 1
         phase = _phase(state.turn_index)
         self._by_phase[phase]["decisions"] += 1
-        ranked = _distinct_canonical_scores(
-            state,
-            self._scorer.score_actions(state, actions),
-        )
+        all_scores = self._scorer.score_actions(state, actions)
+        ranked = _distinct_canonical_scores(state, all_scores)
         if not ranked:
             raise RuntimeError("035 scorer returned no ranked legal action.")
         parent = ranked[0].action
         try:
-            selected, counters = self._resolve(state, actions, ranked, decision_index)
+            selected, counters, resolution = self._resolve(
+                state,
+                actions,
+                ranked,
+                decision_index,
+            )
         except ResolverIneligible as exc:
             self._fallback_reasons[exc.reason] += 1
             self._by_phase[phase]["fallbacks"] += 1
+            self._on_fallback_decision(
+                state=state,
+                legal_actions=actions,
+                all_scores=all_scores,
+                parent=parent,
+                decision_index=decision_index,
+                reason=exc.reason,
+            )
             return parent
         if selected not in actions:
             raise RuntimeError("Resolver selected an illegal concrete action.")
@@ -187,7 +203,41 @@ class FrozenPublicBeliefResolverBot:
         ):
             self._switches += 1
             self._by_phase[phase]["switches"] += 1
+        self._on_resolved_decision(
+            state=state,
+            legal_actions=actions,
+            all_scores=all_scores,
+            parent=parent,
+            selected=selected,
+            decision_index=decision_index,
+            resolution=resolution,
+        )
         return selected
+
+    def _on_resolved_decision(
+        self,
+        *,
+        state: SplendorState,
+        legal_actions: list[Action],
+        all_scores: tuple[Any, ...],
+        parent: Action,
+        selected: Action,
+        decision_index: int,
+        resolution: TwoPlyResolution,
+    ) -> None:
+        """Optional observation-only hook; the frozen gameplay bot is a no-op."""
+
+    def _on_fallback_decision(
+        self,
+        *,
+        state: SplendorState,
+        legal_actions: list[Action],
+        all_scores: tuple[Any, ...],
+        parent: Action,
+        decision_index: int,
+        reason: str,
+    ) -> None:
+        """Optional observation-only hook; the frozen gameplay bot is a no-op."""
 
     def _resolve(
         self,
@@ -195,7 +245,7 @@ class FrozenPublicBeliefResolverBot:
         legal_actions: list[Action],
         ranked: tuple[Any, ...],
         decision_index: int,
-    ) -> tuple[Action, Counter[str]]:
+    ) -> tuple[Action, Counter[str], TwoPlyResolution]:
         cfg = self._config
         if len(ranked) < cfg.root_actions:
             raise ResolverIneligible("fewer_than_four_root_actions")
@@ -312,7 +362,7 @@ class FrozenPublicBeliefResolverBot:
         selected_key = root_keys[resolution.best_index]
         if selected_key not in actual_map:
             raise RuntimeError("Resolved semantic action is absent from the actual state.")
-        return actual_map[selected_key], counters
+        return actual_map[selected_key], counters, resolution
 
 
 def run_gate(config: ResolverGameplayConfig | None = None) -> dict[str, Any]:

@@ -30,6 +30,19 @@ class _CanonicalFakeScorer:
         )
 
 
+class _CapturingResolverBot(FrozenPublicBeliefResolverBot):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.resolved_records = []
+        self.fallback_records = []
+
+    def _on_resolved_decision(self, **kwargs):
+        self.resolved_records.append(kwargs)
+
+    def _on_fallback_decision(self, **kwargs):
+        self.fallback_records.append(kwargs)
+
+
 def _resolved_rollout(*args, **kwargs):
     action: Action = args[3]
     value = (sum(ord(char) for char in repr(action)) % 21 - 10) / 20.0
@@ -116,6 +129,37 @@ def test_resolver_bot_falls_back_when_root_width_is_unavailable() -> None:
     assert bot.choose_action(env, state, legal) == legal[0]
     assert bot.telemetry["completed_searches"] == 0
     assert bot.telemetry["fallback_reasons"] == {"fewer_than_four_root_actions": 1}
+
+
+def test_observation_hooks_do_not_change_frozen_resolver_behavior(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "splendor_ai.eval.run_paired_public_belief_resolver_gameplay.rollout_score_margin_loop_safe",
+        _resolved_rollout,
+    )
+    cfg = ResolverGameplayConfig()
+    env = SplendorEnv(seed=500_100)
+    state = env.initial_state()
+    legal = env.legal_actions(state)
+    base = FrozenPublicBeliefResolverBot(
+        cfg,
+        engine_seed=500_100,
+        actor_seat=0,
+        scorer=_CanonicalFakeScorer(),
+    )
+    recording = _CapturingResolverBot(
+        cfg,
+        engine_seed=500_100,
+        actor_seat=0,
+        scorer=_CanonicalFakeScorer(),
+    )
+
+    base_action = base.choose_action(env, state, legal)
+    recording_action = recording.choose_action(env, state, legal)
+
+    assert recording_action == base_action
+    assert recording.telemetry == base.telemetry
+    assert len(recording.resolved_records) == 1
+    assert recording.fallback_records == []
 
 
 def test_direct_gate_requires_strength_integrity_and_both_seats() -> None:
