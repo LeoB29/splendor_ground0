@@ -59,7 +59,7 @@ opponent for every game.
 3. `023`: loop-safe `CanonicalEntityActionScorerBot` using
    `outputs/canonical_entity_coherent_023/`
    `canonical_entity_action_scorer_coherent_width64_best.pt`, SHA-256
-   `29ef7c13c5553ec88c8bc98f7378c925f0e600e2fcf3d944df5926efed7a070`.
+   `29ef7c13c5553ec88c8bcb98f7378c925f0e600e2fcf3d944df5926efed7a070`.
 
 ## Fresh paired blocks and blinding
 
