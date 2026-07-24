@@ -2,6 +2,63 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-24 Resolver Distillation Disagreement Audit
+
+- `052a` prospectively froze a post-hoc, no-training audit at `62f1636`,
+  implemented it at `a1c1091`, and passed all `467/467` tests before evidence.
+  It reproduced every frozen artifact/model hash and every row/model alignment
+  check. Result SHA-256 is
+  `226d28a4cd9667ef27eacfc1afccf8cac628d07b30006e9dc179ca282b2eba57`.
+- On confirmation, the resolver made 731 raw switches among 1,093 resolved
+  rows; all 731 were canonically distinct. The blended target retained the
+  resolver action for 458 switches, retained the parent for 264, and preferred
+  a third action for 9. Thus the 0.75/0.25 blend suppressed 36.1% of raw
+  resolver switches, but target conflict is not the main explanation for the
+  failed target-top gate.
+- Among the 467 confirmation blended-target disagreements, the student moved
+  the preferred-versus-parent logit gap in the correct direction on 87.79%
+  (game-bootstrap CI95 84.55--90.97%). Mean gap improved from `-2.1826` to
+  `-1.0588`, delta `+1.1238` (CI95 `+1.0151,+1.2349`), yet only 8.57% crossed
+  zero and only 7.71% captured the preferred argmax (CI95 5.33--10.11%).
+- This is not a validation/generalization collapse: preferred-action capture
+  was only 5.39% in-sample, 4.07% on validation, and 7.71% on confirmation,
+  with correct-direction movement 87.33%, 90.63%, and 87.79%. Both
+  confirmation seed halves agreed.
+- Parent margins explain the KL/argmax split. 268/467 confirmation target
+  disagreements began at gap `<=-1` and captured only 0.4%, whereas the 15
+  rows within `-0.05` captured 53.3%. Training broadly compressed gaps rather
+  than learning enough action-specific correction to reverse large rankings.
+  On fallback rows it raised entropy by `+0.724` nats while producing KL
+  `0.186`, consistent with harmful global flattening.
+- Formal interpretation: `052`'s global distribution cross-entropy learned
+  the direction and soft shape of resolver targets but mostly temperature-
+  flattened `035`; it neither transferred decisive rankings nor preserved the
+  parent anchor. More epochs or a higher global learning rate are not the
+  justified next move. A future prospective experiment should first test a
+  zero-initialized, parent-frozen action-specific residual/ranking correction
+  on existing development data, with explicit fallback/non-target anchoring
+  and a completely fresh confirmation corpus only after validation success.
+  No training, gameplay, promotion, new collection, or GPU is authorized by
+  `052a`.
+
+## 2026-07-22 Resolver Self-Play Distillation Offline Failure
+
+- `052` protocol/implementation commits are `886a2e2` and `eb4fd2c`; all
+  `456/456` tests passed before evidence. The deterministic smoke and complete
+  80/20/20 resolver self-play train/validation/confirmation collections passed
+  every integrity, privacy, clean-game, branch-accounting, and coverage gate,
+  yielding 7,422 acting-player-public decision rows.
+- The one frozen warm-start student reduced confirmation resolved-target KL
+  from `1.064529` to `0.528818` and stayed within the 5--50% action-movement
+  band, but target-top agreement improved only `+0.6404` percentage points
+  versus the required `+5`, and fallback-anchor KL was `0.186057` versus the
+  required `<=0.02`.
+- Formal decision: `offline_distillation_gate_failed`. The student is rejected
+  and no paired gameplay ran. Raw `035` remains the fast neural champion; the
+  resolver remains the proven stronger full-game teacher. Evidence is under
+  `outputs/resolver_selfplay_distillation_052`; result SHA-256 is
+  `60458c1bea4328b64f33ad8238529d074a25d1034fa2845e0b339deee3827153`.
+
 ## 2026-07-21 Broad Public-Belief Resolver Confirmation Pass
 
 - `051` froze three independent 50-pair broad blocks before gameplay. Protocol,

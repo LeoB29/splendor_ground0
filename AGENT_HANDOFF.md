@@ -1,5 +1,60 @@
 # Agent Handoff
 
+## 2026-07-24: Why resolver distillation changed probabilities but not actions
+
+Experiment `052` completed its deterministic smoke and all 80/20/20
+resolver-self-play train/validation/confirmation games cleanly. Every privacy,
+legality, target-support, branch-accounting, termination, and coverage gate
+passed, producing 4,940/1,242/1,240 rows. The exact warm-start four-epoch
+student halved confirmation resolved-target KL (`1.064529` to `0.528818`) but
+failed the preregistered offline gate: target-top agreement gained only
+`0.6404` percentage points instead of 5, and fallback-anchor KL was `0.186057`
+instead of at most `0.02`. It was rejected before gameplay. Protocol and
+implementation commits are `886a2e2` and `eb4fd2c`; result SHA-256 is
+`60458c1bea4328b64f33ad8238529d074a25d1034fa2845e0b339deee3827153`.
+
+The no-training `052a` diagnostic was frozen at `62f1636`, implemented at
+`a1c1091`, and passed all 467 tests before evidence. It reconstructed both
+models from acting-player-public inputs and verified exact hashes, legal
+supports, parent argmaxes/probabilities, action references, canonical value
+groups, and finite scores.
+
+The confirmation resolver switched 731/1,093 resolved rows, all canonically
+distinct. The blended distribution agreed with the raw resolver on 458 of
+those, retained raw `035` on 264, and selected a third action on 9. Therefore
+the blend suppressed 36.1% of raw resolver switches. That matters for raw
+teacher transfer, but the direct blended-target analysis still diagnosed the
+main failure. Across its 467 confirmation disagreements:
+
+- 87.79% moved the target-versus-parent logit gap in the correct direction
+  (game-bootstrap CI95 84.55--90.97%);
+- mean gap moved from `-2.1826` to `-1.0588`, a `+1.1238` correction with CI95
+  `[+1.0151,+1.2349]`;
+- only 8.57% crossed zero and 7.71% captured the target argmax (CI95
+  5.33--10.11%).
+
+This pattern was not overfitting: capture was only 5.39% on train, 4.07% on
+validation, and 7.71% on confirmation, while directional movement stayed
+87.33--90.63%; both confirmation seed halves agreed. It was a margin problem.
+Of 467 confirmation target disagreements, 268 began with a parent gap at most
+`-1` and captured only 0.4%. The 15 within `-0.05` captured 53.3%. Meanwhile
+the fallback student distribution gained `+0.724` nats of entropy and KL
+`0.186`, despite almost always preserving the argmax.
+
+The best-supported interpretation is that global distribution cross-entropy
+mostly flattened `035`'s logits, moving probability mass toward resolver
+targets without learning sufficiently large action-specific corrections. More
+global epochs or a higher learning rate would likely worsen the already failed
+anchor rather than solve the structural problem. If this branch continues,
+preregister a cheap development-only test of a zero-initialized residual
+ranking correction with the `035` backbone frozen, explicit fallback and
+non-target anchoring, and no use of the touched confirmation set. Generate a
+completely fresh confirmation corpus only if it first succeeds on frozen
+validation. `052a` itself authorizes no training, gameplay, promotion, new
+collection, or GPU. Evidence is in
+`outputs/resolver_distillation_disagreement_audit_052a`; result SHA-256 is
+`226d28a4cd9667ef27eacfc1afccf8cac628d07b30006e9dc179ca282b2eba57`.
+
 ## 2026-07-21: Resolver passes broad confirmation decisively
 
 Experiment `051` was preregistered at `e687649`. Validation prospectively
