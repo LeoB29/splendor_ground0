@@ -55,8 +55,9 @@ For each legal action concatenate:
 
 Pass the 385-vector through exactly `Linear(385,64)`, GELU,
 `Linear(64,1)`. Initialize the final linear weight and bias to exactly zero, so
-the initial model is bit-for-bit action-score equivalent to `035`. Subtract
-the masked per-state mean residual and add the centered residual to the frozen
+the initial model is bit-for-bit action-score equivalent to `035`. Initialize
+the first linear layer with the PyTorch default under seed `53`. Subtract the
+masked per-state mean residual and add the centered residual to the frozen
 parent score. Only the 24,769 residual parameters are trainable. No parent
 parameter, normalization statistic, temperature, value head, or observation
 feature may change.
