@@ -70,15 +70,25 @@ Only the random namespaces differ:
 - replicate B: belief root-index start `21,000,000`, continuation seed start
   `2,000,000,000,000,000`.
 
-Both namespaces are disjoint from the original resolver and each other. Each
-fresh state/replicate must use exactly 192 continuations, for 27,648 total.
-Run with ten CPU workers. Repeat replicate A for the first selected state from
-zero and require its deterministic projection to be byte-identical.
+Both namespaces are disjoint from the original resolver and each other.
+Attempt both replicates on all 72 states. A changed belief sample may
+legitimately trigger one of the exact frozen structural fallback reasons even
+though the original namespace resolved that state; record this as target
+instability, not infrastructure failure. Every completed search must use
+exactly 192 continuations, so total continuations must equal 192 times the
+number of completed fresh searches and may be at most 27,648. Run with ten CPU
+workers. Repeat replicate A for the first selected state from zero and require
+its deterministic projection--whether a completed search or a structural
+fallback--to be byte-identical.
 
 ## Fixed metrics
 
-The primary comparison is fresh A versus fresh B. Original-versus-A and
-original-versus-B are secondary checks. For each comparison report:
+First report structural resolution repeatability: completion rate for each
+replicate, both-completed fraction, completion/fallback agreement, fallback
+reasons, and cell breakdowns. The primary value comparison is fresh A versus
+fresh B on states where both completed. Original-versus-A and
+original-versus-B use their respective completed states and are secondary
+checks. For each value comparison report:
 
 - flattened four-value Pearson correlation and MAE;
 - mean within-state Spearman correlation, using average ranks for ties;
@@ -106,7 +116,10 @@ Require:
 - all prerequisite hashes and the exact frozen configuration;
 - exactly 72 unique selected states and four in every selection cell;
 - unique legal action codec indices and exact ordered root-key alignment;
-- exactly 27,648 fresh continuations, all resolved;
+- exactly 144 fresh search attempts with complete structural accounting;
+- at least two both-completed states in every selection cell;
+- total continuations exactly 192 times completed searches and at most 27,648,
+  all resolved;
 - zero illegal actions and hard caps;
 - loop-adjudicated fraction at most `0.001`;
 - finite values and metrics;
@@ -127,6 +140,7 @@ Decision is
 only if all hold:
 
 - exact best agreement at least 70%;
+- both-completed fraction at least 80%;
 - its game-bootstrap CI95 lower bound at least 60%;
 - flattened value Pearson at least `0.70`;
 - mean within-state Spearman at least `0.60`;
@@ -144,6 +158,7 @@ If the exact point-target gate fails, decision is
 `resolver_equivalence_targets_authorize_uncertainty_aware_protocol` only if:
 
 - value-equivalent agreement is at least 75%;
+- both-completed fraction at least 70%;
 - its bootstrap CI95 lower bound is at least 65%;
 - mean symmetric cross-regret is at most `0.035`;
 - 90th-percentile symmetric cross-regret is at most `0.075`;
