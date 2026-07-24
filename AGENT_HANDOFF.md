@@ -1,5 +1,76 @@
 # Agent Handoff
 
+## 2026-07-24: Resolver averaging converges, but uniform 8x is not a valid teacher
+
+Experiment `056` answered the budget-convergence question raised by `055`.
+The no-training protocol was frozen at `c70a1f7`, then implemented at
+`aabfb66`; focused contracts and the full `491/491` suite passed before any
+new search evidence was generated.
+
+Outcome-blind SHA-256 selection chose 36 fixed `055` states, exactly two in
+each seat x early/mid/late x close/medium/clear original-gap cell, spanning
+15 games. The audit treated frozen `055` A/B as the first two independent
+estimates and generated C through P, yielding 16 estimates per state. The
+new work comprised 504 resolver searches and 96,768 continuation games. All
+completed normally: no fallback trigger, hard cap, loop adjudication,
+structural failure, illegal action, or other error occurred. The first new
+search was byte-identical when repeated. The new matrix took 1,887.49 seconds
+of wall time on ten CPU workers (13,046.98 aggregate process CPU seconds).
+
+Matched split-half estimates showed clear and nearly monotonic convergence:
+
+- 1x: exact agreement 44.10%, equivalence 44.44%, Spearman `0.2519`,
+  Pearson `0.8015`, MAE `0.10031`, mean regret `0.06220`, p90 regret
+  `0.16875`;
+- 2x: exact 48.61%, equivalence 50.69%, Spearman `0.3864`, Pearson `0.8887`,
+  MAE `0.07130`, mean regret `0.03639`, p90 `0.10281`;
+- 4x: exact 56.94%, equivalence 59.72%, Spearman `0.4688`, Pearson `0.9414`,
+  MAE `0.04905`, mean regret `0.02062`, p90 `0.06984`;
+- 8x: exact 63.89%, equivalence 77.78%, Spearman `0.6065`, Pearson `0.9707`,
+  MAE `0.03568`, mean regret `0.00909`, p90 `0.03529`.
+
+Relative to 1x, 8x gained 19.79 percentage points of exact agreement and
+33.33 points of value-equivalence, while reducing mean regret by 85.4%.
+This decisively rejects the pessimistic interpretation that resolver values
+do not converge at all. Compute buys real label quality, and most residual
+action disagreement is low-value by 8x.
+
+However, the preregistered gate was deliberately phase-aware. At 8x:
+
+- early: 25.0% exact, 50.0% equivalent, Spearman `0.3860`, mean regret
+  `0.02005`;
+- mid: 91.67% exact, 91.67% equivalent, Spearman `0.6167`, mean regret
+  `0.00475`;
+- late: 75.0% exact, 91.67% equivalent, Spearman `0.8167`, mean regret
+  `0.00245`.
+
+The aggregate exact result also remained below its 70% point target, its
+52.38% game-bootstrap lower bound missed the 60% floor, and aggregate
+Spearman `0.6065` missed `0.65`. The equivalence arm passed its aggregate
+point and confidence thresholds but failed the early-phase floor. Thus the
+formal decision was
+`budget_convergence_positive_but_8x_insufficient_redesign_teacher`.
+Neither exact-action distillation nor an uncertainty-target corpus was
+authorized. No training, fresh game collection, gameplay, promotion, or GPU
+rental followed.
+
+Uniformly doubling again is not the best use of CPU: 8x already oversolves
+mid/late positions while failing early ones. The next experiment should be a
+separately preregistered, fixed-state teacher-redesign diagnostic. Preserve
+the information-legal resolver and terminal payoff machinery, but replace
+uniform one-shot action estimates with adaptive root-action sampling that
+spends continuations where confidence intervals overlap and returns either a
+stable equivalence set or a converged visit distribution. Compare it
+compute-matched against the frozen 4x and 8x baselines, with split-half
+stability, regret, early-phase performance, and sample efficiency as primary
+gates. Only if that teacher is stable and economical should the project
+generate a corpus and distill it. This remains CPU work; the bottleneck is
+simulation, not neural optimization.
+
+Evidence is under `outputs/resolver_budget_convergence_audit_056`.
+`result.json` SHA-256 is
+`bc20cde5436d904a4e63a381a8173b000fcc5b66462d71194134bdab77dac081`.
+
 ## 2026-07-24: Current-budget resolver labels are not repeatable enough to distill
 
 Experiment `055` tested the label-noise hypothesis exposed by `054`. The

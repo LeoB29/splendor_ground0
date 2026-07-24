@@ -2,6 +2,54 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-24 Resolver Budget Convergence Is Real but Uneven
+
+- `056` prospectively froze a no-training 1x/2x/4x/8x convergence audit at
+  `c70a1f7` and implemented it at `aabfb66`. The full suite passed `491/491`
+  before evidence.
+- The audit selected 36 outcome-blind fixed states, exactly two in every
+  seat x phase x original-gap cell, from 15 games. It reused the two frozen
+  `055` estimates and generated 14 new independent estimates per state:
+  504 searches and 96,768 continuations. Every search and continuation
+  resolved, with zero fallback, hard-cap, loop-adjudication, structural, or
+  illegal-action events. The first new search repeated byte-identically.
+- Averaging produced strong, monotonic convergence. From 1x to 2x/4x/8x,
+  exact split-half best-action agreement rose from 44.10% to
+  48.61%/56.94%/63.89%; equivalence within `0.025` regret rose from 44.44% to
+  50.69%/59.72%/77.78%; mean Spearman rose from `0.2519` to
+  `0.3864`/`0.4688`/`0.6065`; and mean cross-regret fell from `0.06220` to
+  `0.03639`/`0.02062`/`0.00909`. Thus 8x reduced regret by 85.4% and gained
+  19.79 percentage points of exact agreement.
+- The aggregate 8x result was close to a usable teacher, but it still failed
+  the preregistered exact-action thresholds: 63.89% agreement versus 70%,
+  game-bootstrap lower bound 52.38% versus 60%, and Spearman `0.6065` versus
+  `0.65`. More importantly, aggregate gains concealed an early-game collapse.
+  At 8x, early/mid/late exact agreement was 25.0%/91.67%/75.0%,
+  equivalence was 50.0%/91.67%/91.67%, and Spearman was
+  `0.3860`/`0.6167`/`0.8167`. The strict phase floor therefore correctly
+  prevented stable mid/late labels from masking unstable early labels.
+- Formal decision:
+  `budget_convergence_positive_but_8x_insufficient_redesign_teacher`.
+  Convergence and regret-reduction gates passed, but neither an exact-action
+  teacher nor the equivalence/uncertainty protocol was authorized because of
+  the phase failure. No training, corpus collection, gameplay, promotion, or
+  GPU rental occurred.
+- Do not spend another uniform 16x budget. The next justified experiment is
+  a preregistered fixed-state teacher-redesign diagnostic that retains the
+  proven resolver payoff machinery but allocates continuation samples
+  adaptively across root actions and exposes an uncertainty/equivalence set
+  or stabilized visit distribution. It should compare compute-matched
+  split-half stability against 4x/8x, with early phase as a primary gate.
+  Only a stable and economical teacher would authorize corpus generation and
+  distillation.
+- The new matrix took 1,887.49 seconds wall time on ten CPU workers
+  (aggregate process CPU 13,046.98 seconds). CPU remains appropriate for the
+  next bounded diagnostic; a GPU would not accelerate the resolver sampling
+  bottleneck.
+- Evidence is in
+  `outputs/resolver_budget_convergence_audit_056/result.json`; SHA-256 is
+  `bc20cde5436d904a4e63a381a8173b000fcc5b66462d71194134bdab77dac081`.
+
 ## 2026-07-24 Resolver Target Repeatability Failure
 
 - `055` prospectively froze a no-training repeatability audit at `70eaede`,
