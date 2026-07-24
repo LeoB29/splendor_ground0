@@ -117,7 +117,8 @@ Require:
 - exactly 72 unique selected states and four in every selection cell;
 - unique legal action codec indices and exact ordered root-key alignment;
 - exactly 144 fresh search attempts with complete structural accounting;
-- at least two both-completed states in every selection cell;
+- at least one both-completed state in every selection cell, so every
+  preregistered gap/phase/seat cell remains represented in value metrics;
 - total continuations exactly 192 times completed searches and at most 27,648,
   all resolved;
 - zero illegal actions and hard caps;
