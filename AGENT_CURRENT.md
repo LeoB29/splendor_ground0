@@ -2,6 +2,42 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-24 Frozen-Parent Resolver Residual Ranking Failure
+
+- `053` prospectively froze one zero-initialized 24,769-parameter residual
+  ranking proposal at `1b849b4`, clarified deterministic initialization at
+  `4d04845`, and implemented it at `24d2ffb`. Every `035` parameter remained
+  frozen; all `474/474` tests passed before evidence.
+- Epoch zero reproduced `035` exactly. Across all 12 frozen epochs, no epoch
+  met the three selection-anchor conditions, so no checkpoint was selected.
+  The runner correctly stopped at `validation_residual_gate_failed`; it did not
+  open old `052` confirmation, generate any fresh resolver game, or run
+  gameplay.
+- Epoch 1 was closest to anchor-safe: validation target-KL ratio improved to
+  `0.7504`, 98.17% of disagreement gaps moved correctly, completed agreement
+  retention was 98.65%, and fallback argmax retention was 99.07%. But fallback
+  KL was `0.02978` versus the `0.02` ceiling, resolver-disagreement capture was
+  only `0.65%` versus `15%`, overall resolver-agreement gain was exactly zero
+  versus `+5` points, and action movement was only 1.53% versus 5%.
+- Later epochs repeated `052`'s KL/argmax split despite the frozen parent and
+  explicit anchor. Epoch 12 reduced complete-target KL to 51.30% of parent and
+  moved 94.77% of disagreement gaps correctly, but captured only 4.05%,
+  improved overall resolver agreement only `+0.264` points, retained only
+  92.43% of completed agreement anchors, and produced fallback KL `0.08452`.
+  No epoch approached the ranking gate while preserving the anchor.
+- Formal interpretation: a small action-specific correction can learn the
+  direction and soft shape of resolver supervision, but frozen `035`
+  representations do not let it localize large decisive corrections without
+  moving non-target states. Do not tune ranking/anchor weights, add epochs,
+  loosen gates, or sweep residual capacity from this result. `053` closes the
+  cheap residual repair proposed by `052a`; it does not invalidate the strong
+  resolver or prove that scaled richer-model distillation is impossible. Raw
+  `035` remains fast neural champion and the public-belief resolver remains
+  the proven stronger search agent.
+- Evidence is in
+  `outputs/resolver_residual_ranking_distillation_053/result.json`; SHA-256 is
+  `7610c56789cf3491cc889e4f9689957bf06a769fb906f5314731903c933339ef`.
+
 ## 2026-07-24 Resolver Distillation Disagreement Audit
 
 - `052a` prospectively froze a post-hoc, no-training audit at `62f1636`,

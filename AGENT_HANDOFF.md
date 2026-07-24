@@ -1,5 +1,50 @@
 # Agent Handoff
 
+## 2026-07-24: Frozen-parent residual cannot selectively transfer resolver rankings
+
+Experiment `053` tested the structural repair justified by `052a`. Its
+protocol was frozen at `1b849b4`, deterministic first-layer initialization was
+clarified before implementation at `4d04845`, and implementation was committed
+at `24d2ffb`. The exact 035 attention model was embedded and permanently
+frozen. A zero-final-layer 385x64x1 residual received frozen state,
+contextual-action, and parent-score features; only 24,769 parameters were
+trainable. Focused real-artifact reconstruction and the full 474-test suite
+passed before evidence.
+
+The one proposal trained for all 12 preregistered epochs on the 4,940 `052`
+training rows and was evaluated on the 1,242-row `052` validation split. Epoch
+zero reproduced 035 exactly. No trained epoch simultaneously kept fallback KL
+at most 0.02, fallback argmax retention at least 98%, and resolved
+resolver/parent-agreement retention at least 98%, so none was selectable.
+
+Epoch 1 was the closest anchor-safe point:
+
+- complete-target KL ratio `0.75044`;
+- 98.17% correct-direction disagreement movement;
+- 98.65% resolved agreement-anchor retention and 99.07% fallback argmax
+  retention;
+- but fallback KL `0.02978`, disagreement capture `0.65%`, overall
+  resolver-agreement gain `0.0`, and action movement `1.53%`.
+
+Continuing optimization improved distributional fit but not decisive ranking.
+At epoch 12, target KL ratio was `0.51299` and 94.77% of disagreement gaps
+moved correctly, yet capture was only 4.05% versus the frozen 15% requirement
+and overall gain only `+0.264` percentage points versus `+5`. Completed
+agreement retention had fallen to 92.43%, fallback retention to 96.26%, and
+fallback KL risen to `0.08452`. The residual therefore repeated the core
+`052` pattern even with a frozen backbone and explicit anchors: broad soft
+movement without enough large, state-specific boundary crossings.
+
+The formal decision is `validation_residual_gate_failed`. No best checkpoint
+was selected, no old confirmation corpus was opened by the runner, no fresh
+`620300--620319` resolver game was generated, and no gameplay ran. Do not
+retune weights/margins, add epochs, relax anchors, or run a residual capacity
+sweep. This closes the cheap residual repair, not resolver search itself and
+not every possible larger-data/richer-representation distillation program.
+Raw `035` remains the fast neural champion; the resolver remains the proven
+stronger full-game agent. Evidence SHA-256 is
+`7610c56789cf3491cc889e4f9689957bf06a769fb906f5314731903c933339ef`.
+
 ## 2026-07-24: Why resolver distillation changed probabilities but not actions
 
 Experiment `052` completed its deterministic smoke and all 80/20/20
