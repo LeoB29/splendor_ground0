@@ -123,6 +123,11 @@ Report for train and validation:
 - phase, seat, and eventual-winner/loser breakdowns;
 - finite/alignment/privacy integrity.
 
+When multiple resolver groups share the exact maximum target value, a
+prediction counts as best-action correct if its selected group is any member
+of that tied maximum set. Spearman uses average ranks for exact ties; target
+ties are excluded from pairwise sign accuracy.
+
 On validation, compute the paired history-minus-snapshot best-action accuracy
 difference with a 20,000-sample game-cluster bootstrap, seed `540054`.
 
