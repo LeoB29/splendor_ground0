@@ -1,5 +1,81 @@
 # Agent Handoff
 
+## 2026-07-24: Current-budget resolver labels are not repeatable enough to distill
+
+Experiment `055` tested the label-noise hypothesis exposed by `054`. The
+no-training protocol was frozen at `70eaede`; structural fallback was
+prospectively made part of repeatability evidence at `8149992`, and the
+minimum per-cell completed coverage was frozen at `2a33e77`, all before
+implementation or search evidence. Implementation commit `6cd6b5e` passed
+focused contracts and the full `486/486` suite.
+
+Selection used only completed-search rows from frozen 052 validation. It never
+read outcomes or 054 predictions. SHA-256 ordering selected 72 unique states,
+four in every seat x early/mid/late x close/medium/clear original-gap cell,
+from 18 source games. Replicate A and B kept the exact 051 resolver contract
+but used disjoint belief-determinization and continuation namespaces. All 144
+attempts completed structurally. All 27,648 expected continuations resolved
+with zero fallback trigger, hard cap, loop adjudication, or illegal action.
+The first A search repeated byte-identically, and every root action key matched
+the original 052 serialization.
+
+Fresh A versus B showed a decisive coarse-value/action-order split:
+
+- flattened four-value Pearson `0.81752`, but MAE `0.10122`;
+- mean within-state Spearman only `0.35123`;
+- exact best-action agreement 45.83%, game-cluster CI95
+  `[33.33%,58.90%]`;
+- mean symmetric cross-regret `0.04931`, bootstrap CI95
+  `[0.03331,0.06628]`, with p90 `0.13042`;
+- only 68.06% of directional choices were within `0.05` regret;
+- mutually value-equivalent agreement within `0.025` regret was 47.22%,
+  CI95 `[35.06%,59.72%]`.
+
+This was not only disagreement among fresh namespaces. Original 052 versus A
+had 37.50% exact best agreement, Spearman `0.19877`, and mean regret
+`0.06409`; original versus B had 38.89%, `0.25595`, and `0.06155`. Those
+agreement rates are remarkably close to 054's snapshot/history validation
+accuracies of 34.98% and 35.42%. The simplest explanation is that 054 was
+already near the reproducibility ceiling of the single-run labels it was
+scored against. More model capacity could not reliably predict which
+Monte-Carlo realization happened to win a four-action comparison.
+
+The noise is strategically structured. A/B exact agreement and mean regret
+were:
+
+- early: 37.5%, `0.06606`;
+- mid: 37.5%, `0.06806`;
+- late: 62.5%, `0.01380`.
+
+Close, medium, and even clear original-gap states achieved only 41.67%,
+41.67%, and 54.17% fresh agreement. Across original/A/B, exact unanimous best
+occurred on only 19.44% of states, and all-three value equivalence on 22.22%;
+although at least two estimates shared a best on 83.33%, the identity of that
+majority was not a sufficiently stable one-run target.
+
+Formal decision:
+`resolver_targets_too_noisy_block_direct_distillation`. Every integrity gate
+passed, but every substantive exact-point gate except coarse Pearson and
+structural completion failed. Every equivalence-target gate except structural
+completion also failed. No training, confirmation, fresh game collection,
+gameplay, promotion, or GPU rental was authorized or performed.
+
+This resolves much of the long plateau: resolver 051 is a strong *decision
+procedure*, but one current-budget resolver call is not a stable supervised
+label. Do not respond by collecting more single-run 192-continuation labels or
+by enlarging the student. The next clean question is budget convergence.
+Preregister a no-training audit that averages independent resolver estimates
+on fixed development states at effective 2x/4x/8x budgets and evaluates
+ordering, regret, phase, and compute cost. If economically feasible averaging
+reaches repeatability gates, that averaged teacher can support synchronous
+distillation. If not, keep 051 as search and replace the shallow stochastic
+minimax teacher target with a method that produces converged visit
+distributions.
+
+Evidence is under `outputs/resolver_target_repeatability_audit_055`.
+`result.json` SHA-256 is
+`4aa3b54e77a4856c2c5cd1bb18b1a4088755bda7679bd52a7ce58627ba622714`.
+
 ## 2026-07-24: Public history does not unlock frozen-feature resolver values
 
 Experiment `054` tested the representation hypothesis left open by `053`.

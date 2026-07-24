@@ -2,6 +2,52 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-24 Resolver Target Repeatability Failure
+
+- `055` prospectively froze a no-training repeatability audit at `70eaede`,
+  clarified structural-fallback accounting at `8149992`, froze the cell
+  coverage floor at `2a33e77`, and implemented it at `6cd6b5e`. The full suite
+  passed `486/486` before evidence.
+- It selected 72 unique outcome-blind `052` validation states, exactly four in
+  every seat x phase x original-value-gap cell, spanning 18 games. Two
+  completely independent information-legal resolver namespaces attempted
+  every state. All 144 searches completed, all 27,648 continuations resolved,
+  and there were zero fallback, hard-cap, loop-adjudication, or illegal-action
+  events. The first fresh search repeated byte-identically.
+- Fresh A/B values had strong coarse flattened correlation (`0.8175`) but poor
+  within-state ordering: mean Spearman `0.3512`, exact best-action agreement
+  `45.83%` with game-bootstrap CI95 `[33.33%,58.90%]`, and value MAE `0.1012`.
+  Mean symmetric cross-regret was `0.0493` and p90 `0.1304`; only 47.22% of
+  states were mutually value-equivalent within `0.025` regret, CI95
+  `[35.06%,59.72%]`.
+- Original `052` versus fresh A/B exact best agreement was even lower at
+  37.50%/38.89%, with Spearman `0.1988`/`0.2560`. This is close to `054`'s
+  34.98%/35.42% snapshot/history validation accuracy and strongly suggests
+  those students were being judged against a largely irreproducible single
+  search realization rather than simply failing to learn a stable label.
+- Stability was phase-dependent: fresh exact agreement was 37.5% early,
+  37.5% mid, and 62.5% late; symmetric regret was `0.0661`, `0.0681`, and
+  `0.0138`. Even the original clear-gap stratum achieved only 54.17% fresh
+  best agreement. Across original/A/B, only 19.44% of states had unanimous
+  exact best and 22.22% were mutually value-equivalent.
+- Formal decision: `resolver_targets_too_noisy_block_direct_distillation`.
+  Both the exact-point and equivalence-target gates failed. This does not
+  weaken the proven gameplay strength of resolver `051`; it means one
+  192-continuation resolver call is not a stable supervised label,
+  particularly in early and midgame.
+- Do not collect a larger corpus of current-budget exact values, train a
+  richer student against them, tune another head, or rent a GPU. If continuing
+  the AlphaGo-style teacher branch, the next justified experiment is a
+  separately preregistered search-budget convergence audit: average multiple
+  independent resolver estimates at fixed states and measure whether
+  ordering/regret stabilizes at effective 2x/4x/8x budgets. If stability does
+  not rise economically, replace this shallow stochastic-minimax target with
+  a search method that produces converged visit distributions rather than
+  attempting further direct distillation.
+- Evidence is in
+  `outputs/resolver_target_repeatability_audit_055/result.json`; SHA-256 is
+  `4aa3b54e77a4856c2c5cd1bb18b1a4088755bda7679bd52a7ce58627ba622714`.
+
 ## 2026-07-24 Public-History Resolver-Value Representation Failure
 
 - `054` prospectively froze a matched snapshot-versus-public-history
