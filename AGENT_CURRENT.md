@@ -2,6 +2,46 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-24 Public-History Resolver-Value Representation Failure
+
+- `054` prospectively froze a matched snapshot-versus-public-history
+  representation diagnostic at `1224ca6` and implemented it at `470629b`.
+  The full suite passed `480/480` before evidence.
+- Both arms embedded exact frozen `035` state/action/score features and trained
+  the same 89,697 added parameters for exactly 20 epochs on the 4,397 resolved
+  `052` training rows. The history arm alone received the validated
+  information-legal chronological public-action encoding. Validation was
+  reconstructed exactly once after both models and train metrics were fixed,
+  using 1,135 resolved rows from the game-disjoint `052` validation split.
+- Snapshot reached 41.62% train and 34.98% validation best-group accuracy;
+  validation Spearman was `0.1315`, pairwise sign accuracy `55.51%`, and
+  four-value MAE `0.17905`. It failed the 60% train, 40% validation, `0.25`
+  Spearman, and 60% pairwise learnability gates.
+- Public history improved in-sample fit but not generalization: 44.92% train
+  and 35.42% validation best-group accuracy, validation Spearman `0.1170`,
+  pairwise `54.88%`, and MAE `0.16778`. Its validation accuracy gain was only
+  `+0.44` points, game-bootstrap CI95 `[-2.07,+3.01]`; disagreement capture
+  improved only `+1.32` points and rank correlation became worse. Early,
+  mid, and late validation accuracies were 31.45%, 32.53%, and 49.10%, with no
+  catastrophic seat/outcome/phase stratum collapse.
+- Formal decision:
+  `resolver_targets_not_learnable_with_current_frozen_features`. Integrity
+  passed completely. No old confirmation data was opened, no fresh simulation
+  or gameplay ran, and no scaled corpus, promotion, or GPU rental is
+  authorized. Public history is not the missing discriminator for this frozen
+  representation: it fits some extra training detail but adds no stable
+  held-out action ordering.
+- Do not enlarge this frozen-feature head, add epochs, or collect a scaled
+  distillation corpus from this result. If continuing the teacher branch, the
+  next justified step is a separately preregistered, no-training repeatability
+  audit of resolver action values/rankings on stratified frozen development
+  states with independent continuation seeds. That would measure the
+  learnable label ceiling before deciding between a richer end-to-end
+  representation and abandoning direct resolver-value distillation.
+- Evidence is in
+  `outputs/resolver_public_history_representation_054/result.json`; SHA-256 is
+  `2e5c062e3ed12688ba66a031c1aff368f34cf62d8f9cb21b7c9ed59cdd1a7945`.
+
 ## 2026-07-24 Frozen-Parent Resolver Residual Ranking Failure
 
 - `053` prospectively froze one zero-initialized 24,769-parameter residual

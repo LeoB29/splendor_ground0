@@ -1,5 +1,80 @@
 # Agent Handoff
 
+## 2026-07-24: Public history does not unlock frozen-feature resolver values
+
+Experiment `054` tested the representation hypothesis left open by `053`.
+Protocol commit `1224ca6` froze a CPU-only matched diagnostic before
+implementation or evidence. Implementation commit `470629b` reconstructed
+every 052 game chronologically, regenerated each recorded move uniquely as
+legal, and encoded only the validated 047 public event stream: action type,
+visible/revealed card, blind-reserve tier without identity, token flows,
+noble, relative actor, and turn. The old 052 confirmation split was absent
+from the runner. Focused tests passed 7/7 and the full suite passed 480/480
+before training.
+
+Both models embedded the exact frozen `035` state hidden vector, contextual
+legal-action vectors, and parent scores. Each instantiated the same 89,697
+added parameters and identical initialization. The snapshot arm forced history
+to exact zero; the history arm used a one-layer 64-wide GRU over the public
+events. Both trained snapshot-then-history for the fixed 20 epochs on the same
+4,397 resolved training rows and predicted the four canonical resolver action
+values with SmoothL1 plus pairwise ranking loss. Only after both epoch-20
+checkpoints and train metrics were fixed did the runner reconstruct and open
+the 1,135-row game-disjoint validation set once.
+
+Snapshot results:
+
+- best-group accuracy 41.62% train / 34.98% validation;
+- four-value MAE `0.11043` / `0.17905`;
+- validation mean within-state Spearman `0.13153`;
+- validation pairwise sign accuracy `55.51%`;
+- validation resolver/parent-disagreement capture `25.00%`.
+
+Public-history results:
+
+- best-group accuracy 44.92% train / 35.42% validation;
+- four-value MAE `0.07223` / `0.16778`;
+- validation mean within-state Spearman `0.11696`;
+- validation pairwise sign accuracy `54.88%`;
+- validation disagreement capture `26.32%`.
+
+Thus history fit substantially more value detail in-sample, but held-out
+best-action accuracy gained only `+0.4405` percentage points. The paired
+game-cluster bootstrap CI95 was `[-2.067,+3.013]` points. Spearman and
+pairwise ordering worsened, and disagreement capture gained only `+1.323`
+points. History validation accuracy was 31.45% early, 32.53% mid, and 49.10%
+late; seat/outcome/phase coverage and minimum-accuracy checks all passed, so
+the result is not a single-stratum collapse.
+
+Neither arm met the preregistered 60% training accuracy, 40% validation
+accuracy, `0.25` validation Spearman, or 60% validation pairwise gates.
+Neither approached the 70% training-fit condition that would have identified
+data scale as primary. Formal decision:
+`resolver_targets_not_learnable_with_current_frozen_features`. Every integrity
+check passed. No confirmation, fresh collection, gameplay, promotion, or GPU
+rental was authorized or performed.
+
+Interpretation: legally remembered public history is not the missing
+discriminator for the frozen 035 representation. It helps memorize the small
+training corpus but provides no stable held-out resolver ordering. Do not tune
+this head, add epochs, or scale collection yet. The clean next diagnostic, if
+the resolver-distillation branch continues, is a separately preregistered
+no-training repeatability/noise-ceiling audit: rerun the exact resolver on a
+phase/seat/value-gap-stratified sample of frozen development states using
+independent continuation seeds and measure four-value correlation, best-group
+agreement, regret under the replicate, and phase/gap breakdowns. If rankings
+are repeatable, the next architecture must learn richer end-to-end
+state/action structure; if not, direct point-target distillation should give
+way to uncertainty-aware/equivalence-set targets.
+
+Evidence is under
+`outputs/resolver_public_history_representation_054`. Result SHA-256 is
+`2e5c062e3ed12688ba66a031c1aff368f34cf62d8f9cb21b7c9ed59cdd1a7945`;
+snapshot and history checkpoint hashes are
+`0df43d971e01f684daab4128db8ffaade9fe3fca0e52308e48ba97258376ed00`
+and
+`1038e7b85eb738d279525623f8ef8224369eb5da441ffc5f904f6c3d1f80e51a`.
+
 ## 2026-07-24: Frozen-parent residual cannot selectively transfer resolver rankings
 
 Experiment `053` tested the structural repair justified by `052a`. Its
