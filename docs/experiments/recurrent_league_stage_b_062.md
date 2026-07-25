@@ -33,7 +33,18 @@ warm-start-to-iteration boundary. It does not test final playing strength.
 - Frozen `016` SHA-256:
   `876ac23a005d367ac48b3619bb7cdcb6e0230a3e9e97943d7eecdc6d07d1b056`
 - Frozen clean `023` SHA-256:
-  `44f4fe6213ec2377eccfbdb439180aa37b9e70c2e29e7177d7982340934fb49f`
+  `29ef7c13c5553ec88c8bcb98f7378c925f0e600e2fcf3d944df5926efed7a070`
+- Frozen clean `023` checkpoint:
+  `outputs/canonical_entity_coherent_023/`
+  `canonical_entity_action_scorer_coherent_width64_best.pt`
+
+The first pre-evidence invocation exposed that the original protocol listed
+the SHA-256 of the unrelated legacy attention experiment numbered `023` while
+calling it the clean canonical `023`. It stopped at checkpoint construction,
+before completing collection, training, or writing any evidence. This
+prospective identity repair binds the already intended and historically frozen
+clean canonical checkpoint above; no result or learning statistic was
+available when repaired.
 
 All acting-policy inputs use only the legal public observation, legal-action
 features, and `splendor-public-action-v1` transcript established by `061`.

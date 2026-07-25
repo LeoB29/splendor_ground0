@@ -42,7 +42,7 @@ CHECKPOINT_016_SHA256 = (
     "876ac23a005d367ac48b3619bb7cdcb6e0230a3e9e97943d7eecdc6d07d1b056"
 )
 CHECKPOINT_023_SHA256 = (
-    "44f4fe6213ec2377eccfbdb439180aa37b9e70c2e29e7177d7982340934fb49f"
+    "29ef7c13c5553ec88c8bcb98f7378c925f0e600e2fcf3d944df5926efed7a070"
 )
 COLLECTION_SEEDS = {1: 620_000, 2: 621_000, 3: 622_000}
 PARENT_GATE_SEEDS = {1: 623_100, 2: 623_200, 3: 623_300}
@@ -438,8 +438,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--checkpoint-023",
         type=Path,
         default=Path(
-            "outputs/legal_action_scorer_023_attention_pgs_distill/"
-            "legal_action_attention_scorer_best.pt"
+            "outputs/canonical_entity_coherent_023/"
+            "canonical_entity_action_scorer_coherent_width64_best.pt"
         ),
     )
     return parser
