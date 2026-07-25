@@ -1,5 +1,50 @@
 # Agent Handoff
 
+## 2026-07-25: Recurrent league Stage A passes
+
+Experiment `061` prospectively froze the first engineering stage of the
+history-aware population-self-play reset at commit `c68f3f0`; implementation
+was frozen separately at `603713f`, after the strategic checkpoint `133d75f`.
+Focused contracts passed, then the corrected inherited-`PYTHONPATH` full suite
+passed 520/520 before evidence.
+
+The implementation freezes exact legal champion `035`, adds a one-layer
+64-wide GRU over the existing information-legal public-action event schema,
+and conditions a 128-wide action residual on frozen parent state, action, and
+score features plus history. The residual output layer is exact zero at
+initialization, so epoch zero is behavior-preserving. The match runner now
+supports optional `start_game` and `observe_action` hooks, called once per
+distinct bot, which gives recurrent bots a resettable legal transcript without
+trying to infer opponent moves. Variable-length action sets and histories have
+a padded batch representation; the tracker and model both round-trip through
+checkpoints.
+
+Every frozen integrity condition passed. Seeds `610000--610007` produced 510
+retained decisions and eight normal completions; a second clean run reproduced
+every public action trace, ending, turn count, winner, and score. Recurrent
+scores, values, and greedy choices exactly matched `035` on every decision and
+in padded batches. Checkpoint reload was exact. Full-sequence versus stepwise
+GRU context maximum error was `4.0233e-07`. All 37 blind reserves revealed
+only their public tier, and observer-relative history checks passed.
+
+Matched batch timing measured 4,504 parent decisions/second and 2,544 recurrent
+decisions/second, a `1.7705x` cost ratio inside the preregistered `3.0x` bound.
+No optimizer step or outcome-conditioned selection occurred. Formal decision:
+`recurrent_stage_a_feasible_authorize_stage_b_preregistration`.
+
+This pass establishes machinery, not strength. It authorizes only a separately
+preregistered small synchronous multi-generation Stage B learning pilot. Do
+not jump directly to the approximately 10,000-game scale run, promotion,
+resolver collection, or GPU rental. Stage B should use complete on-policy
+trajectories, final score margin and WDL, exact opponent/seat balance,
+historical policy snapshots, and parent-relative update gates.
+
+Evidence:
+`outputs/recurrent_league_stage_a_061/result.json`, SHA-256
+`1b1469fca9b7abcc22525e6f57a2fcdf9091863efe80bbb5e862f6deb1665f08`.
+Epoch-zero checkpoint SHA-256:
+`2d807231666420bb221049aa7e2a4a28358ef62618cf1c652ede67dd7249acef`.
+
 ## 2026-07-25: Move from unstable teachers to recurrent population self-play
 
 After `060`, the complete roadmap was reconsidered rather than selecting

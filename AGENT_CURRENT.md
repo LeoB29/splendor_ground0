@@ -2,6 +2,39 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-25 Recurrent League Stage A Passes
+
+- `061` was preregistered at `c68f3f0`, implemented at `603713f`, and run
+  CPU-only after the corrected full suite passed `520/520`. The initial
+  strategic checkpoint was `133d75f`.
+- The new model freezes every `035` parameter and adds a legal public-history
+  GRU plus an action-conditional residual whose final layer is initialized to
+  exact zero. Match lifecycle hooks now reset bots at game start and publish
+  every legal transition to both bots; bots without hooks are unchanged.
+- All frozen Stage A integrity conditions passed. Across 510 retained decisions
+  from seeds `610000--610007`, recurrent scores, values, and greedy choices
+  exactly matched `035`. The second clean run reproduced every trace, ending,
+  turn count, winner, and score exactly. All eight games completed normally.
+- Full-history and event-by-event GRU states agreed to maximum absolute error
+  `4.0233e-07`; padded-batch and single-row choices agreed; saving and reloading
+  the checkpoint was exact. All 37 blind-reserve events exposed the tier but
+  no card identity, and observer-relative encodings passed.
+- Batched CPU inference measured 2,544 decisions/second versus 4,504 for the
+  parent, a `1.7705x` cost ratio below the frozen `3.0x` feasibility ceiling.
+  This is not yet a collection-time estimate, but establishes that recurrence
+  is not an engineering or GPU blocker.
+- Formal decision:
+  `recurrent_stage_a_feasible_authorize_stage_b_preregistration`.
+  No training occurred and this does not authorize the 10,000-game scale run
+  or promotion. The next step is a separately frozen, small synchronous
+  multi-generation Stage B learning pilot with historical league snapshots,
+  parent-relative update gates, opponent/seat balancing, and complete
+  trajectory score-margin/WDL targets. Keep the resolver out of collection.
+- Evidence is in `outputs/recurrent_league_stage_a_061/result.json`, SHA-256
+  `1b1469fca9b7abcc22525e6f57a2fcdf9091863efe80bbb5e862f6deb1665f08`.
+  The epoch-zero checkpoint SHA-256 is
+  `2d807231666420bb221049aa7e2a4a28358ef62618cf1c652ede67dd7249acef`.
+
 ## 2026-07-25 Strategic Reset to Recurrent Population Self-Play
 
 - The post-`060` project review keeps the initial roadmap but identifies the
