@@ -2,6 +2,55 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-25 Early Resolver Variance Is Belief-Sampling Dominated
+
+- `058` prospectively froze an early-state crossed variance decomposition at
+  `ecc2fd3` and implemented it at `17e9852`. Focused contracts passed, then
+  the full suite passed `503/503` before evidence.
+- It used all 24 outcome-blind early `055` states, exactly four in each
+  seat x original-gap cell. Each state crossed four independent
+  three-determinization belief batches with four paired continuation
+  replicates, two continuations per leaf: exactly 36,864 primary
+  continuations. All states/cells completed, every continuation resolved,
+  there were zero hard caps or structural failures, and the first full
+  1,536-continuation state repeated byte-identically. Every integrity
+  condition passed.
+- The hard-min two-way decomposition attributed 61.74% of early root-value
+  variance to the belief-batch main effect, only 9.23% to continuation
+  randomness, and 29.03% to interaction. Belief dominance held in both seats
+  (`60.99%`/`62.73%`) and every gap stratum (`57.16%`-`67.42%`).
+- Split stability makes the effect concrete. Changing belief halves after
+  averaging continuation conditions produced only 20.83% exact and 25.0%
+  value-equivalent agreement, Spearman `0.2183`, and mean regret `0.05994`.
+  Changing continuation halves while averaging all belief batches produced
+  62.5% exact and 75.0% equivalent agreement, Spearman `0.6028`, and mean
+  regret `0.01029`. Belief-split regret was 5.83 times continuation-split
+  regret.
+- Opponent hard-min responses did switch heavily: every state/root switched,
+  with mean modal deviation 75.52%. But a `tau=0.05` smooth-min did not cure
+  the belief split: exact fell from 20.83% to 16.67%, equivalence from 25.0%
+  to 16.67%, and regret slightly increased. Across both split axes,
+  smooth-min exact gained only 4.17 points and regret ratio was `0.976`, so
+  minimizer switching is primarily a symptom of changing belief samples, not
+  the main cause.
+- Formal decision:
+  `belief_sampling_primary_design_broader_public_belief_search`. No corpus,
+  training, gameplay, promotion, or GPU rental was authorized.
+- Do not add more rollouts to the same three determinizations or tune the hard
+  minimum. The next justified experiment is a compute-matched belief-breadth
+  allocation audit at fixed 192-continuation budget: compare the current
+  `3 determinizations x 4 continuations/leaf` with `6 x 2` and `12 x 1`,
+  pooling all determinizations inside one information-set-consistent solve.
+  Run independent paired estimates on balanced early states and require
+  materially better early ordering/equivalence without mid/late regression.
+  If `12 x 1` still fails, move to public-belief IS-MCTS/visit distributions
+  rather than increasing direct-resolver budget.
+- Primary collection took 1,412.04 seconds wall time on ten CPU workers
+  (8,960.70 aggregate process CPU seconds), plus the deterministic repeat.
+  Evidence is in
+  `outputs/early_resolver_variance_decomposition_058/result.json`; SHA-256 is
+  `9369c7a6ace8cacd0907fa4dd6d2dd72a48495aae3b09725cd5664d0ffa74a64`.
+
 ## 2026-07-25 Adaptive Resolver Allocation Failed
 
 - `057` prospectively froze the adaptive-teacher audit at `6c1a0ea` and

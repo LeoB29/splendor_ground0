@@ -1,5 +1,99 @@
 # Agent Handoff
 
+## 2026-07-25: Early instability is caused primarily by narrow belief sampling
+
+Experiment `058` decomposed the early-game variance exposed by `056` and
+`057`. The protocol was frozen at `ecc2fd3`, then implemented at `17e9852`.
+Focused contracts and the complete `503/503` test suite passed before
+evidence.
+
+Selection used every early row in the frozen outcome-blind `055` selection:
+24 unique states, exactly four in each seat x close/medium/clear gap cell,
+from at least 12 games. For every state, the audit crossed four independent
+belief batches with four continuation replicates. Each belief batch contained
+three legal-observation determinizations; each cell evaluated four roots,
+four opponent responses, and two continuations per leaf. Continuation seeds
+were paired across belief batches and semantic branches. The primary matrix
+therefore used exactly 24 x 4 x 4 x 3 x 4 x 4 x 2 = 36,864 continuations.
+
+All 24 states and all 384 cells completed. Every continuation resolved, with
+zero hard caps, no structural fallback, stable opponent action sets, finite
+leaf/root values, and exact root alignment. A from-zero repeat of the first
+entire 1,536-continuation matrix was byte-identical after timing fields were
+removed. Every integrity gate passed.
+
+The balanced hard-min ANOVA was decisive:
+
+- public-belief batch main effect: 61.741%;
+- continuation replicate main effect: 9.225%;
+- belief x continuation interaction: 29.034%.
+
+The finding was not driven by one seat or gap. Belief fractions were 60.99%
+for seat 0 and 62.73% for seat 1. Close, medium, and clear strata were
+58.00%, 57.16%, and 67.42% belief-driven, respectively; continuation
+fractions were only 11.29%, 10.13%, and 7.17%.
+
+Matched split metrics made the attribution even clearer. When continuation
+conditions were fully averaged but independent belief halves were compared:
+
+- exact best agreement was 20.83%, game-bootstrap CI95 `[5.0%,33.33%]`;
+- value-equivalent agreement was 25.0%, CI95 `[9.09%,39.13%]`;
+- within-state Spearman was `0.21828`;
+- mean symmetric cross-regret was `0.05994`, p90 `0.09906`;
+- clear-gap exact/equivalent agreement was only 12.5%/12.5%.
+
+When all four belief batches were averaged and continuation halves were
+compared:
+
+- exact agreement was 62.5%, CI95 `[40.0%,80.95%]`;
+- value-equivalent agreement was 75.0%, CI95 `[57.69%,91.31%]`;
+- Spearman was `0.60278`;
+- mean regret was `0.01029`, p90 `0.03266`;
+- equivalence was exactly 75% in both seats and all three gap strata.
+
+Thus belief-split regret was 5.83 times continuation-split regret. More
+rollouts within the same narrow belief sample are not the economical route.
+
+Opponent minimizers were visibly unstable: all 96 state/root combinations
+changed selected response somewhere in the 16 cells, mean modal-response
+deviation was 75.52%, and there were 9.22 unique response signatures on
+average. However, this did not make hard minimization the primary cause. A
+frozen `tau=0.05` smooth-min over the identical leaves slightly worsened the
+belief split: exact 16.67%, equivalence 16.67%, regret `0.06109`. It improved
+the continuation split to 75% exact and 83.33% equivalence, but averaged over
+both axes the exact gain was only 4.17 points and the regret ratio was
+`0.976`, far from the frozen causal gate. Opponent switching is mostly a
+downstream response to different hidden-belief samples.
+
+Formal decision:
+`belief_sampling_primary_design_broader_public_belief_search`. All three
+belief-primary gates passed; continuation-primary gates all failed, and the
+minimizer gate passed only its raw switch-rate condition. No collection,
+training, gameplay, promotion, or GPU rental was authorized.
+
+The next experiment should reallocate, not enlarge, the current resolver
+budget. At exactly 192 continuations per estimate, compare:
+
+1. current `3 determinizations x 4 continuations/leaf`;
+2. `6 determinizations x 2 continuations/leaf`;
+3. `12 determinizations x 1 continuation/leaf`.
+
+Crucially, pool all determinizations into one information-set-consistent
+resolution before selecting the root action; do not average separately
+minimized three-determinization calls. Use independent paired namespaces on a
+balanced early development set, with a smaller mid/late guardrail sample,
+and gate on early exact/equivalent agreement, regret, response-set integrity,
+and compute matching. If broader 12x1 belief sampling materially improves
+early stability, it becomes the candidate teacher/search core for a separate
+gameplay pilot. If it does not, direct scalar shallow-resolver targets should
+give way to public-belief IS-MCTS/POMCP-style visit distributions.
+
+The primary matrix took 1,412.04 seconds wall time on ten workers and
+8,960.70 aggregate process CPU seconds, followed by the deterministic repeat.
+Evidence is under `outputs/early_resolver_variance_decomposition_058`;
+`result.json` SHA-256 is
+`9369c7a6ace8cacd0907fa4dd6d2dd72a48495aae3b09725cd5664d0ffa74a64`.
+
 ## 2026-07-25: Adaptive root allocation saves compute but loses teacher quality
 
 Experiment `057` tested the teacher redesign directed by `056`. The protocol
