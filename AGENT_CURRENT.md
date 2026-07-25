@@ -2,6 +2,56 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-25 Generation-2 Diagnosis: Noisy Credit, History Mostly Unused
+
+- `063` was preregistered at `b3f0fb5`, implemented at `b762509`, and run only
+  after the full suite passed `527/527`. It performed no training and no new
+  gameplay. The exact generation-2 corpus was reconstructed from the original
+  seeds: all 240 game summaries and the complete collection summary matched
+  `062` exactly, and behavior reconstruction error remained below `1e-5`.
+- The update strongly fit its 200 training games: game-balanced surrogate
+  `+0.007162`, with 66.5% of games contributing positively. On the 40-game
+  validation split it reversed to `-0.000659`, but the game-cluster CI95 was
+  `[-0.007528, +0.005839]`. Alternating within-cell halves disagreed:
+  `+0.000854` versus `-0.002172`. This is a real train/validation reversal but
+  not evidence of a systematically negative population effect.
+- The failure was localized. Early decisions had surrogate `-0.014283`, while
+  mid and late were positive at `+0.005861` and `+0.005795`. The largest
+  negative opponent/seat cells were clean `023` seat 0 (`-0.014801`) and raw
+  `035` seat 1 (`-0.014424`), each based on only four validation games. Both
+  actor seats were essentially equally weak overall, so this is not a global
+  seat bug.
+- The 17-23 parent gameplay result was also uncertain rather than decisive.
+  Paired-seed bootstrap CI95 for candidate share was `[0.275, 0.575]`; paired
+  margin CI95 was `[-2.475, +0.875]`. It still correctly failed the frozen
+  `062` gate and cannot be retroactively accepted, but it does not establish
+  systematic inferiority.
+- The intended recurrent mechanism was barely used. Replacing every validation
+  transcript with empty history retained 95.84% of real-history KL
+  (`0.003283` versus `0.003426`); chosen-action log-ratio correlation was
+  `0.9968`, and only 4.16% of movement disappeared. The residual learned
+  almost entirely from frozen current-state/action features.
+- Successive directions did not compose. Parameter-delta cosine was `+0.0348`
+  overall and generation-1/generation-2 centered-logit cosine was `-0.0016`:
+  essentially orthogonal, not a strong global inversion. Midgame logit cosine
+  was specifically negative at `-0.1107`; early/late were mildly positive.
+- Diagnosis: the second generation overfit high-variance whole-game credit,
+  especially the weakest-credit early decisions, while taking an almost
+  history-independent direction. The small validation/gameplay gates detected
+  that unreliability but are too uncertain to claim true regression.
+  Population self-play is not disproved; this exact state-heavy recurrent
+  residual plus uniform whole-trajectory credit is.
+- Formal decision:
+  `generation2_failure_diagnostic_complete_no_scale_authorized`.
+  Do not rerun `062`, enlarge it directly, relax its gates, or rent a GPU.
+  Before another succession pilot, structurally require policy movement to
+  pass through history and reduce early-decision credit dominance; use a fresh
+  preregistered corpus and larger per-cell validation, not the `062` outcomes
+  for selection.
+- Evidence:
+  `outputs/recurrent_generation2_diagnosis_063/result.json`, SHA-256
+  `ee6b5275ff012081b7bce97637ccd64fd1bae25ae74e07c434f71915c6882a73`.
+
 ## 2026-07-25 Recurrent Stage B Accepts One Generation, Rejects the Second
 
 - `062` was preregistered at `c0a9988` and implemented at `ced5257`; the full

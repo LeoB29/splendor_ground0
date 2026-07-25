@@ -1,5 +1,58 @@
 # Agent Handoff
 
+## 2026-07-25: Generation-2 failure is noisy credit and unused recurrence
+
+Experiment `063` froze a no-training diagnosis at `b3f0fb5`, implemented it at
+`b762509`, and ran it after the full suite passed 527/527. It reconstructed
+generation 2 using accepted generation 1, the exact five-member league, seed
+start 621000, and the original sampling formula. All 240 per-game summaries
+and the entire collection summary matched `062` exactly. Behavior probability
+reconstruction passed. No optimizer step and no new gameplay occurred.
+
+The apparent failure is primarily a generalization/credit-variance problem,
+not a clean proof that generation 2 is weaker. Its 200 training games had
+game-balanced surrogate +0.007162 and 66.5% positive game contributions. The
+40 validation games reversed to -0.000659, but game-cluster bootstrap CI95 was
+[-0.007528,+0.005839]. The two within-cell alternating halves had opposite
+signs (+0.000854 and -0.002172). Every opponent-seat validation cell contained
+only four games.
+
+The negative signal was concentrated rather than broad. Early turns 0-19
+scored -0.014283, while mid and late were both positive (+0.005861 and
++0.005795). Clean `023` seat 0 and raw `035` seat 1 were the two dominant
+negative cells at -0.014801 and -0.014424. Overall seat-0/seat-1 surrogates
+were nearly identical, so no global seat implementation fault was found.
+
+The existing 17-23 immediate-parent gate is also statistically inconclusive:
+paired-seed score-share CI95 [0.275,0.575] and paired-margin CI95
+[-2.475,+0.875]. This does not change the preregistered failure—42.5% remains
+below its frozen 45% floor—but it means the audit did not establish a
+systematically inferior policy.
+
+Most importantly, the purported recurrent update barely depended on history.
+With every transcript emptied, raw parent-relative KL remained 0.003283 versus
+0.003426 with real history, so only 4.16% of movement disappeared. Chosen
+action log-ratio correlation was 0.9968. The residual exploited its frozen
+current-state/action inputs and almost ignored the GRU.
+
+Generation directions were incoherent rather than strongly opposite.
+Parameter-delta cosine was +0.0348 and mean centered-logit cosine -0.0016,
+essentially orthogonal. The midgame direction was genuinely opposing at
+-0.1107, while early and late cosines remained mildly positive.
+
+Formal decision:
+`generation2_failure_diagnostic_complete_no_scale_authorized`.
+The evidence rejects this exact combination of a state-heavy residual and
+uniform whole-trajectory credit, not population self-play in principle. Do not
+rerun or scale `062`, relax its gates, or rent a GPU. A future repair should
+make residual movement structurally history-dependent, prevent low-confidence
+early decisions from dominating the same game return, and use a fresh corpus
+with more than four validation games per opponent-seat cell.
+
+Evidence:
+`outputs/recurrent_generation2_diagnosis_063/result.json`, SHA-256
+`ee6b5275ff012081b7bce97637ccd64fd1bae25ae74e07c434f71915c6882a73`.
+
 ## 2026-07-25: Recurrent Stage B passes generation 1, fails generation 2
 
 Experiment `062` froze a three-generation CPU population-self-play pilot at
