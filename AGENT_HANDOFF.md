@@ -1,5 +1,97 @@
 # Agent Handoff
 
+## 2026-07-25: Adaptive root allocation saves compute but loses teacher quality
+
+Experiment `057` tested the teacher redesign directed by `056`. The protocol
+was frozen at `6c1a0ea`, then implemented at `7f185bd`. Focused contracts and
+the complete `497/497` test suite passed before evidence.
+
+Selection took the two persisted `055` rows per seat x phase x original-gap
+cell that `056` had not used. This produced 36 unique outcome-blind states
+from at least 15 games with zero overlap with `056`. Frozen completed A/B
+estimates were reused. C-P used namespace indices 17-30, disjoint from the
+indices used in `056`. All 504 new searches completed, all 96,768
+continuations resolved, and there were zero hard caps, loop adjudications,
+structural failures, or illegal actions. Ordered roots remained aligned and
+the first C search repeated byte-identically. Every integrity gate passed.
+
+The frozen offline allocator initialized every root with two resolver
+estimates, maintained Student confidence intervals, kept roots whose upper
+bound remained within `0.025` of the best lower bound, and spent the next
+48-continuation root unit on the widest active interval. It stopped after a
+stable sufficiently narrow set or at the per-root 8x ceiling.
+
+It was computationally effective:
+
+- mean 20.97 and median 20 root units per arm, versus 32 for uniform 8x;
+- mean 1,006.67 continuations per arm, a 34.46% saving;
+- 59/72 arms stopped on the stable-confidence condition;
+- mean set Jaccard `0.85417` and diagnostic-distribution JSD `0.11348`.
+
+However, the apparent set stability was weak evidence of a useful target.
+Final sets contained all four roots in 34/72 arms, three in 17, two in 16,
+and one in only five. The adaptive paired result was:
+
+- exact best agreement 50.0%, CI95 `[33.33%,65.38%]`;
+- value-equivalent agreement 61.11%, CI95 `[42.31%,77.78%]`;
+- Pearson `0.95898`, but within-state Spearman only `0.46321`;
+- mean symmetric cross-regret `0.02157`, p90 `0.06615`;
+- exact set agreement 58.33%.
+
+The same-state uniform A-H versus I-P means were materially better:
+
+- exact agreement 61.11%, CI95 `[40.63%,80.0%]`;
+- value-equivalent agreement 66.67%, CI95 `[48.39%,83.33%]`;
+- Pearson `0.97881`, Spearman `0.56937`;
+- mean regret `0.01238`, p90 `0.03516`.
+
+Adaptivity therefore lost 11.11 exact-agreement points, 5.56 equivalence
+points, and `0.10616` Spearman while adding `0.00919` mean regret. It saved
+compute by prematurely discarding samples that still mattered to action
+ordering.
+
+The more important result is the independent replication of the phase
+structure. Adaptive early/mid/late exact agreement was
+33.33%/58.33%/58.33%, and equivalence was 41.67%/66.67%/75.0%. Uniform 8x
+early/mid/late exact was 33.33%/75.0%/75.0%, and equivalence was
+41.67%/83.33%/75.0%. In `056`, uniform 8x early exact/equivalence had been
+25.0%/50.0%. Two balanced samples now agree that early root ordering remains
+unstable at 8x even when mid/late becomes useful. Seat 1 and the nominal
+clear-gap stratum also remained weak, but phase is the strongest replicated
+failure.
+
+Formal decision: `adaptive_allocation_failed_redesign_search_teacher`.
+Neither adaptive point targets nor equivalence targets are authorized.
+Uniform 8x also failed its frozen gates, so it does not provide a fallback
+teacher. No corpus collection, training, gameplay, promotion, or GPU rental
+was performed.
+
+Do not salvage this result by tuning the Student threshold after seeing it,
+training on broad confidence sets, or uniformly doubling to 16x. The next
+clean question is why early estimates vary. Preregister a small early-state
+variance decomposition that exposes leaf-level rollouts and opponent
+minimizer choices:
+
+1. freeze public-belief determinizations and independently resample
+   continuations;
+2. resample public-belief determinizations while keeping paired continuation
+   conditions fixed as far as the semantic branches allow;
+3. decompose root-value variance and best-action changes into continuation
+   noise, belief-sample noise, and opponent-response/minimizer switching.
+
+If belief sampling dominates, redesign toward much broader belief sampling
+and public-belief IS-MCTS/POMCP-style visit distributions. If continuation
+noise dominates, improve or lengthen the rollout evaluator and use paired
+common random numbers. If minimizer switching dominates, replace the
+discontinuous four-response minimum with a stable response distribution or
+visit target. This bounded diagnostic is still CPU work and should precede
+any GPU rental.
+
+The new matrix took 2,018.26 seconds wall time on ten workers, with 13,499.28
+aggregate process CPU seconds. Evidence is under
+`outputs/adaptive_resolver_teacher_audit_057`; `result.json` SHA-256 is
+`72d935d5b3e4430a362e365b4e782bcb04aca41c0c3c2ad84549f82e859a4754`.
+
 ## 2026-07-24: Resolver averaging converges, but uniform 8x is not a valid teacher
 
 Experiment `056` answered the budget-convergence question raised by `055`.

@@ -2,6 +2,54 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-25 Adaptive Resolver Allocation Failed
+
+- `057` prospectively froze the adaptive-teacher audit at `6c1a0ea` and
+  implemented it at `7f185bd`. Focused contracts passed, then the full suite
+  passed `497/497` before evidence.
+- It selected the 36 balanced `055` states not used by `056`, exactly two in
+  every seat x phase x original-gap cell, spanning at least 15 games. Frozen
+  A/B were reused and C-P used random namespaces disjoint from `056`. All 504
+  new searches and all 96,768 continuations resolved with zero hard caps,
+  loop adjudications, structural failures, or illegal actions. The first C
+  estimate repeated byte-identically and every integrity condition passed.
+- The preregistered confidence allocator used a mean 20.97 root units and
+  1,006.67 continuations per arm, versus 32 units/1,536 continuations for
+  uniform 8x: a 34.46% compute saving. It stopped on a stable confidence set
+  in 59/72 arms. Mean set Jaccard was `0.8542` and diagnostic-distribution JSD
+  `0.1135`, but those apparently stable sets were often broad: 34/72 arms
+  still contained all four actions and only 5/72 contained one.
+- Adaptive estimates achieved only 50.0% exact best agreement, 61.11%
+  value-equivalent agreement, Spearman `0.4632`, mean cross-regret `0.02157`,
+  and p90 regret `0.06615`. Relative to same-state uniform 8x, adaptivity lost
+  11.11 exact-agreement points and 5.56 equivalence points, reduced Spearman
+  by `0.1062`, and added `0.00919` mean regret. Saving compute by stopping on
+  marginal root intervals therefore discarded strategically material
+  evidence.
+- Same-state uniform 8x was better but also failed: 61.11% exact, 66.67%
+  equivalent, Spearman `0.5694`, and mean regret `0.01238`. Most importantly,
+  it independently reproduced the early-game collapse: early exact/equivalent
+  agreement was 33.33%/41.67%, versus 75.0%/83.33% mid and 75.0%/75.0% late.
+  Adaptive early results were 33.33%/41.67%. Thus neither the allocator nor
+  the second fresh uniform sample supports a teacher protocol.
+- Formal decision: `adaptive_allocation_failed_redesign_search_teacher`.
+  Neither point nor equivalence corpus generation was authorized. No
+  training, gameplay, promotion, or GPU rental occurred.
+- Do not tune the stopping threshold, train against these confidence sets, or
+  pay for uniform 16x yet. The next justified experiment is a small,
+  preregistered early-state variance-decomposition audit. Hold belief
+  determinizations fixed while resampling continuations, then hold paired
+  continuation conditions fixed while resampling belief determinizations,
+  and record leaf/opponent-minimizer switching. This will distinguish rollout
+  noise, hidden-belief sampling, and discontinuous minimax response selection.
+  The result should determine whether the replacement teacher needs more
+  belief breadth, better continuations, or a visit-distribution/soft-response
+  search such as public-belief IS-MCTS. CPU remains appropriate.
+- The new matrix took 2,018.26 seconds wall time on ten CPU workers
+  (13,499.28 aggregate process CPU seconds). Evidence is in
+  `outputs/adaptive_resolver_teacher_audit_057/result.json`; SHA-256 is
+  `72d935d5b3e4430a362e365b4e782bcb04aca41c0c3c2ad84549f82e859a4754`.
+
 ## 2026-07-24 Resolver Budget Convergence Is Real but Uneven
 
 - `056` prospectively froze a no-training 1x/2x/4x/8x convergence audit at
