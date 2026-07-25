@@ -27,6 +27,7 @@ from splendor_ai.training.recurrent_policy import (
     save_recurrent_policy_checkpoint,
 )
 from splendor_ai.training.run_history_required_recurrent_repair import (
+    _final_population_gates,
     _rotated_history_steps,
 )
 
@@ -219,3 +220,23 @@ def test_history_rotation_stays_within_exact_stratum() -> None:
     assert len(rotated[0].policy_input.history.action_type_ids) == len(
         steps[0].policy_input.history.action_type_ids
     )
+
+
+def test_final_collapse_gate_includes_exact_negative_ten_percent() -> None:
+    population = {
+        "valid": True,
+        "games": 160,
+        "aggregate_delta": -0.0125,
+        "opponents": {
+            "a": {"delta": -0.10000000000000003},
+            "b": {"delta": -0.05},
+            "c": {"delta": 0.10},
+            "d": {"delta": 0.0},
+        },
+    }
+
+    gates = _final_population_gates(population)
+
+    assert gates["no_opponent_collapse"]
+    assert gates["two_opponents_nonnegative"]
+    assert not gates["aggregate_delta_positive"]

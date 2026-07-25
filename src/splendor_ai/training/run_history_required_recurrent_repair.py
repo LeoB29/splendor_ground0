@@ -387,6 +387,26 @@ def _generation_gates(
     }
 
 
+def _final_population_gates(
+    final_population: dict[str, Any],
+) -> dict[str, bool]:
+    deltas = [
+        row["delta"]
+        for row in final_population["opponents"].values()
+    ]
+    return {
+        "all_160_games_valid": final_population["valid"]
+        and final_population["games"] == 160,
+        "aggregate_delta_positive": final_population["aggregate_delta"] > 0.0,
+        "two_opponents_nonnegative": sum(delta >= 0.0 for delta in deltas)
+        >= 2,
+        # Score shares are exact multiples of 0.05 here, but their subtraction
+        # is binary floating-point. Preserve the protocol's inclusive -0.10
+        # boundary rather than rejecting -0.10000000000000003.
+        "no_opponent_collapse": min(deltas) >= -0.10 - 1e-12,
+    }
+
+
 def run(
     *,
     output_dir: Path,
@@ -596,19 +616,7 @@ def run(
             pairs=10,
             config=final_config,
         )
-        deltas = [
-            row["delta"]
-            for row in final_population["opponents"].values()
-        ]
-        final_gates = {
-            "all_160_games_valid": final_population["valid"]
-            and final_population["games"] == 160,
-            "aggregate_delta_positive": final_population["aggregate_delta"]
-            > 0.0,
-            "two_opponents_nonnegative": sum(delta >= 0.0 for delta in deltas)
-            >= 2,
-            "no_opponent_collapse": min(deltas) >= -0.10,
-        }
+        final_gates = _final_population_gates(final_population)
     passed = len(accepted_models) == 2 and all(final_gates.values())
     decision = (
         "history_required_repair_composes_authorize_stage_c_preregistration"
