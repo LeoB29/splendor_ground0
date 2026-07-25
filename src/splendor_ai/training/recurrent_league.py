@@ -63,6 +63,9 @@ class RecurrentLeagueConfig:
     uniform_mix: float = 0.05
     score_margin_scale: float = 20.0
     outcome_weight: float = 0.5
+    early_turn_weight: float = 1.0
+    mid_turn_weight: float = 1.0
+    late_turn_weight: float = 1.0
     validation_divisor: int = 5
     minimum_validation_games_per_cell: int = 4
     epochs: int = 4
@@ -529,13 +532,19 @@ def _assign_returns_and_advantages(
         std = max(_population_std(returns), 1e-6)
         for game in cell_games:
             advantage = (game.game_return - mean) / std
-            step_weight = 1.0 / max(len(game.steps), 1)
-            for step in game.steps:
+            phase_weights = [
+                _decision_phase_weight(step.policy_input.turn, config)
+                for step in game.steps
+            ]
+            phase_weight_total = sum(phase_weights)
+            if phase_weight_total <= 0.0:
+                raise ValueError("Every game needs positive decision weight.")
+            for step, phase_weight in zip(game.steps, phase_weights):
                 step.final_wdl = game.final_wdl
                 step.final_margin = game.final_margin
                 step.game_return = game.game_return
                 step.advantage = advantage
-                step.game_weight = step_weight
+                step.game_weight = phase_weight / phase_weight_total
 
 
 def train_recurrent_generation(
@@ -1055,6 +1064,23 @@ def _interpolate_trainable(
 def _population_std(values: list[float]) -> float:
     mean = sum(values) / len(values)
     return math.sqrt(sum((value - mean) ** 2 for value in values) / len(values))
+
+
+def _decision_phase_weight(
+    turn: int,
+    config: RecurrentLeagueConfig,
+) -> float:
+    if min(
+        config.early_turn_weight,
+        config.mid_turn_weight,
+        config.late_turn_weight,
+    ) < 0.0:
+        raise ValueError("Decision phase weights must be nonnegative.")
+    if turn < 20:
+        return config.early_turn_weight
+    if turn < 50:
+        return config.mid_turn_weight
+    return config.late_turn_weight
 
 
 def _batches(indices: list[int], size: int) -> list[list[int]]:

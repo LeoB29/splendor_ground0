@@ -44,6 +44,7 @@ class RecurrentPolicyConfig:
     history_numeric_hidden_size: int = 32
     history_hidden_size: int = 64
     residual_hidden_size: int = 128
+    residual_mode: str = "state_history_concat"
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +109,11 @@ class RecurrentLegalActionAttentionScorerModel(nn.Module):
         super().__init__()
         self.parent = parent
         self.config = config or RecurrentPolicyConfig()
+        if self.config.residual_mode not in {
+            "state_history_concat",
+            "history_required_interaction",
+        }:
+            raise ValueError("Unsupported recurrent residual mode.")
         for parameter in self.parent.parameters():
             parameter.requires_grad_(False)
         self.parent.eval()
@@ -148,19 +154,41 @@ class RecurrentLegalActionAttentionScorerModel(nn.Module):
             num_layers=1,
             batch_first=True,
         )
-        residual_width = (
+        state_action_width = (
             self.parent.config.state_hidden_size
             + self.parent.config.action_hidden_size
             + 1
-            + self.config.history_hidden_size
         )
-        self.residual_hidden = nn.Sequential(
-            nn.Linear(residual_width, self.config.residual_hidden_size),
-            nn.GELU(),
-        )
-        self.residual_output = nn.Linear(self.config.residual_hidden_size, 1)
-        nn.init.zeros_(self.residual_output.weight)
-        nn.init.zeros_(self.residual_output.bias)
+        if self.config.residual_mode == "state_history_concat":
+            self.residual_hidden = nn.Sequential(
+                nn.Linear(
+                    state_action_width + self.config.history_hidden_size,
+                    self.config.residual_hidden_size,
+                ),
+                nn.GELU(),
+            )
+            self.residual_output = nn.Linear(
+                self.config.residual_hidden_size,
+                1,
+            )
+            nn.init.zeros_(self.residual_output.weight)
+            nn.init.zeros_(self.residual_output.bias)
+        else:
+            self.required_action_projection = nn.Linear(
+                state_action_width,
+                self.config.residual_hidden_size,
+            )
+            self.required_history_projection = nn.Linear(
+                self.config.history_hidden_size,
+                self.config.residual_hidden_size,
+                bias=False,
+            )
+            self.required_output = nn.Linear(
+                self.config.residual_hidden_size,
+                1,
+                bias=False,
+            )
+            nn.init.zeros_(self.required_output.weight)
 
     @property
     def parent_config(self) -> LegalActionAttentionScorerConfig:
@@ -325,21 +353,38 @@ class RecurrentLegalActionAttentionScorerModel(nn.Module):
             history_numeric_features,
             history_mask,
         )
-        expanded_history = history_context.unsqueeze(1).expand(
-            batch_size,
-            legal_count,
-            self.config.history_hidden_size,
-        )
-        residual_input = torch.cat(
+        state_action_input = torch.cat(
             [
                 expanded_state.detach(),
                 contextual.detach(),
                 parent_scores.detach().unsqueeze(-1),
-                expanded_history,
             ],
             dim=-1,
         )
-        residual = self.residual_output(self.residual_hidden(residual_input)).squeeze(-1)
+        if self.config.residual_mode == "state_history_concat":
+            expanded_history = history_context.unsqueeze(1).expand(
+                batch_size,
+                legal_count,
+                self.config.history_hidden_size,
+            )
+            residual_input = torch.cat(
+                [state_action_input, expanded_history],
+                dim=-1,
+            )
+            residual = self.residual_output(
+                self.residual_hidden(residual_input)
+            ).squeeze(-1)
+        else:
+            action_projection = self.required_action_projection(
+                state_action_input
+            )
+            history_projection = self.required_history_projection(
+                history_context
+            ).unsqueeze(1)
+            interaction = torch.nn.functional.gelu(
+                action_projection * history_projection
+            )
+            residual = self.required_output(interaction).squeeze(-1)
         residual = residual.masked_fill(~legal_action_mask, 0.0)
         return parent_scores + residual, parent_value
 
