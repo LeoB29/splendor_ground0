@@ -1,5 +1,60 @@
 # Agent Handoff
 
+## 2026-07-25: Recurrent Stage B passes generation 1, fails generation 2
+
+Experiment `062` froze a three-generation CPU population-self-play pilot at
+`c0a9988` and implementation at `ced5257`. The full suite passed 523/523
+before evidence. The first invocation immediately revealed an identity error:
+the protocol named clean canonical `023` but listed the old legacy attention
+`023` path/hash. It failed while constructing that bot, before completing any
+collection or training and without writing evidence. The intended canonical
+checkpoint had already been frozen repeatedly in earlier experiments; its path
+and SHA-256 were repaired prospectively at `ad361ca`, then focused checks
+validated all prerequisites before the run restarted at the original seeds.
+
+Generation 1 was a clean success. It collected exactly 240 balanced games,
+7,536 actor decisions, 192 train games and 48 game-disjoint validation games,
+with all games completed normally. The recurrent update moved 4.50% of
+validation argmaxes at raw parent-relative KL 0.004530, kept normalized entropy
+0.3864, and achieved positive held-out game-balanced surrogate +0.003656.
+Behavior reconstruction error was 3.16e-6, checkpoint reload was exact, and
+all structural gates passed. On untouched seeds 623100--623119, generation 1
+beat epoch zero 22-18: 55.0% score share with +1.2 mean paired score margin.
+It became an accepted historical experiment snapshot but is not promoted.
+
+Generation 2 added that accepted snapshot to the fixed league and again
+collected exactly 240 balanced normal completions, now 7,489 actor decisions,
+200 train games and 40 validation games. Engineering and movement remained
+healthy: raw KL 0.003426, argmax movement 3.47%, entropy 0.3683, nonzero
+gradients, exact reconstruction/reload, and no stalls, cutoffs, or illegal
+actions.
+
+The second update nevertheless failed both an offline and an online quality
+condition. Its untouched validation surrogate was -0.000659 rather than
+strictly positive. On seeds 623200--623219 it lost 17-23 to accepted generation
+1, for 42.5% score share below the frozen 45% noninferiority floor. Mean paired
+margin -0.8 remained above the -2.0 guardrail but does not rescue the failed
+surrogate and win-share gates. The runner correctly stopped without generation
+3 or a final static-population comparison.
+
+Formal decision:
+`recurrent_stage_b_generation_failed_diagnose_before_scale`.
+This is the first evidence in the branch that one complete on-policy update can
+clear both held-out movement and parent gameplay, but it also shows that the
+same recipe does not reliably compose into a succession. Keep raw legal `035`
+as champion. Retain generation 1 only as a diagnostic/historical snapshot.
+Do not rerun generation 2, weaken gates, start the 10,000-game Stage C run, or
+rent a GPU; the active blocker is the reliability of the cross-generation
+learning signal, not compute.
+
+Evidence:
+`outputs/recurrent_league_stage_b_062/result.json`, SHA-256
+`2c4d245eb683d2008f84a3ac705c1fa684817e0fac3b7b000b07d7112d7eeb5d`.
+Accepted generation 1 checkpoint SHA-256:
+`e1805b4ff76cbe43f8ff19f3d38e94ef2ced87713109a451c9c249006945c485`.
+Rejected generation 2 checkpoint SHA-256:
+`b2d4f85b126b469eb70931a92cb9c808c44ceb743eb640803f97495530373d10`.
+
 ## 2026-07-25: Recurrent league Stage A passes
 
 Experiment `061` prospectively froze the first engineering stage of the

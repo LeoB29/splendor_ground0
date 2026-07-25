@@ -2,6 +2,49 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-25 Recurrent Stage B Accepts One Generation, Rejects the Second
+
+- `062` was preregistered at `c0a9988` and implemented at `ced5257`; the full
+  pre-evidence suite passed `523/523`. The first invocation exposed that the
+  protocol had attached the legacy attention `023` hash to the intended clean
+  canonical `023`. It stopped during opponent construction, before collection,
+  training, or evidence. The exact historical canonical path/hash was repaired
+  prospectively at `ad361ca`; focused checks passed before restarting from the
+  original seeds.
+- Generation 1 collected exactly 240/240 balanced valid games and 7,536 actor
+  decisions, with no rejected attempts, cutoffs, stalls, or illegal actions.
+  Its update passed every offline gate: validation raw KL `0.004530`, argmax
+  movement `4.50%`, surrogate `+0.003656`, normalized entropy `0.3864`, exact
+  behavior reconstruction and checkpoint reload. It then beat its epoch-zero
+  recurrent/`035` parent 22-18 on the untouched 40-game gate: 55.0% score
+  share and `+1.2` mean paired score margin. Generation 1 was accepted as an
+  experimental historical snapshot, not promoted.
+- Generation 2 added generation 1 to `035`, `016`, clean `023`, and legal
+  shallow search. It again collected exactly 240/240 balanced valid games and
+  7,489 decisions with no integrity failures. The update remained bounded and
+  meaningful in size: raw KL `0.003426`, argmax movement `3.47%`, entropy
+  `0.3683`, and exact reload.
+- Generation 2 failed two independent quality gates. Its untouched validation
+  surrogate was negative (`-0.000659`), and it lost the immediate-parent
+  gameplay gate 17-23: 42.5% score share below the frozen 45% floor. Mean
+  paired margin was `-0.8`, which passed the `-2.0` guardrail, but cannot
+  override the two failures.
+- The runner correctly stopped before generation 3 and the final static
+  population gate. Formal decision:
+  `recurrent_stage_b_generation_failed_diagnose_before_scale`.
+  This is partial evidence that the recurrent population path can produce one
+  retained local update, but not yet a reliable succession process. Do not
+  run the 10,000-game Stage C block, promote generation 1, rerun generation 2
+  on new seeds, relax the gates, or rent a GPU. The current blocker is
+  cross-generation learning-signal reliability rather than engineering or
+  throughput.
+- Evidence is in `outputs/recurrent_league_stage_b_062/result.json`, SHA-256
+  `2c4d245eb683d2008f84a3ac705c1fa684817e0fac3b7b000b07d7112d7eeb5d`.
+  Accepted generation 1 SHA-256 is
+  `e1805b4ff76cbe43f8ff19f3d38e94ef2ced87713109a451c9c249006945c485`.
+  Rejected generation 2 SHA-256 is
+  `b2d4f85b126b469eb70931a92cb9c808c44ceb743eb640803f97495530373d10`.
+
 ## 2026-07-25 Recurrent League Stage A Passes
 
 - `061` was preregistered at `c68f3f0`, implemented at `603713f`, and run
