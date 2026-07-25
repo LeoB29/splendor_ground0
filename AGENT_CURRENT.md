@@ -2,6 +2,53 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-25 Belief Breadth Helps Values but Not Direct Action Labels
+
+- `059` prospectively froze a compute-matched breadth audit at `e753b4e` and
+  implemented it at `b609506`. Focused contracts passed, then the full suite
+  passed `509/509` before evidence.
+- It compared paired `3 determinizations x 4 continuations/leaf`, `6 x 2`,
+  and `12 x 1` estimates, each exactly 192 continuations, on all 24 early
+  states plus 12 mid and 12 late guardrails from the outcome-blind `055`
+  selection. Belief particles were nested and the same twelve continuation
+  RNG slots were paired across configurations.
+- All 288 estimates and all 55,296 continuations completed, with zero
+  structural fallback, hard caps, or loop adjudications. All three first-state
+  left estimates repeated identically and every integrity condition passed.
+- `12x1` was clearly the best allocation but not a stable direct teacher.
+  On early states it improved exact agreement only from 41.67% to 45.83% and
+  left equivalence unchanged at 45.83%; paired bootstrap intervals included
+  no gain. Spearman improved from `0.124` to `0.318` but missed `0.50`.
+  Mean regret fell from `0.06997` to `0.03793` (ratio `0.542`) with the paired
+  regret-change CI entirely below zero, but still missed the `0.035` target;
+  p90 was `0.07917` versus the `0.075` target.
+- `6x2` was worse early: 20.83% exact, 25.0% equivalent, and `0.07865` mean
+  regret. The benefit appears only when belief breadth reaches 12 and each
+  leaf rollout is no longer repeated.
+- `12x1` passed every structural and mid/late guardrail. Versus `3x4`, mid
+  exact/equivalence rose from 8.33%/16.67% to 33.33%/33.33% and regret fell
+  from `0.10330` to `0.04358`; late rose from 66.67%/75.0% to
+  75.0%/83.33% and regret fell from `0.02708` to `0.00851`. This confirms that
+  broader belief sampling improves value quality generally, even though a
+  192-simulation shallow hard-choice target remains unstable.
+- Formal decision:
+  `belief_breadth_reallocation_insufficient_move_to_public_belief_visit_search`.
+  Neither `12x1` nor `6x2` authorized a resolver pilot. No corpus, training,
+  gameplay, promotion, or GPU rental occurred.
+- Do not try `24x1`, relax the direct-action gate, or distill `12x1` scalar
+  winners. The next justified experiment is a small preregistered
+  public-belief visit-search diagnostic using the successful 12-particle
+  allocation: select root/opponent branches adaptively with information-set-
+  keyed UCB/PUCT, one rollout per simulation, and return complete root visit
+  distributions. Compare independent visit distributions and their
+  value-weighted action equivalence on the same balanced phases before any
+  gameplay or training.
+- Primary collection took 1,371.80 seconds wall time on ten CPU workers
+  (9,209.50 aggregate process CPU seconds), plus three deterministic repeats.
+  Evidence is in
+  `outputs/compute_matched_belief_breadth_059/result.json`; SHA-256 is
+  `14dad95d3e41cf2b2f108a44177fe237fa12d84deddad90e58ae6acaf7cc0d47`.
+
 ## 2026-07-25 Early Resolver Variance Is Belief-Sampling Dominated
 
 - `058` prospectively froze an early-state crossed variance decomposition at

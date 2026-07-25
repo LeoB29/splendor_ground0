@@ -1,5 +1,98 @@
 # Agent Handoff
 
+## 2026-07-25: Twelve belief particles improve regret but not label identity
+
+Experiment `059` tested the compute reallocation directed by `058`. The
+protocol was frozen at `e753b4e`, then implemented at `b609506`; focused
+contracts and the complete `509/509` test suite passed before evidence.
+
+Selection used 48 frozen outcome-blind `055` states from exactly 17 games:
+all 24 early states, plus the first two rows in each seat x gap cell for both
+mid and late (12 each). Every state received independent left/right estimates
+under three exactly compute-matched configurations:
+
+- `3x4`: 3 determinizations x 4 roots x 4 responses x 4 continuations;
+- `6x2`: 6 x 4 x 4 x 2;
+- `12x1`: 12 x 4 x 4 x 1.
+
+Each estimate used exactly 192 continuations. Within a state/side the belief
+range was nested, so candidates consumed prefixes of the same 12 particles.
+All configurations used the same twelve continuation RNG slots per semantic
+leaf. Left/right namespaces were disjoint. All particles were pooled into one
+information-set-consistent `resolve_two_ply` call rather than averaging
+separately minimized small batches.
+
+All 288 estimates completed and all 55,296 continuations resolved. There were
+zero structural fallbacks, hard caps, loop adjudications, or action-set
+failures. All three from-zero first-state left repeats were identical. Every
+integrity gate passed.
+
+Overall paired stability improved monotonically with full breadth:
+
+- `3x4`: 39.58% exact, 45.83% equivalent, Spearman `0.20590`, mean regret
+  `0.06758`, p90 `0.17708`;
+- `6x2`: 39.58% exact, 43.75% equivalent, Spearman `0.35785`, mean regret
+  `0.05378`, p90 `0.145`;
+- `12x1`: 50.0% exact, 52.08% equivalent, Spearman `0.40506`, mean regret
+  `0.03199`, p90 `0.07771`.
+
+The primary early result was more discriminating. `3x4` produced 41.67%
+exact, 45.83% equivalent, Spearman `0.124`, and mean regret `0.06997`.
+`6x2` actually regressed to 20.83% exact, 25.0% equivalent, and regret
+`0.07865`. `12x1` reached 45.83% exact, 45.83% equivalent, Spearman `0.318`,
+and regret `0.03793`, p90 `0.07917`.
+
+For `12x1`, the early paired regret change was strongly favorable:
+`-0.03203`, ratio `0.54218`, with game-bootstrap CI95
+`[-0.07463,-0.00027]`. But exact gain was only +4.17 points, CI95
+`[-16.67,+28.57]`, and equivalence gain was exactly zero, CI95
+`[-24.0,+27.78]`. It missed the frozen early exact, equivalence, Spearman,
+mean-regret, p90-regret, and gain gates. This is an important distinction:
+belief breadth produces better *value estimates* and lower-cost mistakes, but
+192 shallow simulations still do not identify a reproducible scalar winner.
+
+`12x1` did not trade away other phases. It passed every mid/late guardrail:
+
+- mid exact/equivalence improved from 8.33%/16.67% to 33.33%/33.33%, with
+  regret falling from `0.10330` to `0.04358`;
+- late improved from 66.67%/75.0% to 75.0%/83.33%, with regret falling from
+  `0.02708` to `0.00851`.
+
+Mean estimate wall time was also slightly lower for `12x1` (`43.20s`) than
+`3x4` (`44.68s`), so breadth is not operationally problematic.
+
+Formal decision:
+`belief_breadth_reallocation_insufficient_move_to_public_belief_visit_search`.
+Neither candidate passed and no resolver pilot, collection, training,
+gameplay, promotion, or GPU rental was authorized.
+
+Do not reinterpret the significant regret reduction as authorization to
+distill `12x1` winners, relax the exact/equivalence gates, or run `24x1`.
+The direct shallow scalar-label branch has now been tested at fixed budget
+with the variance source correctly targeted and still failed.
+
+The next prototype should retain the successful 12-particle public belief but
+change the output and allocation mechanism:
+
+1. maintain root and opponent nodes keyed by public information sets;
+2. use frozen-035 priors with UCB/PUCT to allocate one rollout per simulation
+   among root/response branches;
+3. cycle or sample across all 12 belief particles;
+4. backpropagate score margin while accumulating complete root visit counts;
+5. compare independent root visit distributions using JSD/rank stability,
+   top-visit action agreement, and value-weighted cross-regret on balanced
+   early states plus mid/late guardrails.
+
+This would be the first small public-belief IS-MCTS-style teacher diagnostic.
+It remains CPU work and must pass offline visit stability before gameplay,
+corpus collection, distillation, or GPU rental.
+
+Primary collection took 1,371.80 seconds wall time on ten workers and
+9,209.50 aggregate process CPU seconds, followed by the three deterministic
+repeats. Evidence is under `outputs/compute_matched_belief_breadth_059`;
+`result.json` SHA-256 is
+`14dad95d3e41cf2b2f108a44177fe237fa12d84deddad90e58ae6acaf7cc0d47`.
+
 ## 2026-07-25: Early instability is caused primarily by narrow belief sampling
 
 Experiment `058` decomposed the early-game variance exposed by `056` and
