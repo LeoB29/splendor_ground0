@@ -12,6 +12,7 @@ from .model_bot import (
     LoopFallbackConfig,
 )
 from .random_bot import RandomLegalBot
+from .recurrent_model_bot import RecurrentLegalActionAttentionScorerBot
 from .puct_bot import InformationSetPuctBot, PuctConfig, PuctSearchStats
 from .search_bot import (
     CheckpointLegalActionPriorScorer,
@@ -50,6 +51,7 @@ __all__ = [
     "PuctConfig",
     "PuctSearchStats",
     "RandomLegalBot",
+    "RecurrentLegalActionAttentionScorerBot",
     "PolicyGuidedSearchBot",
     "ShallowSearchBot",
     "SelectiveSearchConfig",

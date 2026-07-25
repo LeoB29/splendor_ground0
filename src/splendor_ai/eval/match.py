@@ -7,7 +7,7 @@ from typing import Callable
 
 from splendor_ai.bots.base import Bot
 from splendor_ai.diagnostics import is_progress_transition, state_signature
-from splendor_ai.engine.actions import ActionType
+from splendor_ai.engine.actions import Action, ActionType
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import SplendorState
 
@@ -70,6 +70,7 @@ def play_game(
     env = SplendorEnv(seed=seed)
     state = env.initial_state()
     bots = (bot_seat_0, bot_seat_1)
+    _start_game(bots, seed)
     state_visit_counts: dict[tuple[object, ...], int] = {}
     no_progress_streak = 0
     forced_pass_streak = 0
@@ -126,6 +127,7 @@ def play_game(
         if chosen_action is None:
             raise RuntimeError("Bot returned no action in a non-terminal state.")
         next_state = env.step(state, chosen_action)
+        _observe_action(bots, state, chosen_action, next_state)
         forced_pass = (
             len(legal_actions) == 1
             and legal_actions[0].action_type == ActionType.PASS
@@ -222,3 +224,30 @@ def _loop_fallback_triggers(bots: tuple[Bot, Bot]) -> tuple[int, int]:
         int(getattr(bots[0], "loop_fallback_triggers", 0)),
         int(getattr(bots[1], "loop_fallback_triggers", 0)),
     )
+
+
+def _start_game(bots: tuple[Bot, Bot], seed: int) -> None:
+    seen: set[int] = set()
+    for bot in bots:
+        if id(bot) in seen:
+            continue
+        seen.add(id(bot))
+        hook = getattr(bot, "start_game", None)
+        if callable(hook):
+            hook(seed)
+
+
+def _observe_action(
+    bots: tuple[Bot, Bot],
+    before: SplendorState,
+    action: Action,
+    after: SplendorState,
+) -> None:
+    seen: set[int] = set()
+    for bot in bots:
+        if id(bot) in seen:
+            continue
+        seen.add(id(bot))
+        hook = getattr(bot, "observe_action", None)
+        if callable(hook):
+            hook(before, action, after)
