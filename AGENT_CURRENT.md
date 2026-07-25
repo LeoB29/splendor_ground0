@@ -2,6 +2,43 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-25 Strategic Reset to Recurrent Population Self-Play
+
+- The post-`060` project review keeps the initial roadmap but identifies the
+  exact stalled boundary: the legal simulator, baselines, and warm-start policy
+  are established, while no reproducible search/action teacher has earned the
+  transition from warm start to iterative self-play.
+- Expert annotation was considered and rejected before implementation. The
+  user played the ten recorded human games seriously and beat `035` 8-2, but
+  does not know their population-relative strength, is not confident that
+  isolated public positions admit reliable expert action labels, and cannot
+  justify the time needed to annotate 100-150 states. Do not build a manual
+  labeling workflow or treat these games as a training corpus.
+- The next direction is a bounded history-aware population self-play program,
+  not another resolver, PUCT, value, AWR, action-preference, or matched-rollout
+  variant. Add a zero-initialized recurrent public-history residual so epoch
+  zero reproduces `035`; train from complete on-policy league trajectories
+  using the validated final-score-margin signal and WDL, with advantages
+  balanced by opponent and seat.
+- Unlike previous 36-120-game actor experiments and one-generation 2,048-group
+  AWR updates, the planned pilot must use multiple synchronous generations,
+  historical snapshots as league members, parent-relative rather than
+  permanent-`035` update constraints, and broad population progression gates.
+  This tests cumulative distribution-shift adaptation rather than a single
+  local correction.
+- Initial scale target is approximately 10,000 ordinary neural/baseline games.
+  Measured `032` collection throughput projects about 28 minutes for comparable
+  game simulation, but recurrent CPU training makes 3-6 hours the realistic
+  no-resolver end-to-end estimate. Resolver games are far more expensive:
+  keep the resolver out of training collection and reserve only 20-40 games
+  for a final conditional evaluation.
+- Stage A is authorized now: implement and run a CPU-only feasibility smoke for
+  legal public-history construction, exact zero-residual reproduction of
+  `035`, recurrent state lifecycle/checkpointing, batched trajectory handling,
+  determinism, and measured throughput. It performs no policy improvement,
+  promotion, or 10,000-game collection. GPU rental remains unnecessary until
+  Stage A validates the pipeline and quantifies the actual bottleneck.
+
 ## 2026-07-25 Public-Belief Visit Targets Are Prior-Stable but Value-Unstable
 
 - `060` prospectively froze the first small public-belief visit-search

@@ -1,5 +1,68 @@
 # Agent Handoff
 
+## 2026-07-25: Move from unstable teachers to recurrent population self-play
+
+After `060`, the complete roadmap was reconsidered rather than selecting
+another local search variation. The project has completed the exact simulator,
+legal baselines, structured policy warm start, extensive value/search/CFR
+diagnostics, and paired promotion infrastructure. It remains blocked at the
+transition from warm start to iterative self-play because no action-level
+improvement teacher has been both stronger in gameplay and reproducible enough
+to distill.
+
+The user confirmed that the ten recorded human games were serious and
+representative; the human won 8-2 against `035`. They do not know their exact
+strength relative to the broader competitive population, are not confident
+that they can reliably choose strong actions from isolated positions, and do
+not want to spend the time required for a 100-150-state annotation program.
+Accordingly, do not build the proposed expert-label UI, train on the ten human
+games, or make the user a recurring data dependency.
+
+The chosen project direction is a bounded recurrent population-self-play
+program:
+
+1. Retain `035` as the competent legal warm start.
+2. Add an acting-player-legal recurrent public-action-history residual whose
+   output is exactly zero at initialization, preserving `035` behavior.
+3. Collect complete on-policy trajectories over multiple synchronous
+   generations against `035`, `016`, clean `023`, legal shallow search, and
+   promoted historical snapshots.
+4. Use the already validated final-score-margin target together with WDL and
+   opponent/seat-balanced advantages.
+5. Constrain each update relative to its immediate parent rather than keeping
+   every generation permanently anchored to `035`.
+6. Require broad population retention and cumulative gains before admitting a
+   new snapshot. Use the expensive proven resolver only in a small final
+   conditional evaluation, never as a per-state label or material fraction of
+   training games.
+
+This differs materially from earlier learning attempts. Entity actor-critic
+proposals used only 36-120 games; `032`/`033` performed one AWR update from a
+2,048-group frozen-`035` distribution; neither established a succession of
+promoted actors that recollected from their changed state distributions.
+Existing policies were also snapshot scorers rather than learned
+public-history policies. The new branch tests whether scale, history, and
+population retention jointly solve trajectory variance and compounding
+distribution shift. It is a feasibility hypothesis, not a claim that
+recurrence or PPO must work.
+
+Measured on this machine, `032` collected 2,048 ordinary games in about
+5 minutes 43 seconds, projecting approximately 28 minutes for 10,000
+comparable games. Recurrent training and multi-generation orchestration make
+3-6 hours a more realistic local end-to-end estimate. Resolver collection is
+orders of magnitude slower: 80 resolver self-play games spanned roughly
+4.6 hours. Therefore resolver games must be excluded from the 10,000-game
+training mix; a final 20-40-game conditional panel is sufficient for the
+first pilot.
+
+The authorized immediate work is Stage A only: a preregistered CPU feasibility
+smoke covering information-legal public-history encoding, zero-initialized
+exact parent reproduction, recurrent lifecycle and checkpoint reconstruction,
+batched trajectory handling, determinism, clean short rollouts, and throughput.
+Stage A performs no learning, policy promotion, large collection, or GPU
+rental. A passing Stage A may authorize a separately frozen multi-generation
+pilot.
+
 ## 2026-07-25: Public-belief visit search agrees through its prior, not its values
 
 Experiment `060` executed the architectural change authorized by `059`.
