@@ -1,5 +1,87 @@
 # Agent Handoff
 
+## 2026-07-25: Public-belief visit search agrees through its prior, not its values
+
+Experiment `060` executed the architectural change authorized by `059`.
+The no-training protocol was frozen before implementation at `a4e37ee`; the
+runner and contracts were implemented at `500df1e`. Six focused tests and the
+complete `515/515` suite passed before any evidence was generated.
+
+The audit reused the exact 48-state outcome-blind `059` selection from 17
+games: all 24 early states and balanced 12-state mid and late guardrails.
+Every state received independent left/right two-ply public-belief searches.
+Each search shared root statistics across 12 legal-observation
+determinizations, cycled every particle exactly 16 times over 192 simulations,
+maintained opponent nodes keyed by canonical public information sets, and
+performed one frozen score-margin rollout per simulation. Root and opponent
+branches used forced first visits followed by frozen-`035`-prior PUCT.
+
+The evidence run had full formal integrity:
+
+- exactly 96 search attempts;
+- 95 completed searches and 47 states with both arms complete;
+- 18,272/18,272 attempted continuations resolved;
+- zero hard caps and two loop-adjudicated, fully resolved endings;
+- exact completed-root visit accounting and particle schedules;
+- information-legal root/opponent alignment;
+- identical from-zero repeats for both first-state arms.
+
+One midgame arm stopped after a repeated opponent public-information-set key
+produced a different canonical action set or prior. This was recorded as
+`opponent_action_set_or_prior_unstable`. It is a substantive search-model
+limitation, not an integrity failure; the frozen 90% completion floors still
+passed overall and in every phase.
+
+Distribution-level diagnostics initially look encouraging:
+
+- mean raw left/right JSD `0.025377`, collapsed JSD `0.025335`;
+- early raw/collapsed JSD `0.038315`/`0.038249`;
+- mean halfway-to-final JSD `0.009779`;
+- exact top-visit agreement 82.98% overall and 83.33% early;
+- mean prior-to-search TV `0.118333`;
+- 25% of states changed the prior-top action on one or both arms.
+
+The action-value evidence rejects the apparent stability:
+
+- overall equivalent agreement 31.91%, Q Spearman `0.3370`, mean cross-regret
+  `0.04610`, p90 regret `0.11899`;
+- early equivalent agreement 12.5%, Q Spearman `0.1750`, mean regret
+  `0.06379`, p90 regret `0.12419`;
+- mid equivalent agreement 36.36% and mean regret `0.03477`;
+- late equivalent agreement 66.67%, Spearman `0.61994`, and mean regret
+  `0.02113`.
+
+Thus the early equivalence, Q-ordering, mean-regret, p90-regret, and
+mid/late-equivalence gates failed. The dedicated prior-control gate failed
+too: independent-search JSD was only `0.001465` lower than mean
+search-to-prior JSD, rather than the frozen minimum separation of `0.01`.
+Both searches usually name the same top action because the shared sharp
+`035` prior dominates their visit allocation, while their independent Q
+estimates disagree about its actual opportunity cost.
+
+The frozen same-state comparison against `059` makes this especially clear.
+Overall exact top agreement increased by 32.98 points, but equivalence fell
+20.17 points and regret worsened by `0.01412`. Early exact increased 37.5
+points, while equivalence fell 33.33 points and mean regret worsened by
+`0.02586`. The visit-search representation made the label look more
+consistent without making it more value-safe.
+
+Formal decision:
+`public_belief_visit_targets_unstable_pause_search_teacher_branch`.
+No full-search pilot, collection, training, gameplay, promotion, self-play,
+or GPU rental is authorized. Do not tune PUCT, increase this shallow search
+budget, relax equivalence requirements, or distill these visit counts. The
+search-teacher branch has now failed for the reason its prior-control gate
+was designed to catch. The next action should be a project-level reassessment
+of remaining architectural/data branches, not another local resolver or
+visit-search variant.
+
+Evidence is under `outputs/public_belief_visit_search_060`; `result.json`
+SHA-256 is
+`8fcc6ea2a511e97171ea4835a130035fe69fbb3fd72891f54b99794ddc2c606c`.
+Primary parallel evaluation took 268.48 seconds wall time and 2,416.34
+aggregate process CPU seconds.
+
 ## 2026-07-25: Twelve belief particles improve regret but not label identity
 
 Experiment `059` tested the compute reallocation directed by `058`. The

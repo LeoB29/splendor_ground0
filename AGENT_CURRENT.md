@@ -2,6 +2,53 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-25 Public-Belief Visit Targets Are Prior-Stable but Value-Unstable
+
+- `060` prospectively froze the first small public-belief visit-search
+  diagnostic at `a4e37ee` and implemented it at `500df1e`. Focused contracts
+  passed `6/6`, then the complete suite passed `515/515` before evidence.
+- It reused the exact outcome-blind `059` selection: 48 states from 17 games,
+  balanced as 24 early, 12 mid, and 12 late. Each state received independent
+  left/right searches with 12 information-legal determinizations, 192
+  simulations, information-set-keyed opponent nodes, frozen `035` priors,
+  and one matched score-margin continuation per simulation.
+- Integrity passed completely. There were exactly 96 attempted searches;
+  95 completed and 47/48 states had both arms complete. One midgame arm was
+  substantively ineligible because a revisited opponent information set had
+  a different canonical action set or prior. All 18,272 attempted
+  continuations resolved, with zero hard caps and two legitimate
+  loop-adjudicated endings. Root counts and 12-particle schedules were exact,
+  and both first-state searches repeated identically.
+- The visit distributions looked superficially stable: mean raw/collapsed
+  left-right JSD was `0.02538`/`0.02533`, halfway-to-final JSD was `0.00978`,
+  and early top-visit agreement was 83.33%. Search moved meaningfully from
+  the parent prior: mean prior-to-search TV was `0.11833`, 25% of states
+  changed the prior-top action on at least one arm, and 16.84% of completed
+  arms changed it.
+- That agreement was not supported by stable action values. Overall
+  value-equivalent agreement was only 31.91%, mean Q Spearman `0.3370`,
+  mean cross-regret `0.04610`, and p90 regret `0.11899`. Early was decisive:
+  equivalence `12.5%`, Q Spearman `0.175`, mean regret `0.06379`, and p90
+  regret `0.12419`, versus frozen requirements of 65%, `0.50`, `0.030`, and
+  `0.075`. Mid equivalence was also only 36.36%; late alone was acceptable at
+  66.67%.
+- High exact top-visit agreement is therefore a prior-locking effect, not a
+  reliable teacher. Independent-search JSD was only `0.00147` lower than
+  average search-to-prior JSD, far short of the required `0.01` separation.
+  Compared with frozen `059` `12x1`, early exact agreement rose 37.5 points,
+  but equivalence fell 33.33 points and mean regret worsened by `0.02586`.
+- Formal decision:
+  `public_belief_visit_targets_unstable_pause_search_teacher_branch`.
+  No full-search pilot, corpus collection, training, gameplay, promotion, or
+  GPU rental is authorized. Do not enlarge this shallow visit search, tune
+  PUCT constants, relax value-equivalence gates, or distill these visits.
+  The next step is a project-level branch reassessment, not another
+  search-teacher parameter experiment.
+- Primary evaluation took 268.48 seconds wall time on ten CPU workers
+  (2,416.34 aggregate process CPU seconds). Evidence is in
+  `outputs/public_belief_visit_search_060/result.json`; SHA-256 is
+  `8fcc6ea2a511e97171ea4835a130035fe69fbb3fd72891f54b99794ddc2c606c`.
+
 ## 2026-07-25 Belief Breadth Helps Values but Not Direct Action Labels
 
 - `059` prospectively froze a compute-matched breadth audit at `e753b4e` and
