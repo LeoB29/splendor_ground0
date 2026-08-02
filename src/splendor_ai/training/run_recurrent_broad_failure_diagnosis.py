@@ -223,7 +223,14 @@ def _mean(rows: list[dict[str, Any]], key: str) -> float:
     return sum(float(row[key]) for row in rows) / len(rows)
 
 
-def _paired_breakdown(records: list[dict[str, Any]]) -> dict[str, Any]:
+def _paired_breakdown(
+    records: list[dict[str, Any]],
+    *,
+    aggregate_bootstrap_seed: int = 650_065,
+    opponent_bootstrap_seed: int = 650_100,
+    score_sign_flip_seed: int = 650_165,
+    margin_sign_flip_seed: int = 650_166,
+) -> dict[str, Any]:
     by_opponent = {
         opponent: [row for row in records if row["opponent"] == opponent]
         for opponent in OPPONENT_ORDER
@@ -236,12 +243,12 @@ def _paired_breakdown(records: list[dict[str, Any]]) -> dict[str, Any]:
             "score_share_delta": _bootstrap_mean(
                 [float(row["score_share_delta"]) for row in rows],
                 samples=50_000,
-                seed=650_100 + index,
+                seed=opponent_bootstrap_seed + index,
             ),
             "margin_delta": _bootstrap_mean(
                 [float(row["margin_delta"]) for row in rows],
                 samples=50_000,
-                seed=650_100 + index,
+                seed=opponent_bootstrap_seed + index,
             ),
         }
     score_by_opponent = {
@@ -280,22 +287,22 @@ def _paired_breakdown(records: list[dict[str, Any]]) -> dict[str, Any]:
             "score_share_delta": _stratified_bootstrap(
                 score_by_opponent,
                 samples=100_000,
-                seed=650_065,
+                seed=aggregate_bootstrap_seed,
             ),
             "margin_delta": _stratified_bootstrap(
                 margin_by_opponent,
                 samples=100_000,
-                seed=650_065,
+                seed=aggregate_bootstrap_seed,
             ),
             "score_sign_flip": _sign_flip_test(
                 [float(row["score_share_delta"]) for row in records],
                 samples=100_000,
-                seed=650_165,
+                seed=score_sign_flip_seed,
             ),
             "margin_sign_flip": _sign_flip_test(
                 [float(row["margin_delta"]) for row in records],
                 samples=100_000,
-                seed=650_166,
+                seed=margin_sign_flip_seed,
             ),
         },
         "by_opponent": opponent_summary,
