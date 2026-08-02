@@ -22,6 +22,8 @@ as the project's primary direction rather than tuning or collecting again.
   `7a3094d37e6d37961b44f74029330c7083f5da3af7a9a03f8050b62bc59cf2e6`
 - Archived `064` generation 1 SHA-256:
   `0c42c04df97114bf79147dfee80e8f296485b15742d6248c8f37ff7cee78756e`
+- Frozen history-required epoch-zero checkpoint SHA-256:
+  `3dd945ba0c525e936603042040b2c33ab70ad8552e007b6c8f2dc4619813290a`
 - Base `064` generation 2 SHA-256:
   `3ed0bd7e2dcda21646c7ac4f68e2d0ffcfe0bdacf0c151c453c52ea6a08fe09e`
 - Raw legal `035` SHA-256:
