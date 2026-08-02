@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, replace
 import argparse
+import gc
 import json
 import math
 import os
@@ -514,7 +515,6 @@ def run(
     generation_payloads: list[dict[str, Any]] = []
     resume_error = None
     stopped_generation = None
-    last_validation_steps = None
 
     for scale_generation in (1, 2, 3):
         completed, error = _completed_generation(
@@ -620,7 +620,6 @@ def run(
             },
         )
         validation_steps = [step for step in steps if step.split == "validation"]
-        last_validation_steps = validation_steps
         update = replace(
             update,
             checkpoint_reload_exact=verify_checkpoint_reload(
@@ -741,6 +740,11 @@ def run(
         accepted_scaled_models.append(candidate)
         parent = candidate
         parent_path = candidate_path
+        # The next collection is constructed before tuple assignment replaces
+        # these locals. Release the completed generation explicitly so two
+        # full trajectory corpora cannot coexist at the generation boundary.
+        del games, steps, validation_steps
+        gc.collect()
 
     final_population = None
     paired_records = None
