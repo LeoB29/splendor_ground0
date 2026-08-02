@@ -211,7 +211,7 @@ def _panel_recomputed_exact(
     result: dict[str, Any],
 ) -> bool:
     population_key = (
-        "final_population_gate" if panel == "065" else "population_gate"
+        "recomputed_population" if panel == "065" else "population_gate"
     )
     population = result[population_key]
     score_delta = sum(

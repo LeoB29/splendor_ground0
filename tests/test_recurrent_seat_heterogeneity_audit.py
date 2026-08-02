@@ -5,6 +5,7 @@ from splendor_ai.training.run_recurrent_seat_heterogeneity_audit import (
     _bootstrap,
     _decision,
     _flags,
+    _panel_recomputed_exact,
 )
 
 
@@ -104,3 +105,42 @@ def test_decision_rejects_invalid_inputs_before_interpretation() -> None:
     assert _decision({"hash": False}, _flags(_inference())) == (
         "recurrent_seat_audit_invalid_no_inference"
     )
+
+
+def test_065_recomputation_uses_saved_replay_population_key() -> None:
+    rows = []
+    opponents = {}
+    for opponent in OPPONENTS:
+        rows.append(
+            {
+                "opponent": opponent,
+                "seed_ordinal": 0,
+                "seat0_score_delta": 0.0,
+                "seat1_score_delta": 0.0,
+                "seat0_margin_delta": 0.0,
+                "seat1_margin_delta": 0.0,
+            }
+        )
+        opponents[opponent] = {"delta": 0.0}
+    result = {
+        "recomputed_population": {
+            "aggregate_delta": 0.0,
+            "opponents": opponents,
+        },
+        "paired_uncertainty": {
+            "by_seat": {
+                "seat0": {"score_share_delta": 0.0, "margin_delta": 0.0},
+                "seat1": {"score_share_delta": 0.0, "margin_delta": 0.0},
+            },
+            "split_halves": {
+                "even": {"score_share_delta": 0.0},
+                "odd": {"score_share_delta": 0.0},
+            },
+        },
+    }
+    rows.extend(
+        {**row, "seed_ordinal": 1}
+        for row in list(rows)
+    )
+
+    assert _panel_recomputed_exact("065", rows, result)
