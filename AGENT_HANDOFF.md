@@ -1,5 +1,50 @@
 # Agent Handoff
 
+## 2026-08-02: The seat-0 gate failure does not replicate
+
+Experiment `067` froze a no-game pooled seat audit at `9173449` and
+implemented it at `7d6f09a`. The initial invocation failed before inference or
+output because `065` stores its replayed population as `recomputed_population`,
+not `final_population_gate`. No bootstrap draw or evidence file existed.
+Schema repair `e316768` added the missing regression contract, and the clean
+corrected suite passed 552/552 before rerunning. No model was loaded, no game
+was simulated, and no optimization occurred.
+
+All integrity gates passed on the evidence run. Forty `065` and 200 `066`
+paired-seed rows were unique and exact, every opponent/panel count matched,
+and aggregate, opponent, seat, and split-half metrics reproduced their source
+results within 1e-12. The common 100,000-draw bootstrap resampled within eight
+panel/opponent strata and kept both seats from each seed together.
+
+Pooled seat 0 was -0.03125 score share, within the frozen -0.05 practical
+floor, with CI95 [-0.10625,+0.04375]. Its pooled margin delta was +0.1208,
+CI95 [-0.95,+1.1917]. Thus seat 0 is not proven noninferior, but it is also
+nowhere near systematically below the floor. Pooled seat 1 was +0.05833,
+CI95 [-0.01875,+0.13542], proving noninferiority to -0.05; its margin was
++0.80, CI95 [-0.2333,+1.8333]. The pooled seat1-minus-seat0 interaction was
++0.08958, CI95 [-0.02083,+0.20], and did not exclude zero.
+
+The panels reverse both seat signs: `065` was +0.10 in seat 0 and -0.125 in
+seat 1; `066` was -0.0575 and +0.095. The seat-0 cross-panel difference CI
+included zero. Seat 1's difference was systematic, confirming panel
+heterogeneity, but it moved from negative to positive and therefore does not
+support a persistent weak fixed seat. Pooled opponent-by-seat intervals all
+included zero. The lowest point estimate was `016` seat 0 at -0.075, with a
+very wide CI95 [-0.25,+0.075].
+
+Formal decision:
+`recurrent_seat_failure_not_replicated_authorize_targeted_confirmation_preregistration`.
+The 066 failure still stands. Do not promote generation 2, begin Stage C,
+relax gates, retrain, or rent a GPU. The next authorized experiment is a
+separately preregistered fresh seat-0-only matched confirmation: candidate and
+epoch-zero control each play recurrent seat 0 on 100 new seeds per `035`,
+`016`, clean `023`, and shallow opponent, for 800 games. Cluster by opponent
+and seed and retain the -0.05 seat-0 noninferiority floor.
+
+Evidence:
+`outputs/recurrent_seat_heterogeneity_audit_067/result.json`, SHA-256
+`03bb2d7386ab71d93302d02f4da266859c7e472b7facefeaa94f81c02c264662`.
+
 ## 2026-08-02: Fresh broad confirmation is positive but fails one seat gate
 
 Experiment `066` froze the larger confirmation at `569e458` and its runner at
