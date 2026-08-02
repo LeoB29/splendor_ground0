@@ -1,5 +1,53 @@
 # Agent Handoff
 
+## 2026-08-02: Fresh broad confirmation is positive but fails one seat gate
+
+Experiment `066` froze the larger confirmation at `569e458` and its runner at
+`7841aff`. The full pre-evidence suite passed 546/546. No training or adaptive
+selection occurred. It compared frozen `064` generation 2 and epoch-zero
+`035` on 50 new paired seeds per opponent, both recurrent seats, against raw
+`035`, `016`, clean `023`, and legal shallow search: 200 paired-seed clusters
+and 800 games.
+
+Integrity was clean. Exact fresh bands `660000`, `660100`, `660200`, and
+`660300` contributed 50 rows each; all 800 endings were valid, hashes remained
+frozen, and the runner exactly recomputed candidate, control, opponent, and
+aggregate score shares. There were no illegal actions, seed replacements,
+training steps, or post-outcome candidate choices.
+
+The main strength result favored generation 2. Candidate aggregate score share
+was 0.59875 versus control 0.58000, a +0.01875 delta. Stratified paired
+bootstrap CI95 was [-0.03875,+0.07625], passing the preregistered -0.05
+noninferiority bound but not excluding zero; sign-flip p=0.554. Mean paired
+margin improved by +0.61, CI95 [-0.1575,+1.385], p=0.124, passing both margin
+gates. Opponent deltas were +0.010 against `016`, +0.015 against clean `023`,
++0.050 against raw `035`, and 0.000 against shallow search. Thus all four were
+nonnegative and none collapsed. Even and odd halves were +0.0575 and -0.0200,
+both within the frozen bound. Every leave-one-opponent and leave-one-seed-out
+aggregate remained positive.
+
+Only the seat guardrail failed. Recurrent seat 0 had score-share delta -0.0575,
+just 0.0075 beyond its -0.05 floor; seat 1 was +0.0950. Seat-0 margin was
+slightly positive at +0.07 rather than showing score collapse, while seat 1
+margin was +1.15. The disjoint `065` games had the opposite point split—seat 0
++0.10 and seat 1 -0.125—so the sign of the apparent seat effect did not
+replicate. Nevertheless, the gate was frozen as a conjunction and cannot be
+waived because the aggregate and seven other conditions looked good.
+
+Formal decision: `recurrent_broad_confirmation_failed_no_scale`. Keep raw
+`035` as champion. Do not promote generation 2, begin Stage C, relax the seat
+floor, or rent a GPU. This is not a systematic failure of the repaired
+recurrent direction: broad aggregate, margin, every opponent, split halves,
+and leave-one-out checks were acceptable. The next justified experiment is a
+no-training, preregistered seat-stratified uncertainty and cross-panel
+heterogeneity audit using the disjoint `065` and `066` outcomes. Only that
+audit should determine whether to run a bounded seat-targeted confirmation or
+stop this succession path before scale.
+
+Evidence:
+`outputs/recurrent_broad_confirmation_066/result.json`, SHA-256
+`dbbdedbb74b59ea5d0d6562eced9c08afdd43795107e2e3567e9dddb60ff162c`.
+
 ## 2026-08-02: The `064` broad failure is statistically inconclusive
 
 Experiment `065` froze a no-training diagnosis at commit `c26f207` and its

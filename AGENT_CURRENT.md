@@ -2,6 +2,49 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-08-02 Larger Confirmation Is Positive Overall but Misses Seat Floor
+
+- Experiment `066` was preregistered at `569e458`, implemented at `7841aff`,
+  and run CPU-only after the full suite passed `546/546`. It performed no
+  training or model selection. The panel used 50 fresh paired seeds against
+  each of raw `035`, `016`, clean `023`, and shallow search, with candidate
+  and epoch-zero control in both recurrent seats: 200 seed clusters and 800
+  games total.
+- All integrity gates passed. Every seed band and opponent block was exact,
+  all 800 games ended validly, all score metrics recomputed exactly, checkpoint
+  hashes were unchanged, and there were no illegal actions or replacements.
+- Generation 2 was favorable overall. Candidate score share was `0.59875`
+  versus control `0.58000`, delta `+0.01875`. The opponent-stratified paired
+  CI95 was `[-0.03875,+0.07625]`, above the frozen `-0.05`
+  noninferiority floor but not strong-positive evidence; sign-flip p=`0.554`.
+  Mean paired margin delta was `+0.61`, CI95 `[-0.1575,+1.385]`, with
+  p=`0.124`. Both aggregate point and margin gates passed.
+- Every opponent was nonnegative: `016 +0.010`, clean `023 +0.015`, raw
+  `035 +0.050`, and shallow `0.000`. All opponent-specific intervals included
+  zero, but no point estimate breached the `-0.05` guardrail. Removing any
+  one opponent left aggregate score delta positive (`+0.0083` to `+0.0250`).
+  Even/odd seed halves were `+0.0575` and `-0.0200`, both above the frozen
+  floor. Leave-one-seed-out aggregate deltas stayed positive.
+- The only failed strength gate was recurrent-seat noninferiority. Seat 0
+  score delta was `-0.0575`, only `0.0075` below its frozen `-0.05` floor;
+  seat 1 was `+0.0950`. Seat-0 paired margin was nevertheless slightly
+  positive (`+0.07`), while seat 1 was `+1.15`. Moreover, the earlier
+  independent `065` panel showed the opposite score split (seat 0 `+0.10`,
+  seat 1 `-0.125`), so the new seat asymmetry is not yet a stable directional
+  finding. It still cannot be waived after evidence.
+- Seven of eight frozen strength gates passed, but the conjunction did not.
+  Formal decision: `recurrent_broad_confirmation_failed_no_scale`.
+  Do not retroactively pass `066`, promote generation 2, replace champion
+  `035`, start Stage C, or rent a GPU. The recurrent direction remains
+  promising rather than disproved: the next justified step is a no-training,
+  preregistered seat-stratified uncertainty/heterogeneity audit pooling the
+  disjoint `065` and `066` panels. That audit should decide whether a bounded
+  seat-targeted confirmation is warranted or the succession path remains too
+  unstable to scale.
+- Evidence:
+  `outputs/recurrent_broad_confirmation_066/result.json`, SHA-256
+  `dbbdedbb74b59ea5d0d6562eced9c08afdd43795107e2e3567e9dddb60ff162c`.
+
 ## 2026-08-02 Broad-Gate Failure Is Inconclusive, Not Systematic
 
 - Experiment `065` was preregistered at `c26f207`, implemented at `af1aaaf`,
