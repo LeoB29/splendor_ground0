@@ -1,5 +1,85 @@
 # Agent Handoff
 
+## 2026-08-03: Scaled outcome-only recurrent learning stops at generation 2
+
+Experiment `069` was prospectively frozen at commits `60e3417` and `887f40e`
+after the valid but inconclusive `068` result. It was implemented at `1f2112a`,
+and the full pre-evidence suite passed 565/565. This was a new scale-or-stop
+learning question, not a reinterpretation of `068` as passed. It initialized
+from frozen `064` generation 2 and fixed three conditional generations of
+2,880, 3,360, and 3,840 games, adding all accepted snapshots while preserving
+the repaired history-required architecture and `064` update recipe.
+
+Scale generation 1 completed exactly 2,880 eligible games without an
+ineligible attempt: 240 per opponent-seat cell across raw `035`, `016`, clean
+`023`, shallow search, archived `064` generation 1, and base `064` generation
+2. The split was exactly 192 train and 48 validation games per cell, producing
+90,290 actor decisions. All games ended `completed`; no stalled or locked game
+needed special handling.
+
+Generation 1 passed every contract. Validation raw KL was 0.00393466, greedy
+movement 0.0348311, overall surrogate +0.00068065, mid/late surrogate
++0.00070557, normalized entropy 0.309344, and real-versus-rotated-history TV
+0.0257367. Empty history remained exact raw `035`, behavior reconstruction
+error was 3.42e-6, and checkpoint reload was exact. The untouched 100-game
+immediate-parent gate produced 0.495 candidate score share and +0.28 paired
+margin. The accepted candidate SHA-256 is
+`d82f65df319a130c2dded424e0d21249736a8b5dfe38c5cfb5c21053947a5566`.
+
+After that atomic record existed, the first process began generation 2 and
+exposed an operational memory issue: Python's tuple assignment retained the
+completed generation-1 `games` and `steps` while constructing the next full
+corpus. The process was stopped before generation 2 produced any checkpoint,
+record, metric, or gate. Commit `da2862a` added explicit deletion and garbage
+collection after every accepted generation. Focused contracts passed, then the
+full suite again passed 565/565. Resume verified the completed generation's
+protocol commit, parent path/hash, candidate path/hash, record, gates, and
+acceptance; generation 1 was neither recollected nor retrained. The incomplete
+generation-2 deterministic collection restarted from its fixed beginning.
+
+Scale generation 2 then completed exactly 3,360 eligible games without an
+ineligible attempt: 240 per cell across the six prior opponents plus accepted
+scale generation 1. It produced 105,087 actor decisions with exact 192/48
+splits. Terminations were 3,358 `completed` and two legitimate
+`forced_pass_deadlock`; both locked games remained eligible exactly as frozen.
+There were no illegal actions, replacements, exclusions, hash changes, or
+integrity failures.
+
+Nearly every generation-2 learning signal passed. Validation raw KL was
+0.00513131, movement 0.0363413, overall surrogate +0.00039317, mid/late
+surrogate +0.00024386, and history-rotation TV 0.0360446. Empty-history
+fallback and checkpoint reload remained exact. The candidate also scored 0.52
+over 100 untouched immediate-parent games, with -0.10 mean paired margin.
+Behavior reconstruction error was 3.84e-6, gradients were finite/nonzero, and
+the embedded parent remained frozen.
+
+The sole failed gate was normalized validation entropy: 0.294256 versus the
+prospectively frozen minimum 0.30. Generation 1 had been only modestly above
+the same floor at 0.309344, while collection behavior entropy moved from
+0.44623 to 0.43493. Thus the failure is close and is not accompanied by a
+parent-gameplay regression, but the entropy retention contract exists to stop
+increasing policy concentration across succession and cannot be waived after
+observing the result.
+
+The runner therefore stopped before scale generation 3 and before the final
+1,600-game broad gate, after 6,240 fresh league games total. Formal decision:
+`recurrent_scale_learning_contract_failed_stop_outcome_only_branch`. Keep raw
+`035` as champion. Do not accept either `069` snapshot, complete the omitted
+blocks, lower the entropy floor, repeat the recipe at another seed, or rent a
+GPU for it. Per the scale-or-stop protocol, outcome-only recurrent learning is
+no longer the project's primary direction. The next action must be a fresh
+project-level reassessment rather than another recurrent confirmation or
+scale run.
+
+Evidence artifact:
+`outputs/recurrent_scale_or_stop_069/result.json`, SHA-256
+`0970851f468ffae65ac68846a8aba439f27b7815985915c0f69542c86e7c8f3f`.
+Generation records:
+`scale_generation_1.json` SHA-256
+`99290797ae7edf04c1de5f1c32c51a12d9a7caf841ad1817476b457abd32c60e`;
+`scale_generation_2.json` SHA-256
+`30ea656745d227bea1a82f13a0af0a7af2f1536c8f5029691d89b420bcb0aa6e`.
+
 ## 2026-08-02: Fresh seat-0 confirmation is neutral but inconclusive
 
 Experiment `068` froze its seat-0-only confirmation at commit `7716d12` and

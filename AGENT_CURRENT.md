@@ -2,6 +2,51 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-08-03 Scaled Recurrent Succession Stops at Entropy Contract
+
+- Experiment `069` was prospectively frozen at `60e3417`/`887f40e` and
+  implemented at `1f2112a`. The clean pre-evidence suite passed `565/565`.
+  It explicitly treated `068` as failed and asked a new scale-or-stop learning
+  question; it did not retroactively authorize Stage C or promotion.
+- Scale generation 1 collected exactly 2,880/2,880 fresh eligible games and
+  90,290 actor decisions across six opponents and both seats, with exact
+  192/48 train/validation games per cell. Every game completed normally. It
+  passed every offline and parent-retention gate: raw validation KL
+  `0.003935`, argmax movement `3.483%`, overall/midlate surrogate
+  `+0.000681/+0.000706`, history-rotation TV `0.02574`, normalized validation
+  entropy `0.30934`, and parent score share `0.495` with margin `+0.28`.
+  Candidate SHA-256:
+  `d82f65df319a130c2dded424e0d21249736a8b5dfe38c5cfb5c21053947a5566`.
+- The first process was stopped only after generation 1 was atomically
+  accepted, when incomplete generation-2 collection exposed that Python still
+  retained the prior full corpus during tuple assignment. No generation-2
+  checkpoint, record, metric, or gate existed. Commit `da2862a` explicitly
+  releases completed corpus objects at generation boundaries; the corrected
+  full suite again passed `565/565`. Resume verified generation 1 by parent,
+  candidate, record, and protocol hashes and did not replay or retrain it.
+- Scale generation 2 then collected exactly 3,360/3,360 eligible games and
+  105,087 decisions across seven opponents and both seats, again with exact
+  192/48 cell splits. There were 3,358 ordinary completions and two legitimate
+  forced-pass deadlocks; both were retained. No seed was replaced or excluded,
+  and every integrity/learning condition except one passed.
+- Generation 2 had raw validation KL `0.005131`, movement `3.634%`, positive
+  overall/midlate surrogate `+0.000393/+0.000244`, history TV `0.03604`, exact
+  empty-history fallback and reload, and a favorable 100-game parent gate:
+  `0.520` score share and `-0.10` mean paired margin. Its only failed gate was
+  normalized validation entropy: `0.29426` versus the frozen `0.30` minimum.
+  This is a close learning-contract failure, not integrity failure or observed
+  gameplay regression, but it cannot be waived after evidence.
+- The runner correctly stopped before generation 3, the 3,840-game final
+  collection block, and the 1,600-game broad gate. It completed 6,240 fresh
+  league games total. Formal decision:
+  `recurrent_scale_learning_contract_failed_stop_outcome_only_branch`.
+  Do not accept either `069` checkpoint, run the missing blocks, relax the
+  entropy floor, promote over raw `035`, or repeat this outcome-only recurrent
+  recipe. Champion `035` remains frozen. The next step must be a project-level
+  direction reassessment, not another recurrent scale or confirmation run.
+- Evidence: `outputs/recurrent_scale_or_stop_069/result.json`, SHA-256
+  `0970851f468ffae65ac68846a8aba439f27b7815985915c0f69542c86e7c8f3f`.
+
 ## 2026-08-02 Fresh Seat-0 Confirmation Is Neutral but Misses CI Floor
 
 - Experiment `068` was preregistered at `7716d12`, implemented at `7a580c0`,
