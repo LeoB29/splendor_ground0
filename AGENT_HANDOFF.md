@@ -1,5 +1,59 @@
 # Agent Handoff
 
+## 2026-08-02: The `064` broad failure is statistically inconclusive
+
+Experiment `065` froze a no-training diagnosis at commit `c26f207` and its
+implementation at `af1aaaf`. The full pre-evidence suite passed 540/540. It
+used only the final broad seeds already consumed by `064`; there was no fresh
+gameplay evidence, optimization, checkpoint mutation, or outcome-conditioned
+selection.
+
+The diagnostic replayed all 160 stored candidate/control games with a tracing
+recurrent wrapper. On every recurrent turn, it evaluated both frozen
+generation 2 and epoch-zero `035` on the exact legal public state and history.
+Integrity passed: every replayed outcome field matched the stored `064` row
+after normalizing only the tracing class name, all endings were valid, and all
+opponent and aggregate score metrics agreed within 1e-12.
+
+Paired-seed uncertainty is much larger than the observed aggregate deficit.
+The point estimate remained -0.0125 score share, equivalent to one net game
+point over 80 games per model. The opponent-stratified 100,000-draw bootstrap
+CI95 was [-0.1375,+0.1125], and its sign-flip p-value was 1.0. Mean paired
+margin delta was -0.2875 with CI95 [-1.8375,+1.2375] and sign-flip p=0.734.
+Thus neither score nor margin establishes a systematic aggregate regression.
+
+No individual opponent was systematic either. Score-share delta CI95 was
+[-0.40,+0.15] against `016`, [-0.25,+0.15] against clean `023`,
+[-0.15,+0.30] against raw `035`, and [-0.25,+0.25] against shallow search.
+Even and odd seed ordinals produced -0.025 and 0.0. Removing one opponent at a
+time moved the aggregate from -0.05 to +0.0167. Seat-level point estimates
+were asymmetric (+0.10 in recurrent seat 0 and -0.125 in seat 1), but `065`
+did not preregister enough games to interpret that split as systematic.
+
+The policies disagreed on 371 of 5,121 traced recurrent decisions: 7.24%
+decision-weighted and 7.33% game-balanced, with mean raw-softmax TV 0.0471.
+Movement was uniform by opponent at roughly 7--8%, so the `016`/`023` point
+losses are not explained by disproportionate policy drift against those
+styles. It was strongly phase concentrated: 11.8% early, 5.8% mid, and 3.7%
+late. Negative paired-result seeds actually had less movement than positive or
+tied seeds. Of the 371 disagreements, 251 kept the same action type and 89
+more only swapped visible versus blind reserve; just 31 crossed broader
+take/buy/reserve categories. These are descriptive facts, not equivalence or
+causal-value claims.
+
+Formal decision:
+`recurrent_broad_result_inconclusive_authorize_confirmation_preregistration`.
+The valid `064` rejection stands, but its one-game-point aggregate shortfall
+is not evidence to abandon the repaired recurrent direction or change its
+objective. Keep `035` as champion. The next authorized step is to design and
+freeze a larger fresh matched confirmation comparing `064` generation 2 with
+epoch zero across the same four opponents and both seats, clustering inference
+by seed. Do not train, promote, run Stage C, or rent a GPU before confirmation.
+
+Evidence:
+`outputs/recurrent_broad_failure_diagnosis_065/result.json`, SHA-256
+`616e0f6eb0ff7b968cfc0f9d60c51c2c186557c179c07a52586b978d784e0b4d`.
+
 ## 2026-07-26: History-required repair composes but has no broad lift
 
 Experiment `064` prospectively froze the repair to the `063` diagnosis at

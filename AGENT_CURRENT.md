@@ -2,6 +2,52 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-08-02 Broad-Gate Failure Is Inconclusive, Not Systematic
+
+- Experiment `065` was preregistered at `c26f207`, implemented at `af1aaaf`,
+  and run CPU-only after the full suite passed `540/540`. It performed no
+  training and used no fresh seeds. An instrumented wrapper replayed the exact
+  160 final-gate games from `064` while evaluating frozen generation 2 and
+  epoch-zero `035` on every recurrent decision.
+- Integrity passed completely. All 160 endings, winners, scores, turn counts,
+  termination reasons, and loop fields matched `064` exactly after normalizing
+  only the tracing wrapper class name. All population score shares and deltas
+  reproduced within `1e-12`; there were no new seeds and no model mutation.
+- The apparent broad loss is far smaller than its uncertainty. The aggregate
+  candidate-minus-control score-share delta remained `-0.0125`, but its
+  opponent-stratified paired-seed bootstrap CI95 was
+  `[-0.1375, +0.1125]`; the paired margin delta was `-0.2875`, CI95
+  `[-1.8375, +1.2375]`. Sign-flip p-values were `1.0` and `0.734`.
+- No opponent loss was systematic. Score-delta CI95 values were:
+  `016 [-0.40,+0.15]`, clean `023 [-0.25,+0.15]`, raw
+  `035 [-0.15,+0.30]`, and shallow `[-0.25,+0.25]`. Even/odd halves were
+  `-0.025` and `0.0`; leave-one-opponent-out deltas ranged from `-0.05` to
+  `+0.0167`. Seat 0 favored generation 2 by `+0.10`, while seat 1 favored
+  epoch zero by `-0.125`; this is descriptive at the current sample size.
+- Across 5,121 recurrent decisions in 160 trajectories, the two policies
+  disagreed on 371 (`7.24%` decision-weighted, `7.33%` game-balanced), with
+  game-balanced mean raw-softmax TV `0.0471`. Movement was not opponent
+  concentrated: every opponent's game-balanced disagreement rate was about
+  7--8%. It was phase concentrated: early `11.8%`, mid `5.8%`, late `3.7%`.
+  Negative paired-result seeds had lower, not higher, movement than positive
+  or tied seeds (`6%` versus about `8%`), so disagreement frequency does not
+  explain the observed losses.
+- Most greedy disagreements were fine-grained: 251/371 retained the same
+  action type, and another 89 switched between visible and blind reserve.
+  Only 31 changed across broader take/buy/reserve categories. This does not
+  prove action equivalence, but it further cautions against interpreting the
+  one-game aggregate score difference as a robust policy failure.
+- Formal decision:
+  `recurrent_broad_result_inconclusive_authorize_confirmation_preregistration`.
+  This does not retroactively pass `064`; keep `035` as champion. It authorizes
+  only a separately frozen, larger fresh paired confirmation of generation 2
+  versus epoch zero across the same four opponents, with both seats and seed
+  clustering. Do not train, promote, run Stage C, change the objective, or
+  rent a GPU before that confirmation.
+- Evidence:
+  `outputs/recurrent_broad_failure_diagnosis_065/result.json`, SHA-256
+  `616e0f6eb0ff7b968cfc0f9d60c51c2c186557c179c07a52586b978d784e0b4d`.
+
 ## 2026-07-26 History-Required Repair Composes Twice but Fails Broad Lift
 
 - Experiment `064` was preregistered at `266edb0`, implemented at `3ab2545`,
