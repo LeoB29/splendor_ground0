@@ -1,5 +1,69 @@
 # Agent Handoff
 
+## 2026-07-26: History-required repair composes but has no broad lift
+
+Experiment `064` prospectively froze the repair to the `063` diagnosis at
+commit `266edb0`. Implementation commit `3ab2545` added a separate recurrent
+mode whose residual is a multiplicative interaction between frozen
+state/action features and the public-history GRU context. Its history
+projection and output are bias-free, making an empty transcript structurally
+incapable of changing raw `035`, even after optimization. It also introduced
+phase weights of `0.25` for turns 0--19 and `1.0` thereafter, normalized to one
+per game, and enlarged every validation opponent-seat cell from four to eight
+games. The clean pre-evidence suite passed 532/532.
+
+Generation 1 collected exactly 320 fresh eligible games without rejected
+attempts: 256 train, 64 validation, and 10,070 actor decisions. Every
+opponent-seat cell contained 32 train and 8 validation games. Validation raw
+KL was 0.003158, argmax movement 3.45%, overall surrogate +0.003788, and
+mid/late surrogate +0.004217. Real versus within-stratum rotated histories
+produced mean TV 0.014956, while emptying histories reproduced embedded raw
+`035` scores and values exactly. On 40 fresh paired seeds, generation 1 passed
+its parent gate with 55.0% score share and +0.675 mean paired margin.
+
+Generation 2 added generation 1 to the four static league members and
+collected exactly 400 fresh eligible games without rejected attempts: 320
+train, 80 validation, and 12,602 decisions. It again passed all offline gates:
+raw KL 0.003827, movement 3.42%, surrogate +0.001396, mid/late surrogate
++0.001679, and history-rotation TV 0.022107, with exact empty-history fallback.
+Its fresh immediate-parent gate was weaker but valid, passing exactly at the
+45.0% score-share floor with -0.7125 mean margin. Thus the repaired mechanism
+did what `062` could not: two consecutive history-dependent updates cleared
+both offline and immediate-parent gates.
+
+The final broad composition gate nevertheless rejected scale. All 160 games
+were valid. Relative to epoch-zero `035`, generation 2 changed score share by
++0.10 against raw `035`, 0.00 against shallow search, -0.05 against clean
+`023`, and -0.10 against `016`. The inclusive no-collapse floor and the
+two-nonnegative-opponent condition passed, but aggregate delta was -0.0125
+rather than strictly positive.
+
+The first serialized result evaluated the exact -0.10 delta as
+-0.10000000000000003 and therefore falsely marked only the inclusive
+no-collapse sub-gate false. Commit `e6f51ec` repaired this numerical boundary
+with a 1e-12 tolerance. The result contains a transparent correction note and
+the original SHA-256. No gameplay, model, metric, aggregate outcome, pass flag,
+or decision changed.
+
+Formal decision:
+`history_required_repair_failed_diagnose_before_scale`. This is stronger
+evidence for recurrent population learning than `062`: recurrence is now
+genuinely used and succession worked twice. It is not evidence of broad
+cumulative improvement. Keep raw legal `035` as champion; do not promote the
+`064` snapshots, start the approximately 10,000-game Stage C run, relax the
+gate, or rent a GPU. The next step should be a no-training diagnosis of the
+already collected broad paired games, including paired-seed uncertainty and
+localization of the `016`/`023` regressions. Only that diagnosis should decide
+between a larger confirmation gate and a change to league weighting/objective.
+
+Evidence:
+`outputs/history_required_recurrent_repair_064/result.json`, SHA-256
+`7a3094d37e6d37961b44f74029330c7083f5da3af7a9a03f8050b62bc59cf2e6`.
+Generation-1 checkpoint SHA-256:
+`0c42c04df97114bf79147dfee80e8f296485b15742d6248c8f37ff7cee78756e`.
+Generation-2 checkpoint SHA-256:
+`3ed0bd7e2dcda21646c7ac4f68e2d0ffcfe0bdacf0c151c453c52ea6a08fe09e`.
+
 ## 2026-07-25: Generation-2 failure is noisy credit and unused recurrence
 
 Experiment `063` froze a no-training diagnosis at `b3f0fb5`, implemented it at

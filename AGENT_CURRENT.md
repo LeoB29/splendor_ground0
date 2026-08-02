@@ -2,6 +2,57 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-07-26 History-Required Repair Composes Twice but Fails Broad Lift
+
+- Experiment `064` was preregistered at `266edb0`, implemented at `3ab2545`,
+  and run CPU-only after the clean full suite passed `532/532`. It replaced the
+  shortcut-prone residual diagnosed in `063` with a multiplicative
+  action/history interaction. Both the history projection and residual output
+  are bias-free, so an empty transcript produces bit-exact raw `035` behavior
+  even after training. Early turns received one-quarter of the per-decision
+  weight used for turns 20+.
+- Generation 1 collected exactly 320/320 fresh balanced eligible games and
+  10,070 actor decisions, with 32 training and 8 validation games in every
+  opponent-seat cell. It passed every offline gate: validation raw KL
+  `0.003158`, argmax movement `3.45%`, surrogate `+0.003788`, mid/late
+  surrogate `+0.004217`, and real-versus-rotated-history TV `0.014956`.
+  Empty-history fallback remained exact. It passed its untouched 80-game
+  immediate-parent gate at 55.0% score share and `+0.675` mean margin.
+- Generation 2 added the accepted generation-1 snapshot and collected exactly
+  400/400 fresh balanced eligible games and 12,602 decisions, again with 32/8
+  games per cell. It also passed every offline gate: validation raw KL
+  `0.003827`, movement `3.42%`, surrogate `+0.001396`, mid/late surrogate
+  `+0.001679`, and history-rotation TV `0.022107`. Empty-history fallback was
+  still exact. Its untouched parent gate passed exactly at the frozen 45.0%
+  score-share floor, with mean margin `-0.7125`.
+- The conditional 160-game broad gate was fully valid but did not show
+  population improvement over epoch-zero `035`. Generation 2's score-share
+  deltas were `+0.10` versus raw `035`, `0.00` versus shallow search, `-0.05`
+  versus clean `023`, and `-0.10` versus `016`. Two opponents were
+  nonnegative and the inclusive no-collapse floor passed, but aggregate delta
+  was `-0.0125`, failing the preregistered strictly-positive requirement.
+- The original report represented exact `-0.10` as
+  `-0.10000000000000003`, incorrectly failing the inclusive no-collapse
+  sub-gate. Commit `e6f51ec` added a `1e-12` comparison tolerance and the
+  result was transparently reserialized with the original result hash in its
+  correction note. Games, checkpoints, metrics, the failed aggregate gate,
+  and the formal decision were unchanged.
+- Formal decision:
+  `history_required_repair_failed_diagnose_before_scale`. The repair solved
+  the history-use and two-generation composition failures of `062`, which is
+  meaningful progress, but it did not establish broad cumulative strength.
+  Keep `035` as champion. Do not promote either `064` checkpoint, start the
+  10,000-game Stage C run, relax the broad gate, or rent a GPU. The next
+  justified step is a no-training diagnostic of the broad result: quantify
+  paired-seed uncertainty and localize the `016`/`023` losses before deciding
+  whether a larger confirmation gate or a league-objective change is warranted.
+- Evidence:
+  `outputs/history_required_recurrent_repair_064/result.json`, SHA-256
+  `7a3094d37e6d37961b44f74029330c7083f5da3af7a9a03f8050b62bc59cf2e6`.
+  Generation-1 and generation-2 checkpoint SHA-256 values are respectively
+  `0c42c04df97114bf79147dfee80e8f296485b15742d6248c8f37ff7cee78756e`
+  and `3ed0bd7e2dcda21646c7ac4f68e2d0ffcfe0bdacf0c151c453c52ea6a08fe09e`.
+
 ## 2026-07-25 Generation-2 Diagnosis: Noisy Credit, History Mostly Unused
 
 - `063` was preregistered at `b3f0fb5`, implemented at `b762509`, and run only
