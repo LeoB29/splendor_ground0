@@ -2,6 +2,43 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## 2026-08-02 Fresh Seat-0 Confirmation Is Neutral but Misses CI Floor
+
+- Experiment `068` was preregistered at `7716d12`, implemented at `7a580c0`,
+  and run CPU-only after the full suite passed `558/558`. It performed no
+  training, selection, adaptation, or seed replacement. Generation 2 and its
+  epoch-zero control each played recurrent seat 0 on 100 fresh matched seeds
+  against each of raw `035`, `016`, clean `023`, and shallow search: 400
+  paired-seed clusters and 800 games.
+- All 11 integrity gates passed. The opponent counts and fresh seed bands were
+  exact, recurrent occupied seat 0 in every game, all 800 games completed
+  normally, metrics recomputed exactly, and every checkpoint hash remained
+  frozen. There were no illegal actions or excluded stalled games.
+- The result was practically neutral: candidate score share was `0.60000`
+  versus control `0.60125`, delta `-0.00125`. The opponent-stratified paired
+  CI95 was `[-0.06000,+0.05625]`, and the score sign-flip p-value was `1.0`.
+  Mean paired margin favored generation 2 by `+0.31`, CI95
+  `[-0.49,+1.1075]`, with p=`0.450`.
+- Opponent score deltas were `-0.03` against `016`, `+0.02` against clean
+  `023`, `-0.03` against raw `035`, and `+0.04` against shallow. Every point
+  estimate stayed above the `-0.05` practical floor and no opponent interval
+  showed systematic collapse. Even/odd halves were `+0.0025/-0.0050`.
+  Removing any opponent left the aggregate between `-0.01333` and `+0.00833`;
+  removing any single seed left it between `-0.00376` and `+0.00125`.
+- Seven of eight strength gates passed. The sole failure was the requirement
+  that the score CI lower bound reach `-0.05`: it reached `-0.06`, missing by
+  `0.01`. The score mean, margin mean and interval, opponent safeguards, and
+  both split halves all passed. This does not establish weakness; it also does
+  not establish the prospectively required noninferiority precision.
+- Formal decision: `recurrent_seat0_confirmation_failed_no_scale`. Therefore
+  do not retroactively pass `066`, promote generation 2, begin Stage C, rerun
+  until favorable, or rent a GPU. Champion `035` remains frozen. Any further
+  use of the disjoint accumulated panels must be a separately preregistered
+  no-game synthesis or a genuinely new direction, not reinterpretation of
+  this failed conjunction.
+- Evidence: `outputs/recurrent_seat0_confirmation_068/result.json`, SHA-256
+  `d4d366e6e77de3af9dba78f51b2341442198ca3752dd464361b1888e7d81d9b1`.
+
 ## 2026-08-02 Seat-0 Failure Does Not Replicate Across Panels
 
 - Experiment `067` was preregistered at `9173449` and implemented at

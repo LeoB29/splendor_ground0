@@ -1,5 +1,53 @@
 # Agent Handoff
 
+## 2026-08-02: Fresh seat-0 confirmation is neutral but inconclusive
+
+Experiment `068` froze its seat-0-only confirmation at commit `7716d12` and
+implemented the runner at `7a580c0`. The clean pre-evidence suite passed
+558/558. No optimization, checkpoint mutation, adaptive stopping, seed
+replacement, or post-outcome model selection occurred. Generation 2 and the
+epoch-zero recurrent control each occupied seat 0 against the same static
+opponent and seed: 100 fresh seeds per raw `035`, `016`, clean `023`, and
+legal shallow search. This produced 400 paired-seed clusters and 800 games.
+
+Integrity was completely clean. All 11 gates passed: the four opponent blocks,
+100 rows per block, seed bands, 800-game count, seat assignment, prerequisite
+and post-run hashes, metric recomputation, and no-training contract were exact.
+All 800 games terminated as `completed`; there were no illegal actions,
+cutoffs, discarded games, or forced-pass deadlocks.
+
+The candidate was effectively tied with its control. Aggregate score share was
+0.60000 versus 0.60125, a candidate-minus-control delta of -0.00125. The
+opponent-stratified paired bootstrap CI95 was [-0.06000,+0.05625], and the
+two-sided sign-flip p-value was 1.0. Mean paired margin was +0.31, CI95
+[-0.49,+1.1075], p=0.450. Thus the point and margin estimates do not suggest a
+seat-0 regression.
+
+Opponent score deltas were -0.03 against `016`, +0.02 against clean `023`,
+-0.03 against raw `035`, and +0.04 against shallow search. All stayed above
+the frozen -0.05 point floor and no opponent CI showed systematic collapse.
+Even and odd seed halves were +0.0025 and -0.0050. Leave-one-opponent-out
+score deltas ranged from -0.01333 to +0.00833; leave-one-seed-out values ranged
+from -0.00376 to +0.00125. The neutral aggregate is therefore not carried by
+one panel half, opponent, or seed.
+
+Seven of eight preregistered strength gates passed. Only the primary proof of
+score noninferiority failed: the CI lower bound was -0.06000 rather than at
+least -0.05, a 0.01 miss. Aggregate score mean, aggregate margin mean and CI,
+the three-of-four opponent condition, both opponent-collapse guards, and both
+split halves passed. This is an inconclusive precision failure, not systematic
+negative evidence, but the fixed conjunction cannot be waived after seeing
+the data.
+
+Formal decision: `recurrent_seat0_confirmation_failed_no_scale`. Keep raw
+`035` as champion. Do not pass `066`, promote generation 2, begin the 10,000-
+game Stage C loop, rerun confirmation until favorable, relax the floor, or
+rent a GPU. Any next synthesis of the now-disjoint `065`/`066`/`068` panels
+must be separately preregistered and use no new games; alternatively change
+direction explicitly. The evidence artifact is
+`outputs/recurrent_seat0_confirmation_068/result.json`, SHA-256
+`d4d366e6e77de3af9dba78f51b2341442198ca3752dd464361b1888e7d81d9b1`.
+
 ## 2026-08-02: The seat-0 gate failure does not replicate
 
 Experiment `067` froze a no-game pooled seat audit at `9173449` and
