@@ -30,6 +30,16 @@ from .selective_search_bot import (
     SelectiveSearchDecision,
     SelectiveSearchHybridBot,
 )
+from .value_reserve_bot import (
+    EFFICIENCY_FILTER,
+    ValueReserveTeacherBot,
+    ValueReserveTelemetry,
+    can_afford,
+    colour_deficit,
+    deficit,
+    effective_cost,
+    effective_value,
+)
 from .rolling_horizon_bot import (
     BranchingMutationRollingHorizonBot,
     RollingHorizonConfig,
@@ -69,6 +79,14 @@ __all__ = [
     "RollingHorizonConfig",
     "RollingHorizonStats",
     "TransitionEvents",
+    "EFFICIENCY_FILTER",
+    "ValueReserveTeacherBot",
+    "ValueReserveTelemetry",
+    "can_afford",
+    "colour_deficit",
+    "deficit",
+    "effective_cost",
+    "effective_value",
     "event_value",
     "transition_events",
     "transition_value",
