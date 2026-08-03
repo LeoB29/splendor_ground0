@@ -1,6 +1,11 @@
 """Baseline bot interfaces."""
 
 from .base import Bot
+from .deck_reserve_mask import (
+    DeckReserveMaskTelemetry,
+    DeckReserveMaskedAttentionScorerBot,
+    MASKED_ACTION_TYPE,
+)
 from .heuristic_bot import GreedyHeuristicBot
 from .model_bot import (
     CheckpointPolicyBot,
@@ -41,7 +46,10 @@ __all__ = [
     "CanonicalEntityActionScorerBot",
     "CheckpointLegalActionPriorScorer",
     "CheckpointValueEvaluator",
+    "DeckReserveMaskTelemetry",
+    "DeckReserveMaskedAttentionScorerBot",
     "GreedyHeuristicBot",
+    "MASKED_ACTION_TYPE",
     "LegalActionAttentionScorerBot",
     "LegalActionAttentionSamplingBot",
     "LegalActionScorerBot",
