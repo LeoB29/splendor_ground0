@@ -2,6 +2,105 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## START HERE: handoff as of 2026-08-03
+
+Champion is still frozen `035`. Nothing has been promoted. The last four
+experiments were `069` (failed), `071` (powered null), `072` (failed), `073`
+(invalid). Read in this order:
+
+1. This section.
+2. `docs/project_review_response_070.md` -- the current blocker diagnosis with all
+   arithmetic. **Read this before proposing any direction.** It supersedes the
+   older "Best Next Step" section far below, which is stale and kept only for
+   provenance.
+3. The four dated entries immediately below this section.
+
+### The diagnosis in one paragraph
+
+The blocker is not credit assignment, compute, or a missing stronger operator. It
+is that nearly every learning experiment was capped at 1--4% changed decisions by
+its own safety gates and then asked for +2.5 to +5 points of score share against a
+league spanning about 90 Elo with +/-5.8 points of noise at 400 clusters. The one
+high-dose operator (the public-belief resolver, ~62% of decisions) produced the
+only large gain; the one high-dose null (rolling horizon `043`) is genuinely dead;
+everything between is a low-dose null that was read as a method refutation. Two
+further findings sharpen this: `069`'s entropy floor was arithmetically
+unreachable from its own parent's starting value, so it could not have passed; and
+the resolver takes its root candidates from `035`'s top four with `035`
+continuations, so it **inherits `035`'s strategic blind spot** and cannot exceed
+refinements of `035`'s existing mode.
+
+### Standing rule for any new learner
+
+Either change `>=15%` of decisions and test at `>=200` paired seeds, or declare the
+expected effect size in advance and size the panel for `>=80%` power against it. Do
+not cap movement below detectability and then ask for a large effect. Declare the
+intervention **dose** as a reported quantity, as `071` does.
+
+### Next steps, in priority order
+
+1. **Human versus resolver, 10 games.** The owner has agreed to play. This fixes
+   the ceiling question that gates the entire resolver branch: the resolver is
+   about +139 Elo-equivalent over `035` while the owner's ten games imply about
+   +241, so distilling the resolver perfectly might still not reach human level.
+   **Blocked on engineering:** a resolver move currently costs ~60 s because the
+   192 continuations run serially (see `scripts/analysis/resolver_move_cost.py`).
+   Parallelise within the decision -- branch seeds come from
+   `gameplay_continuation_seed` and cross-branch state is order-independent
+   counters, so it should be exact; verify byte-identical decisions against the
+   serial path first. Then add `--opponent resolver` to `run_gui.py`, preserving
+   replay capture in the schema of `outputs/human_games/replays.jsonl` so the
+   existing forensic audit tooling works on the new games. Estimate 1--2 hours.
+2. **If the scripted-strategy line is resumed, use a search instrument, not
+   hand-written rules.** `072` and `073` both failed on the author's rule
+   specification rather than on the expert's strategy: `072` burned the gold that
+   makes a `7X` card payable, `073` specified gold discipline so strictly it became
+   unsatisfiable and never spent gold at all. Both failures were in *execution*
+   (token sequencing, gold budgeting), which search handles and rules do not. The
+   structurally different version is `ShallowSearchBot` with leaf evaluation biased
+   toward holding and owning high-efficiency cards. **Do not preregister a `074` in
+   the hand-written family**; see the `073` entry.
+3. **From-scratch resolver behaviour cloning, gated behind step 1.** The only
+   demonstrated stronger operator, and the from-scratch no-anchor variant has never
+   been tried -- all three prior attempts warm-started from and anchored to `035`,
+   which `052a` diagnosed as the failure mechanism. A staged protocol with sample
+   sizes, gates and falsification conditions is sketched in section 7 of the review
+   response. Stage 1 costs about 2 hours on existing data and can close the branch
+   cheaply; Stage 2 costs 20--30 h wall.
+
+### Do not do these
+
+Full kill list with reasons in section 8 of the review response. The ones most
+likely to be re-proposed by a fresh agent:
+
+- Any recurrent scale or entropy-repaired re-run of the `069` family. It is closed
+  on **surrogate exhaustion** (a 15.7x efficiency decay across four generations),
+  not on the entropy gate. Relaxing the floor would answer nothing.
+- The `071` resolver-arm ablation, even though `071`'s own decision rule authorizes
+  it. Reasons in the `071` entry.
+- A `073b` or `074` hand-written scripted teacher.
+- GPU rental. No measured bottleneck is neural fitting; all of it is engine
+  simulation and rollouts.
+- Any BGA scraping or automated access.
+
+### Reproducible derivations
+
+The numbers behind the diagnosis are re-runnable rather than only asserted:
+
+- `scripts/analysis/gate_power_069.py` -- bootstraps the real `066` clusters to
+  `069`'s planned panel and reports the conjunction's power curve.
+- `scripts/analysis/card_efficiency.py` -- the card-efficiency structure and the
+  reserve-gating mechanic behind `072`/`073`.
+- `scripts/analysis/resolver_move_cost.py` -- measured per-decision resolver cost.
+
+### Held-out data
+
+The ten human games in `outputs/human_games/replays.jsonl` remain held out. They
+have been used for **diagnosis** (action mix, reserve tiers), which is what they
+were recorded for, and never to fit, select or tune anything. Keep it that way:
+they are the project's only external calibration. Do not build a manual annotation
+workflow and do not train on them.
+
 ## Environment (read before running anything)
 
 - The working interpreter on this machine is `C:\Users\leoba\anaconda3\python.exe`
@@ -17,6 +116,107 @@ Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical l
   pytest's in-process `pythonpath = ["src"]`. If those four ever fail again,
   suspect a broken install, not a code regression.
 - Current full suite: `572 passed` (565 historical plus 7 new `071` contracts).
+
+## 2026-08-03 Gold-Disciplined Teacher Is Invalid on a Self-Contradictory Gate
+
+- `073` was the single re-elicitation `072` authorized, and its protocol declared
+  itself terminal for the scripted-strategy line. It changed exactly two rules,
+  both elicited from the expert: protect gold while holding a high-cost target,
+  and reserve-and-clear rather than filling all three slots. Both are carried on a
+  `ValueReserveRules` record defaulting to disabled, and `072` was re-run to a
+  scratch directory and **reproduced exactly** after the refactor. Suite passed
+  `585/585` before evidence.
+- Formal decision: `scripted_value_teacher_073_invalid_no_strength_decision`.
+  The failing gate is `reserve_and_clear_active`, which required
+  `multi_target_hand_decisions == 0` while the same protocol text explicitly
+  exempts the rule-3 endgame block from reserve-and-clear. **The gate contradicts
+  the protocol it was written to enforce.** This is a specification defect of the
+  same class as `041`'s literal-`completed` rule and `049`'s source contract, not
+  a property of the candidate.
+- Strength, recorded but formally void: **2-398-0**, score share `0.005`, CI95
+  `[0.0000,0.0125]`, margin `-15.405`. That is *worse* than `072`'s 21-379.
+- A second specification defect was not caught by any gate and is the reason for
+  the regression. Gold discipline as literally written requires the gold still
+  held after a purchase to be at least the target's colour shortfall. Early in a
+  game against a `7X` target with no bonuses that shortfall is about 7, while only
+  `GOLD_TOKENS = 5` exist, so the condition is unsatisfiable and gold is never
+  spent at all: `29` gold spent across the panel versus `856` in `072`. The bot
+  hoards gold instead of protecting it. Conversion fell to `7.4%` and token-taking
+  rose to `88%` of decisions. The rule-3 block also fired `464` times versus
+  `072`'s `39`, because a bot this far behind is almost always facing an opponent
+  one card from 15.
+- Correction to an interim claim: a single-game check on seed `760000` seat 0 was
+  a 15-12 win and was reported as evidence the changes worked. The panel shows
+  that game to be one of only **2 wins in 400**, and its own cluster splits 0.5
+  because the seat-1 game lost 0-15. Per-cluster shares across the panel are 198
+  at `0.0` and 2 at `0.5`. Do not generalise from single-seed smokes.
+- **Do not preregister a `073b` or a `074` in this family.** The terminality clause
+  was written precisely to stop an invalid-then-retry chain, which is the pattern
+  that produced `065`-`069`. Two encodings have now failed on the author's
+  specification rather than on the expert's strategy, so the binding constraint is
+  rule-writing quality, not the hypothesis. If this line is resumed it must be
+  with a structurally different instrument -- for example a search bot whose leaf
+  evaluation is biased toward high-efficiency reserves, so search handles token
+  sequencing and gold budgeting instead of hand-written rules.
+- Nothing here is evidence about the expert's strategy. The independent card-table
+  and reserve-gating analysis is untouched, and the ten human games remain held
+  out and unused for fitting.
+- Evidence: `outputs/scripted_value_teacher_073/result.json`, SHA-256
+  `56e9766e73dec1e4dd671674bf230ab38d06950781c380eb6bcc2f513fdfcdfc`.
+  Implementation: the `ValueReserveRules` record in
+  `src/splendor_ai/bots/value_reserve_bot.py`,
+  `run_scripted_value_teacher_073.py`, and the four `073` contracts in
+  `tests/test_value_reserve_bot.py`.
+
+## 2026-08-03 Scripted Value Teacher Fails, but the Encoding Was Unfaithful
+
+- `072` tested whether the expert's stated strategy -- reserve high-efficiency
+  cards early for a delayed points payoff, ignore the opponent, never reserve from
+  the deck -- wins in this engine. Deterministic rule-based bot, no search, no
+  neural component, no randomness. Protocol
+  `docs/experiments/scripted_value_teacher_072.md`; suite passed `581/581` before
+  evidence.
+- Result: **21-379-0** over 200 fresh clusters / 400 games at seeds
+  `750000--750199`. Paired score share `0.0525`, CI95 `[0.0325,0.0750]`; mean
+  paired margin `-12.64`, CI95 `[-13.2475,-12.01]`. All ten integrity gates
+  passed, including exact determinism on a first-cluster replay and zero deck
+  reserves in 12,644 decisions. Formal decision:
+  `scripted_value_teacher_weaker_close_scripted_strategy_line`.
+- **Do not read this as evidence about the expert's strategy.** The preregistered
+  faithfulness diagnostics show the rules did not reproduce what was described.
+  Action mix was `79.7%` takes / `10.9%` visible reserves / `1.7%` reserved buys
+  versus the expert's `51.3%` / `23.3%` / `18.8%`; absolute deviations `0.284`,
+  `0.124`, `0.171`. Reserve conversion was `15.8%` versus the expert's `81.0%`.
+  Reserve tier share was `82.8%` tier 3 versus the expert's `44.4%`.
+- Mechanically the bot paralysed itself. It buys `2.9` cards per game versus the
+  expert's `7`, of which `849/1,159` are tier-1. It reserves `3.45` per game
+  versus `6.3` and converts `0.55` versus `5.1`. Mean game length `63.2` turns
+  versus the expert's `53.2` in wins. There were 18 `forced_pass_deadlock`
+  endings in 400 games (`4.5%`, against 1 in 2,000 for `071`), the signature of
+  hoarding tokens to the 10-cap with nothing affordable.
+- Two structural causes, both traceable to the frozen rules rather than to bugs.
+  First, effective value alone selects targets, so the target is almost always a
+  `7X` mono tier-3 whose deficit cannot close: the bank holds at most 4 of a
+  colour, so it needs 3 gold every time. Second, rule 6 spends that gold on cheap
+  discount-builders -- `856` gold across `1,159` purchases -- destroying the only
+  route to the target. Rule ordering also places reserving above token
+  accumulation, so a freed hand slot outranks progress.
+- Per the protocol, do **not** tune the rules, thresholds, or the efficiency
+  filter to rescue this. The protocol permits exactly one re-elicitation from the
+  expert, only because the faithfulness diagnostics failed, and it must be
+  separately preregistered. The two decisive open questions are gold discipline
+  while holding a `7X` target, and whether reserving is paced against conversion
+  rather than fired whenever a hand slot is free.
+- The card-efficiency and reserve-gating analysis behind the protocol stands
+  independently of this result: points per token is monotone in cost
+  concentration, each colour X has exactly two tier-3 cards costing `7X` worth 4
+  and 5 points, and `BANK_GEMS_PER_COLOR_2P = 4` with gold obtainable only by
+  reserving. Tests assert both derived claims.
+- Evidence: `outputs/scripted_value_teacher_072/result.json`, SHA-256
+  `04ac12dcdb677250f92b85fecb90270a9c6b63986f0daa8a4433fc2402793f38`.
+  Implementation: `src/splendor_ai/bots/value_reserve_bot.py`,
+  `src/splendor_ai/eval/run_scripted_value_teacher.py`,
+  `tests/test_value_reserve_bot.py`.
 
 ## 2026-08-03 Deck-Reserve Mask Is Neutral at a 7.3% Dose
 
@@ -3085,7 +3285,13 @@ Decision:
   screen. Outcome-grounded leaves remain a conceptually distinct future
   evaluator class, but are not justified for a live PUCT pilot from these data.
 
-## Best Next Step
+## Best Next Step (SUPERSEDED 2026-08-03 -- provenance only)
+
+**Do not act on this section.** It predates the `070` independent review, `071`,
+`072` and `073`. The current direction is the "Next steps" list in the START HERE
+section at the top of this file, with reasoning in
+`docs/project_review_response_070.md`. The PUCT/value closures recorded below still
+stand and are reflected in the review's kill list.
 
 Retain `022` as the frozen historical baseline and `035` as the active legal
 prior. Keep clip `0.20` frozen as the best tested PUCT leaf diagnostic, but do
@@ -5210,6 +5416,10 @@ Historical full test status (kept for provenance; the counts below predate the
 - `docs/experiments/deck_reserve_mask_ablation_071.md` and
   `src/splendor_ai/bots/deck_reserve_mask.py` as the template for a cheap,
   properly dosed, inference-only ablation
+- `docs/experiments/scripted_value_teacher_072.md` and `..._073.md` for the
+  faithfulness-diagnostic pattern and the terminality clause that stopped an
+  invalid-then-retry chain
+- `scripts/analysis/` for the re-runnable derivations behind the diagnosis
 - `AGENT_HANDOFF.md` only if historical detail is needed
 - `src/splendor_ai/training/run_policy_diff_against_teacher.py`
 - `src/splendor_ai/training/run_policy_search_disagreement.py`
