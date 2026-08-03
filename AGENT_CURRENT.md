@@ -2,6 +2,162 @@
 
 Use this file first in a fresh chat. `AGENT_HANDOFF.md` is the long historical log.
 
+## Environment (read before running anything)
+
+- The working interpreter on this machine is `C:\Users\leoba\anaconda3\python.exe`
+  (Python 3.12.7, torch 2.4.1+cpu, pytest 7.4.4). The repository `.venv` has
+  neither torch nor pytest and must not be used.
+- `splendor_ai` is now installed editable into that interpreter
+  (`python -m pip install -e . --no-build-isolation`), so `import splendor_ai`
+  resolves from any working directory and **`PYTHONPATH` is no longer required**.
+- Before that install, four CLI tests failed spuriously on this machine
+  (`test_conversion_diagnostics`, `test_pgs_corpus_audit`,
+  `test_search_value_diff`, `test_value_risk_audit`). They spawn
+  `python run_*.py` subprocesses, which inherit environment variables but not
+  pytest's in-process `pythonpath = ["src"]`. If those four ever fail again,
+  suspect a broken install, not a code regression.
+- Current full suite: `572 passed` (565 historical plus 7 new `071` contracts).
+
+## 2026-08-03 Deck-Reserve Mask Is Neutral at a 7.3% Dose
+
+- `071` tested one inference-time action-class mask on frozen `035`:
+  `RESERVE_DECK` removed from the greedy candidate set, identical weights on both
+  sides. No training, no new checkpoint. Protocol
+  `docs/experiments/deck_reserve_mask_ablation_071.md`; the suite passed
+  `572/572` before evidence.
+- The hypothesis came from outside the local league, which is why it was worth
+  testing at all: the experienced player reported never reserving from the deck
+  and judged it near-always wrong, and 3 of the 12 resolved mistakes in the
+  disjoint reserve-generalization audit were `RESERVE_DECK`->`RESERVE_VISIBLE`.
+- 1,000 fresh paired clusters / 2,000 games at seeds `740000--740999`. There were
+  1,999 ordinary completions and one retained `forced_pass_deadlock`. All nine
+  integrity gates passed; `deck_only_fallback` was 0, so the mask never had to
+  yield.
+- The mask bound on `7.317%` of 63,424 candidate decisions: 4,641 switches,
+  about 2.32 per game, substituting `RESERVE_VISIBLE` on 98.7% of them (4,582),
+  plus 48 buys and 9 takes. This is a genuinely dosed intervention, unlike
+  `005` (0.89%) or the recurrent updates (3--4%).
+- Paired score share was `0.50575`, CI95 `[0.4850,0.5265]`, SE `0.0105`; paired
+  margin `-0.031`, CI95 `[-0.3085,+0.2425]`. The panel resolves effects above
+  about `+2.8` points, so this is a **powered null**, not an underpowered one.
+- It also bounds the average deck->visible substitution at `<=0.10` score-margin
+  points per changed decision, against the audit's `+0.836` on screened states.
+  Both are true: selected suspicious states show a real effect, the population
+  average is about zero. Do not cite the audit's 3/12 as evidence that the class
+  is generally bad.
+- Incidental engine fact: first-player advantage in `035` mirror play is about
+  57%. The two reported per-seat shares (`0.578`/`0.4335`) are algebraically the
+  same paired estimate restated and carry no independent seat information.
+- Formal decision: `deck_reserve_mask_neutral_at_measured_dose`. Do not promote
+  either configuration, do not tune the mask to a phase window or tier subset,
+  and do not rent a GPU. Champion `035` remains frozen.
+- **The protocol authorizes a resolver-arm ablation. Do not exercise that
+  authorization.** The null is conditional on an `035`-family opponent. A blind
+  reserve's cost is not knowing what you get, which only matters against an
+  opponent planning a specific conversion; against one that plans none, the
+  substitution is free. Re-running it on the resolver (9.4% rate) would spend
+  about six hours to re-learn this inside the same closed ecosystem. The question
+  needs an opponent that punishes the informational loss: human games, or the
+  scripted teacher below.
+- Note for gate design: one legitimate `forced_pass_deadlock` occurred in 2,000
+  games. Had integrity gate 2 been written as "all games `completed`", the way
+  `041` was, this experiment would have been formally void. The protocol admitted
+  it because the engine contract does.
+- Evidence: `outputs/deck_reserve_mask_ablation_071/result.json`, SHA-256
+  `944958238df4b8b0218a03315e07291e5d200374a6ea46fac8fdd87201af2d11`.
+  Implementation: `src/splendor_ai/bots/deck_reserve_mask.py`,
+  `src/splendor_ai/eval/run_deck_reserve_mask_ablation.py`,
+  `tests/test_deck_reserve_mask_ablation.py`.
+
+## 2026-08-03 Independent Review `070`: Blocker Re-Diagnosis
+
+Full derivations, tables and reviewer-error corrections are in
+`docs/project_review_response_070.md`. Read that before disagreeing with any item
+here. Advisory only: it changes no gate, passes no failed experiment, and
+promotes nothing.
+
+- **Re-diagnosed blocker.** Not credit assignment, compute, or a missing stronger
+  operator. Every learning experiment was capped at 1--4% changed decisions by its
+  own safety gates, then asked for +2.5 to +5 points of score share against a
+  league spanning about 90 Elo with +/-5.8 points of noise at 400 clusters. The
+  one high-dose operator (resolver, ~62%) produced the only large gain; the one
+  high-dose null (rolling horizon `043`) is genuinely dead; everything between is
+  a low-dose null that was read as a method refutation. `005` is the clearest
+  case: 0.89% dose, 200 pairs, needed roughly 26,000 to detect its own predicted
+  effect.
+- **`069` could not have passed.** It initialised from `064` generation 2 at
+  normalized entropy `0.32058` and planned three generations against a frozen
+  `0.30` floor, while the two prior generations of the same architecture had each
+  lost about `0.02`. The floor was inherited from `062`, where full-weight early
+  decisions put entropy at `0.386`; `064`'s 4x early down-weighting consumed
+  roughly a quarter of the headroom with no implied change in sharpness, and the
+  threshold was never re-derived. The entropy bonus also does not regularise the
+  gated quantity: weight `0.002`, applied to the temperature-1.0 **5%-uniform-mixed**
+  behaviour distribution, **un-normalized**, while the gate measures the raw
+  masked softmax **width-normalized**.
+- **The real negative result in `069` is surrogate exhaustion**, and it is
+  sufficient on its own. Validation surrogate fell `+0.003788` -> `+0.001396` ->
+  `+0.000681` -> `+0.000393` across `064` g1/g2 and `069` g1/g2 while KL stayed at
+  0.003--0.005; surrogate-per-KL fell `1.199` -> `0.365` -> `0.173` -> `0.0766`, a
+  15.7x efficiency decay while per-generation data grew about 9x. Four panels
+  (`064`/`065`/`066`/`068`) independently put the candidate at parity with epoch
+  zero. **Close the outcome-only recurrent branch on this, not on the entropy
+  gate**, and do not re-run it with a relaxed floor.
+- **Some resolver gates were unachievable in principle.** Frozen `035` already
+  agrees with the resolver's chosen action on `31.8%`/`32.7%`/`33.0%` of resolved
+  train/validation/confirmation rows, while the resolver's own test-retest
+  agreement (`055`) is `45.8%`. The learnable band is about 13 points. `054`
+  demanded `40%` validation accuracy, i.e. 55% of that band on a first attempt
+  with frozen features; `052` demanded `+5` points while also requiring
+  fallback-anchor KL `<=0.02`. Treat those as ceiling artifacts, not clean
+  learnability failures.
+- **The resolver inherits `035`'s strategic blind spot, structurally.** Its four
+  root candidates are `ranked[:4]`, i.e. `035`'s top four
+  (`run_paired_public_belief_resolver_gameplay.py:250-255`), and its continuations
+  are `035` at eps 0.10 / tau 0.50 / top-k 3. It cannot pick outside `035`'s top
+  four nor see the payoff of a line `035` will not execute in rollout. Measured:
+  `035` made **0** tier-3 reserves in 271 deterministic decisions and **2** early
+  tier-3 visible reserves in 63,622 self-play decisions; the human made **18** in
+  the opening alone. The resolver chose early tier-3 visible reserves on 3 of
+  2,227 early decisions (`0.13%`) and early deck reserves on `19.8%` -- about 6x
+  `035`'s deterministic rate, a strategy-fusion signature from averaging over
+  determinizations. **So resolver distillation is capped at refining `035`'s
+  existing mode**: resolver is about +139 Elo-equivalent over `035` while the ten
+  human games imply about +241.
+- **Champion provenance is worse than the packet states.** `035` is built on the
+  295-wide legacy tensor the project has itself deprecated, and is only 48-52
+  against `022`, so the legality repair bought no measurable strength. `061`--`069`
+  froze every `035` parameter and bolted a GRU on top, and `063` found the
+  residual learned almost entirely from frozen current-state/action features
+  (95.84% of KL survived history ablation). A frozen encoder that never encoded
+  history-relevant structure cannot host a history mechanism.
+- **Gate-design reforms recommended.** Keep integrity as a hard conjunction;
+  replace flat learning/strength conjunctions with one pre-declared primary
+  endpoint plus diagnostics; convert hard per-stratum sign floors into
+  collapse guardrails. Bootstrapping the real `066` clusters to `069`'s planned
+  400-cluster panel gives the final conjunction 9.3% type-I error but only
+  **43% power at its own declared +0.025 minimum**, with the per-stratum
+  sub-gates as the dominant power sink.
+- **Standing rule for future learners.** Either change `>=15%` of decisions and
+  test at `>=200` paired seeds, or declare the expected effect size in advance and
+  size the panel for `>=80%` power against it. No more capping movement below
+  detectability and then asking for a large effect.
+- **Ranked next directions.** (1) Build a coherent scripted teacher for the
+  human's actual strategy -- take tokens toward the highest-value soon-affordable
+  tier-2/3 card, reserve high-value visible cards, never reserve from the deck,
+  convert -- and play it 200 paired games versus `035`. Free to run, no search. A
+  win supplies an existence proof, the first genuinely independent league
+  opponent, and a coherent teacher for the `021`/`023` recipe, the only supervised
+  recipe that ever produced a large gain here. (2) Ten human games versus the
+  resolver, about 3 s per move, to fix the ceiling. (3) From-scratch resolver
+  behaviour cloning, **demoted** and gated behind (2); a protocol sketch with
+  sample sizes and falsification conditions is in the response document.
+- **Open, untested by `071`:** the tier-3 reserve absence. The two
+  outcome-grounded audits cannot test it, because their continuations are
+  `035`-guided and so cannot convert a high-tier reserve. Reported honestly in the
+  response document: of 20 resolved mistakes across both audits, only 2
+  transitioned to tier 3.
+
 ## 2026-08-03 Scaled Recurrent Succession Stops at Entropy Contract
 
 - Experiment `069` was prospectively frozen at `60e3417`/`887f40e` and
@@ -4999,13 +5155,23 @@ reserve sections above; it is no longer an active process.
 
 ## Useful Commands
 
-Full test command:
+Full test command (no `PYTHONPATH` needed since the editable install; see the
+Environment section at the top of this file):
 
 ```powershell
-$env:PYTHONPATH='src'; python -m pytest -q --basetemp .codex_pytest_tmp_all
+& "C:\Users\leoba\anaconda3\python.exe" -m pytest -q --basetemp .codex_pytest_tmp_all
 ```
 
-Current full test status:
+Deck-reserve mask ablation `071` (reproduces the frozen panel exactly):
+
+```powershell
+& "C:\Users\leoba\anaconda3\python.exe" run_deck_reserve_mask_ablation.py --workers 10
+```
+
+Latest full suite: `572 passed` in about 203 s on 2026-08-03.
+
+Historical full test status (kept for provenance; the counts below predate the
+`071` contracts and the editable install):
 
 - 360 passed after legal hidden-information search, PUCT batching, root-visit
   replay/training telemetry, paired direct checkpoint gates, the generation-1
@@ -5038,6 +5204,12 @@ Current full test status:
 ## Files To Read Next
 
 - `AGENT_CURRENT.md`
+- `docs/project_review_response_070.md` for the current blocker diagnosis,
+  gate-power arithmetic, closure classification, kill list, and the deferred
+  resolver-BC protocol sketch
+- `docs/experiments/deck_reserve_mask_ablation_071.md` and
+  `src/splendor_ai/bots/deck_reserve_mask.py` as the template for a cheap,
+  properly dosed, inference-only ablation
 - `AGENT_HANDOFF.md` only if historical detail is needed
 - `src/splendor_ai/training/run_policy_diff_against_teacher.py`
 - `src/splendor_ai/training/run_policy_search_disagreement.py`
