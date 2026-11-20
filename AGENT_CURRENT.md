@@ -1,3 +1,45 @@
+## Parallel-throughput pilot CORRECTED and FROZEN, NOT launched — 2026-11-20 Paris
+
+User asked for the launch-gate fix to be done in this session ("Do it here"). The 15 Nov pilot
+(tools/splendorust_parallel_throughput_20261115, freeze 445ddb6a…) stays frozen, unchanged and
+never launched; its gate would refuse anyway. Three defects found:
+1. Gate required completion receipts from the ORIGINAL collection attempt
+   outputs/splendorust_collection4096_20261115_01, which ended incomplete; the accepted
+   collection is the amended recovery outputs/splendorust_collection4096_resume_20261118_02.
+2. Registry collision scan shelled out to `rg`, which is not installed on this machine.
+3. Plan inherited the six-world pin of C:\Windows\System32\conhost.exe (c8614618…); Windows
+   servicing replaced it (dd5c3514…, same size). Launch, every worker startup and live
+   ownership compare against this pin, so the first live service would have failed.
+
+Corrected version: tools/splendorust_parallel_throughput_20261120, output
+outputs/splendorust_parallel_throughput_20261120_01, preparation
+outputs/splendorust_parallel_throughput_preparation_20261120_01.
+FREEZE SHA256 bdb225fc1efc2f8ef98f86b9e8e0c72e8db576fc39d67260a325536db3943ed2.
+Note: docs/engineering/splendorust_parallel_throughput_admission_correction_20261120.md.
+Changes only: launch gate binds accepted collection recovery (acceptance, root exit with 3,831
+owned identities absent, launcher and observer exits) plus completed training4096 exits;
+refuses if another study package's code is running (checked before and after the scan) or the
+15 Nov version was launched/changed. Python registry walk replaces rg (same scope; reviewer's
+rg 15.0.0 run and the walk both give exactly 9,824 files). rebind_console/rebind_note at freeze.
+Fresh 50 engineering setups (domain ..._20261120_v1), zero collisions over 9,824 registered
+files. Design, players (EF8A/f32/512/3 worlds/cpuct .4/depth 64), arms, deadlines, adoption
+bars, checks, caps unchanged. Model CPUs 0,2,4,6; controller 12-19.
+
+Receipts: tests qualification_final03 162/162 passed (final01 superseded, final02 stopped
+mid-run, both preserved); fixture detached_final03 passed; review_final.json = independent
+Claude subagent, four rounds (approve-with-notes, approve, BLOCK on stale note binding, approve);
+reservation_final_validation 341 s of the 600 s bound (margin shrinking as outputs/ grows).
+First freeze attempt refused safely on the stale conhost hash, writing nothing.
+Read-only preflight after freeze: predecessors passed, 2,552 inputs verified, topology ok,
+no other study running, no launch artifacts.
+
+LAUNCH (only on explicit user go-ahead): close browsers/chat apps, plugged in, pause Windows
+Update (a new conhost.exe would make launch refuse safely), pause Process Lasso/ProBalance
+(ProcessGovernor service is running). Write an authorization JSON {explicit_user_launch:true,
+machine_quiet_confirmed:true, plan:<artifact of the freeze>} and start detached:
+python -B -m tools.splendorust_parallel_throughput_20261120.launcher --authorization <file>.
+About 3 h; 6 h cap. No automatic follow-up, no scheduled monitor.
+
 ## Training4096 COMPLETE and verified — 2026-11-20 11:54 Paris
 
 All14 workers, independent acceptance, actual root/launcher exit0 and cleanup passed. All recorded process identities are absent. No failures occurred in the scientific attempt, no retries or budget extensions, no further study launched. Total elapsed9h15m27s; final observed completion20Nov10:54:13.206368UTC/11:54:13Paris. Do not restart this completed study. Active/frozen source and outputs remain unchanged.
