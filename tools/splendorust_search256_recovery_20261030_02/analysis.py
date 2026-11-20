@@ -1,0 +1,301 @@
+"""Fixed400-game paired strength assessment of preselected256 versus unchanged128.
+
+Outcome arithmetic only: all complete game evidence must be verified first.
+No games, models, timing-based selection, sample extension or promotion.
+"""
+from __future__ import annotations
+from collections import Counter
+import hashlib
+import json
+import math
+
+MAIN_PAIRS = 200
+REPLICATES = 50000
+SEED = 20261029256
+FAILURE_POLICY = 'research_hard_guard_9s_internal_10s_complete_response'
+ADMIN_FAILURES = ('research_internal_hard_guard', 'research_outer_hard_guard')
+
+
+
+def require(value, message):
+    if not value:
+        raise ValueError('SEARCH256_STATISTICS: ' + message)
+
+
+def _digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
+                                    allow_nan=False).encode()).hexdigest()
+
+
+def runtime_contract():
+    from tools.matched_strength_20261020.statistics import runtime_contract as contract
+    return contract()
+
+
+def validated_games(games):
+    """Strict complete sample and official results, independent of input order."""
+    from . import schedule
+    expected = schedule.make_schedule('main')
+    require(type(games) is list and len(games) == len(expected),
+            'complete fixed400 main-game sample required')
+    wanted = {_digest(spec) for spec in expected}
+    observed = []
+    ordered = []
+    for game in games:
+        require(type(game) is dict, 'game object')
+        spec = schedule.validate_spec(game)
+        require(spec['stage'] == 'main' and spec['candidate'] == 'research',
+                'wrong stage or candidate')
+        require(spec['challenger_mode'] == spec['candidate'] and
+                spec['opponent_mode'] == 'frozen' and
+                type(spec['challenger_quota']) is int and spec['challenger_quota'] == 256 and
+                type(spec['opponent_quota']) is int and spec['opponent_quota'] == 128,
+                'exact fixed256 versus128 player identities')
+        observed.append(_digest(spec))
+        seat = spec['challenger_seat']
+        require(type(seat) is int and seat in (0, 1), 'candidate seat')
+        require(game.get('complete') is True and 'winner' in game, 'incomplete or missing result')
+        winner, reason, loser = game['winner'], game.get('reason'), game.get('loser')
+        require(winner is None or type(winner) is int and winner in (0, 1), 'winner type/seat')
+        require(reason in ('natural', 'forfeit'), 'unofficial or unresolved ending')
+        if reason == 'forfeit':
+            require(type(loser) is int and loser in (0, 1) and winner == 1 - loser,
+                    'forfeit must lose for the responsible player')
+            require(game.get('administrative_forfeit') is True and
+                    game.get('failure_policy') == FAILURE_POLICY and
+                    game.get('failure') in ADMIN_FAILURES,
+                    'only classified research hard-guard forfeits enter the sample')
+            require(type(game.get('failed_seat')) is int and game['failed_seat'] == loser and
+                    game.get('failed_role') == ('challenger' if loser == seat else 'opponent'),
+                    'administrative forfeit role/seat inconsistent')
+        else:
+            require(loser is None and game.get('administrative_forfeit', False) is False and
+                    all(game.get(key) is None for key in
+                        ('failure_policy', 'failure', 'failed_role', 'failed_seat')),
+                    'natural result carries contradictory administrative failure')
+        halfpoints = 1 if winner is None else 2 * int(winner == seat)
+        for key in ('candidate_score_halfpoints', 'search_score_halfpoints'):
+            if key in game:
+                require(type(game[key]) is int and game[key] == halfpoints, 'derived score differs')
+        ordered.append(dict(spec, winner=winner, reason=reason, loser=loser,
+                            candidate_score_halfpoints=halfpoints,
+                            conservative_halfpoints=0 if reason == 'forfeit' else halfpoints,
+                            administrative_forfeit=reason == 'forfeit',
+                            failure_policy=game.get('failure_policy'), failure=game.get('failure'),
+                            failed_role=game.get('failed_role'), failed_seat=game.get('failed_seat')))
+    require(len(wanted) == len(expected) and len(set(observed)) == len(expected) and
+            set(observed) == wanted, 'missing, duplicate, substituted, or extra fixed game identity')
+    ordered.sort(key=lambda row: (row['pair_index'], row['game_index']))
+    require(len(ordered) == 2 * MAIN_PAIRS, 'fixed main sample size')
+    seeds = []
+    for pair in range(MAIN_PAIRS):
+        members = ordered[2 * pair:2 * pair + 2]
+        require(len(members) == 2 and {row['challenger_seat'] for row in members} == {0, 1} and
+                len({row['seed_decimal'] for row in members}) == 1 and
+                all(row['pair_index'] == pair for row in members),
+                'swapped-seat pair shares one initial-world seed')
+        seeds.append(members[0]['seed_decimal'])
+    require(len(set(seeds)) == MAIN_PAIRS, 'independent setup seed per pair')
+    return ordered
+
+
+def _score(rows, conservative=False):
+    key = 'conservative_halfpoints' if conservative else 'candidate_score_halfpoints'
+    count = len(rows)
+    require(count > 0 and count % 2 == 0, 'nonempty paired rows')
+    n_pairs = count // 2
+    points = [sum(row[key] for row in rows if row['pair_index'] == pair) for pair in range(n_pairs)]
+    numerator = sum(points)
+    seat_numerators = {str(seat): sum(row[key] for row in rows if row['challenger_seat'] == seat)
+                       for seat in (0, 1)}
+    counts = Counter(row[key] for row in rows)
+    return dict(games=count, pairs=n_pairs, pair_numerators=points, numerator=numerator,
+                denominator=2 * count, mean_score=numerator / (2 * count),
+                by_candidate_seat={seat: value / count for seat, value in seat_numerators.items()},
+                seat_numerators=seat_numerators, seat_denominator=count,
+                wins=counts[2], draws=counts[1], losses=counts[0])
+
+
+def _useful_gates(score):
+    # Integer inequalities avoid an adjustable or rounded threshold.
+    return dict(score_at_least_55pct=100 * score['numerator'] >= 55 * score['denominator'],
+                each_seat_score_at_least_50pct=all(2 * value >= score['seat_denominator']
+                                                 for value in score['seat_numerators'].values()))
+
+
+def _administrative(rows):
+    admin = [row for row in rows if row['administrative_forfeit']]
+    natural = sum(row['candidate_score_halfpoints'] for row in rows if not row['administrative_forfeit'])
+    return dict(administrative_games=len(admin), natural_games=len(rows) - len(admin),
+                by_failed_player={role: sum(row['failed_role'] == role for row in admin)
+                                  for role in ('challenger', 'opponent')},
+                lower_numerator=natural, upper_numerator=natural + 2 * len(admin),
+                denominator=2 * len(rows),
+                all_administrative_candidate_losses=natural / (2 * len(rows)),
+                all_administrative_candidate_wins=(natural + 2 * len(admin)) / (2 * len(rows)),
+                natural_only_strength_estimate=False,
+                interpretation='Full-sample reassignment sensitivity, not recovered counterfactual outcomes.')
+
+
+def _bootstrap(official_pairs, conservative_pairs, boundary):
+    import numpy as np
+    values = np.asarray([official_pairs, conservative_pairs], dtype=np.int64)
+    rng = np.random.Generator(np.random.PCG64(SEED))
+    totals = np.empty((2, REPLICATES), dtype=np.int64)
+    stream = hashlib.sha256()
+    for start in range(0, REPLICATES, 500):
+        boundary()
+        n = min(500, REPLICATES - start)
+        indices = rng.integers(0, MAIN_PAIRS, size=(n, MAIN_PAIRS), dtype=np.int64)
+        stream.update(indices.astype('<i8').tobytes(order='C'))
+        totals[:, start:start + n] = values[:, indices].sum(axis=2, dtype=np.int64)
+    return totals, stream.hexdigest()
+
+
+def _main_score(score, totals):
+    import numpy as np
+    result = dict(score)
+    ci = (np.quantile(totals, [.025, .975], method='linear') / score['denominator']).tolist()
+    radius = math.sqrt(math.log(40) / (2 * MAIN_PAIRS))
+    hoeffding = [max(0., score['mean_score'] - radius), min(1., score['mean_score'] + radius)]
+    degenerate = ci[0] == ci[1]
+    gates = dict(_useful_gates(score), paired_lower_bound_above_50pct=ci[0] > .5,
+                 degenerate_interval_safeguard=not degenerate or hoeffding[0] > .5)
+    result.update(paired_ci95=ci, bounded_pair_hoeffding_95=hoeffding, bootstrap_degenerate=degenerate,
+                  useful_gain_criteria=gates, useful_gain=all(gates.values()),
+                  integer_totals_sha256=hashlib.sha256(totals.astype('<i8').tobytes()).hexdigest())
+    return result
+
+
+def analyze_main(games, evidence_gates_passed, *, boundary=lambda: None):
+    import numpy as np
+    require(evidence_gates_passed is True, 'all main evidence gates must pass before analysis')
+    boundary()
+    ordered = validated_games(games)
+    official, conservative = _score(ordered), _score(ordered, True)
+    totals, stream_hash = _bootstrap(official['pair_numerators'], conservative['pair_numerators'], boundary)
+    official, conservative = _main_score(official, totals[0]), _main_score(conservative, totals[1])
+    useful = official['useful_gain'] and conservative['useful_gain']
+    classification = ('useful_gain_against_128_reference' if useful else
+                      'official_useful_gain_not_robust_to_guard_forfeits' if official['useful_gain'] else
+                      'useful_gain_not_established')
+    boundary()
+    return dict(schema='splendorust_search256_strength_analysis_v1', status='complete_verified_main',
+                candidate='research', candidate_cpuct=.4, reference_cpuct=.4,
+                candidate_simulations=256, reference_simulations=128, world_pool_each=3,
+                games=400, pairs=200, official=official, conservative=conservative,
+                administrative_sensitivity=_administrative(ordered), classification=classification,
+                useful_gain_established=useful, complete_verification=True, evidence_gates_passed=True,
+                verified_score_rows_sha256=_digest(ordered),
+                bootstrap=dict(replicates=REPLICATES, seed=SEED, generator='numpy.PCG64', numpy_version=np.__version__,
+                               resampling_unit='swapped_seat_pair', draw_order='replicate_major_200_int64_indices',
+                               same_indices_for_official_and_conservative=True, quantile_method='linear',
+                               indices_sha256=stream_hash),
+                research_guard_seconds=dict(internal=9., complete_response=10.),
+                timing_exceedances_seconds_are_descriptive_only=[.7, .9, 1.],
+                one_second_deployability_established=False, automatic_promotion=False,
+                other_study_games_pooled=False, operational_games_pooled=False, no_sample_extension=True,
+                interpretation='Fixed preselected256 assessment against unchanged128 on fresh paired setups. Official guard-forfeit score and conservative sensitivity must both pass the frozen useful-gain rules. This does not establish broader opponent generalization, one-second deployability, or automatic promotion.')
+
+
+def _independent_arithmetic(rows, score, conservative):
+    """Direct winner/seat arithmetic, not the primary derived-score accumulation."""
+    values = [0 if conservative and row['reason'] == 'forfeit' else
+              1 if row['winner'] is None else 2 if row['winner'] == row['challenger_seat'] else 0
+              for row in rows]
+    n_pairs = len(rows) // 2
+    pairs = [sum(value for row, value in zip(rows, values) if row['pair_index'] == pair)
+             for pair in range(n_pairs)]
+    seats = {str(seat): sum(value for row, value in zip(rows, values) if row['challenger_seat'] == seat)
+             for seat in (0, 1)}
+    require(score['pair_numerators'] == pairs and score['numerator'] == sum(values) and
+            score['denominator'] == 2 * len(rows) and score['mean_score'] == sum(values) / (2 * len(rows)) and
+            score['seat_numerators'] == seats and score['by_candidate_seat'] ==
+            {seat: value / len(rows) for seat, value in seats.items()}, 'independent integer/seat arithmetic differs')
+    return pairs
+
+
+def verify_main(games, result, *, boundary=lambda: None):
+    """Fresh per-replicate draw, Python integer sums and manual percentiles."""
+    import numpy as np
+    ordered = validated_games(games)
+    pairs = [_independent_arithmetic(ordered, result[key], conservative)
+             for key, conservative in (('official', False), ('conservative', True))]
+    rng = np.random.Generator(np.random.PCG64(SEED))
+    totals = [[], []]
+    stream = hashlib.sha256()
+    for replicate in range(REPLICATES):
+        if replicate % 500 == 0:
+            boundary()
+        indices = rng.integers(0, MAIN_PAIRS, size=MAIN_PAIRS, dtype=np.int64)
+        stream.update(indices.astype('<i8').tobytes())
+        for route in (0, 1):
+            totals[route].append(sum(pairs[route][int(index)] for index in indices))
+    for route, key in enumerate(('official', 'conservative')):
+        sorted_totals = sorted(totals[route])
+        interval = []
+        for quantile in (.025, .975):
+            offset = (REPLICATES - 1) * quantile
+            lo, hi = math.floor(offset), math.ceil(offset)
+            interval.append((sorted_totals[lo] + (sorted_totals[hi] - sorted_totals[lo]) * (offset - lo)) / 800)
+        require(result[key]['paired_ci95'] == interval, 'independent percentile interpolation differs')
+        require(result[key]['integer_totals_sha256'] ==
+                hashlib.sha256(np.asarray(totals[route], dtype='<i8').tobytes()).hexdigest(),
+                'independent bootstrap integer totals differ')
+    require(result['bootstrap']['indices_sha256'] == stream.hexdigest(), 'independent bootstrap stream differs')
+    require(result == analyze_main(games, True, boundary=boundary),
+            'main assessment report changed')
+    return dict(status='passed', replicates=REPLICATES, independent_python_integer_sums=True,
+                independent_linear_percentiles=True, independent_conservative_sensitivity=True,
+                index_stream_sha256=stream.hexdigest(), verified_result_sha256=_digest(result),
+                shared_trust_boundary='frozen NumPy PCG64 and bounded-integer primitive')
+
+
+def analyze_recovery_sensitivity(games, official_result, *, boundary=lambda:None):
+    """Additional disclosed retry sensitivity; never rewrite an official game."""
+    rows=validated_games(games)
+    require(official_result==analyze_main(games,True,boundary=boundary),'Exact unchanged official assessment required')
+    for row in rows:
+        if row['game_index']==235:row['conservative_halfpoints']=0
+    score=_score(rows,True)
+    totals,stream=_bootstrap(_score(rows)['pair_numerators'],score['pair_numerators'],boundary)
+    score=_main_score(score,totals[1])
+    return dict(schema='search256_disclosed_recovery_sensitivity_v1',games=400,pairs=200,
+        original_result_sha256=_digest(official_result),official_results_unchanged=True,
+        original_attempt_remains_incomplete=True,disclosed_retry_game_index=235,
+        reassignment='game235_and_all_administrative_games_are_candidate_losses',
+        recovery_conservative=score,bootstrap_indices_sha256=stream,
+        same_bootstrap_indices_as_original=True,original_useful_gain=official_result['useful_gain_established'],
+        useful_gain_robust_to_disclosed_retry=official_result['useful_gain_established'] and score['useful_gain'],
+        original_success_criteria_unchanged=True,automatic_promotion=False,
+        interpretation='Additional full-sample sensitivity to the disclosed move-clock retry; no claim about the unresolved original move or its counterfactual game result.')
+
+
+def verify_recovery_sensitivity(games, official_result, result, *, boundary=lambda:None):
+    """Independently derive retry/guard losses and resample with integer sums."""
+    import numpy as np
+    rows=validated_games(games)
+    values=[0 if row['game_index']==235 or row['reason']=='forfeit' else
+        1 if row['winner'] is None else 2*int(row['winner']==row['challenger_seat']) for row in rows]
+    pairs=[sum(value for row,value in zip(rows,values) if row['pair_index']==pair) for pair in range(200)]
+    seats={str(seat):sum(value for row,value in zip(rows,values) if row['challenger_seat']==seat) for seat in (0,1)}
+    score=result['recovery_conservative']
+    require(score['pair_numerators']==pairs and score['numerator']==sum(values) and score['seat_numerators']==seats,
+        'Independent disclosed-retry sensitivity integer arithmetic')
+    rng=np.random.Generator(np.random.PCG64(SEED));totals=[];stream=hashlib.sha256()
+    for rep in range(REPLICATES):
+        if rep%500==0:boundary()
+        indices=rng.integers(0,200,size=200,dtype=np.int64);stream.update(indices.astype('<i8').tobytes())
+        totals.append(sum(pairs[int(index)] for index in indices))
+    ordered=sorted(totals);interval=[]
+    for quantile in (.025,.975):
+        offset=(REPLICATES-1)*quantile;lo,hi=math.floor(offset),math.ceil(offset)
+        interval.append((ordered[lo]+(ordered[hi]-ordered[lo])*(offset-lo))/800)
+    require(score['paired_ci95']==interval and score['integer_totals_sha256']==
+        hashlib.sha256(np.asarray(totals,dtype='<i8').tobytes()).hexdigest(),'Independent sensitivity bootstrap totals and percentiles')
+    require(result['bootstrap_indices_sha256']==stream.hexdigest()==official_result['bootstrap']['indices_sha256'],
+        'Identical declared bootstrap index stream')
+    require(result==analyze_recovery_sensitivity(games,official_result,boundary=boundary),'Complete recovery sensitivity report integrity')
+    return dict(status='passed',independent_integer_arithmetic=True,independent_linear_percentiles=True,
+        replicates=REPLICATES,index_stream_sha256=stream.hexdigest(),verified_result_sha256=_digest(result),
+        original_games_and_outcomes_unchanged=True)

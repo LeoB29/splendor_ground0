@@ -7,9 +7,13 @@ from typing import Callable
 
 from splendor_ai.bots.base import Bot
 from splendor_ai.diagnostics import is_progress_transition, state_signature
-from splendor_ai.engine.actions import Action, ActionType
+from splendor_ai.engine.actions import Action
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import SplendorState
+from splendor_ai.termination import (
+    adjudicate_scores as _adjudicate_scores,
+    is_forced_pass_turn,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,10 +132,7 @@ def play_game(
             raise RuntimeError("Bot returned no action in a non-terminal state.")
         next_state = env.step(state, chosen_action)
         _observe_action(bots, state, chosen_action, next_state)
-        forced_pass = (
-            len(legal_actions) == 1
-            and legal_actions[0].action_type == ActionType.PASS
-        )
+        forced_pass = is_forced_pass_turn(legal_actions)
         forced_pass_streak = forced_pass_streak + 1 if forced_pass else 0
         if forced_pass_streak >= 2:
             state = next_state
@@ -203,20 +204,6 @@ def play_match(
         )
 
     return MatchResult(games=tuple(results))
-
-
-def _adjudicate_scores(state: SplendorState) -> int | None:
-    scores = [player.score for player in state.players]
-    best_score = max(scores)
-    contenders = [idx for idx, score in enumerate(scores) if score == best_score]
-    if len(contenders) == 1:
-        return contenders[0]
-
-    fewest_cards = min(len(state.players[idx].purchased_cards) for idx in contenders)
-    fewest_card_contenders = [
-        idx for idx in contenders if len(state.players[idx].purchased_cards) == fewest_cards
-    ]
-    return fewest_card_contenders[0] if len(fewest_card_contenders) == 1 else None
 
 
 def _loop_fallback_triggers(bots: tuple[Bot, Bot]) -> tuple[int, int]:

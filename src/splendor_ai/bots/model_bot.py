@@ -654,6 +654,53 @@ class LegalActionAttentionScorerBot:
 
         return actions[best_row]
 
+    def score_actions(
+        self,
+        state: SplendorState,
+        legal_actions: list[Action],
+    ) -> tuple[float, ...]:
+        """Return legal-action scores in the supplied order without choosing."""
+
+        if not legal_actions:
+            return ()
+        observation = encode_public_observation_tensor(state, state.current_player)
+        observation_vector = fit_feature_vector(
+            observation.vector,
+            self._model.config.observation_size,
+        )
+        action_features = encode_legal_action_features(
+            state=state,
+            legal_actions=legal_actions,
+            player_id=state.current_player,
+        )
+        action_feature_vectors = [
+            fit_feature_vector(features.vector, self._model.config.action_feature_size)
+            for features in action_features
+        ]
+        observation_tensor = torch.tensor(
+            observation_vector,
+            dtype=torch.float32,
+            device=self._device,
+        ).unsqueeze(0)
+        action_feature_tensor = torch.tensor(
+            action_feature_vectors,
+            dtype=torch.float32,
+            device=self._device,
+        ).unsqueeze(0)
+        legal_action_mask = torch.ones(
+            (1, len(legal_actions)),
+            dtype=torch.bool,
+            device=self._device,
+        )
+        with torch.no_grad():
+            action_scores, _value = self._model(
+                observation_tensor,
+                action_feature_tensor,
+                legal_action_mask,
+            )
+            masked_scores = masked_legal_action_scores(action_scores, legal_action_mask)[0]
+        return tuple(float(value) for value in masked_scores.detach().cpu().tolist())
+
 
 class LegalActionAttentionSamplingBot(LegalActionAttentionScorerBot):
     """Top-k epsilon sampler backed by an attention legal-action scorer."""

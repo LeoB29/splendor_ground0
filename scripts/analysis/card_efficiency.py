@@ -4,8 +4,8 @@ Supports `docs/project_review_response_070.md` section 4 and the premises of
 experiments `072`/`073`:
 
 * points per token is monotone in cost *concentration* within each tier;
-* for every colour X exactly two tier-3 cards cost `7X`, worth 4 and 5 points,
-  and both grant the same bonus colour;
+* for every colour X one tier-3 card costs exactly `7X` for 4 points and one
+  costs `7X + 3Y` for 5 points; both grant the same bonus colour;
 * `BANK_GEMS_PER_COLOR_2P = 4`, so a `7X` cost can never be paid from tokens of
   colour X alone -- at least 3 must come from gold or discounts, and gold is
   obtainable only by reserving.
@@ -71,7 +71,7 @@ def main() -> None:
             f"  range {min(values):.3f}-{max(values):.3f}  n={len(values)}"
         )
 
-    print("\nmono-colour 7-cost tier-3 pairs (the reserve-gated cards)")
+    print("\ntier-3 pairs with a 7-token peak cost (the reserve-gated cards)")
     mono = [row for row in rows if row["peak"] == 7]
     by_colour = defaultdict(list)
     for row in mono:
@@ -81,9 +81,14 @@ def main() -> None:
         cards = sorted(by_colour[pay], key=lambda r: r["points"])
         bonuses = {card["bonus"] for card in cards}
         summary = ", ".join(
-            f"{card['id']} {card['points']}pts/{card['total']}tok" for card in cards
+            f"{card['id']} {card['points']}pts cost={card['cost']}"
+            for card in cards
         )
         print(f"  pay 7 {pay:6}: {summary}   grants {sorted(bonuses)}")
+        assert [(card["points"], card["total"], card["colours"]) for card in cards] == [
+            (4, 7, 1),
+            (5, 10, 2),
+        ], "the pair should be exact 7X and 7X+3Y cards"
         assert len(bonuses) == 1, "the pair should grant one shared bonus colour"
 
     print("\nreserve gating")

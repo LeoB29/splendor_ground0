@@ -84,6 +84,65 @@ class ResolverIneligible(RuntimeError):
         self.reason = reason
 
 
+@dataclass(frozen=True, slots=True)
+class _ParallelLeafTask:
+    """One opponent-response leaf and its four frozen continuations."""
+
+    index: int
+    after_root: SplendorState
+    response_action: Action
+    actor_seat: int
+    seeds: tuple[int, ...]
+    continuation_epsilon: float
+    continuation_temperature: float
+    continuation_top_k: int
+    continuation_max_turns: int
+    score_margin_scale: float
+    max_loop_fallback_triggers: int
+
+
+_PARALLEL_CONTINUATION_SCORER: Any | None = None
+
+
+def _initialize_parallel_continuation_worker(checkpoint: Path, device: str) -> None:
+    """Load one frozen scorer per process, rather than once per continuation."""
+
+    global _PARALLEL_CONTINUATION_SCORER
+    torch.set_num_threads(1)
+    _PARALLEL_CONTINUATION_SCORER = _LegalActionScorer(
+        checkpoint,
+        device,
+        "legal_action_attention_scorer",
+    )
+
+
+def _evaluate_parallel_leaf(
+    task: _ParallelLeafTask,
+) -> tuple[int, tuple[Any, ...]]:
+    scorer = _PARALLEL_CONTINUATION_SCORER
+    if scorer is None:
+        raise RuntimeError("Parallel continuation worker was not initialized.")
+    env = SplendorEnv()
+    outcomes = tuple(
+        rollout_score_margin_loop_safe(
+            env,
+            scorer,
+            task.after_root,
+            task.response_action,
+            task.actor_seat,
+            seed,
+            task.continuation_epsilon,
+            task.continuation_temperature,
+            task.continuation_top_k,
+            task.continuation_max_turns,
+            task.score_margin_scale,
+            task.max_loop_fallback_triggers,
+        )
+        for seed in task.seeds
+    )
+    return task.index, outcomes
+
+
 class FrozenPublicBeliefResolverBot:
     """Deploy the exact discovery half of the validated 049b resolver."""
 
@@ -94,9 +153,12 @@ class FrozenPublicBeliefResolverBot:
         actor_seat: int,
         *,
         scorer: Any | None = None,
+        continuation_workers: int = 1,
     ) -> None:
         if actor_seat not in (0, 1):
             raise ValueError("actor_seat must be 0 or 1.")
+        if continuation_workers < 1:
+            raise ValueError("continuation_workers must be at least 1.")
         self._config = config
         self._engine_seed = engine_seed
         self._actor_seat = actor_seat
@@ -105,6 +167,8 @@ class FrozenPublicBeliefResolverBot:
             config.device,
             "legal_action_attention_scorer",
         )
+        self._continuation_workers = continuation_workers
+        self._continuation_executor: ProcessPoolExecutor | None = None
         self._decisions = 0
         self._searches = 0
         self._switches = 0
@@ -117,6 +181,48 @@ class FrozenPublicBeliefResolverBot:
         self._by_phase: dict[str, Counter[str]] = {
             phase: Counter() for phase in PHASES
         }
+
+    def close(self) -> None:
+        """Release interactive continuation workers, if they were started."""
+
+        if self._continuation_executor is not None:
+            self._continuation_executor.shutdown(wait=True, cancel_futures=True)
+            self._continuation_executor = None
+
+    @property
+    def continuation_workers(self) -> int:
+        return self._continuation_workers
+
+    @property
+    def replay_metadata(self) -> dict[str, Any]:
+        """Stable identity recorded with interactive human-game replays."""
+
+        cfg = self._config
+        return {
+            "checkpoint_path": str(cfg.checkpoint),
+            "checkpoint_sha256": _sha256_file(cfg.checkpoint),
+            "continuation_workers": self._continuation_workers,
+            "resolver_contract": {
+                "determinizations": cfg.determinizations,
+                "root_actions": cfg.root_actions,
+                "opponent_actions": cfg.opponent_actions,
+                "discovery_continuations": cfg.discovery_continuations,
+                "continuation_epsilon": cfg.continuation_epsilon,
+                "continuation_temperature": cfg.continuation_temperature,
+                "continuation_top_k": cfg.continuation_top_k,
+                "score_margin_scale": cfg.score_margin_scale,
+                "expected_branches_per_search": EXPECTED_BRANCHES_PER_SEARCH,
+            },
+        }
+
+    def _parallel_executor(self) -> ProcessPoolExecutor:
+        if self._continuation_executor is None:
+            self._continuation_executor = ProcessPoolExecutor(
+                max_workers=self._continuation_workers,
+                initializer=_initialize_parallel_continuation_worker,
+                initargs=(self._config.checkpoint, self._config.device),
+            )
+        return self._continuation_executor
 
     @property
     def loop_fallback_triggers(self) -> int:
@@ -304,12 +410,15 @@ class FrozenPublicBeliefResolverBot:
                     (det_index, root_key, after_root, information_set, responses)
                 )
 
-        leaves: list[ResolvedLeaf] = []
-        counters: Counter[str] = Counter()
-        for det_index, root_key, after_root, information_set, responses in branches:
-            for response in responses:
-                response_key = canonical_successor_action_key(after_root, response.action)
-                values = []
+        leaf_specs = [
+            (det_index, root_key, after_root, information_set, response)
+            for det_index, root_key, after_root, information_set, responses in branches
+            for response in responses
+        ]
+        if self._continuation_workers == 1:
+            leaf_outcomes = []
+            for det_index, _root_key, after_root, _information_set, response in leaf_specs:
+                outcomes = []
                 for continuation_index in range(cfg.discovery_continuations):
                     seed = gameplay_continuation_seed(
                         cfg,
@@ -319,39 +428,92 @@ class FrozenPublicBeliefResolverBot:
                         det_index,
                         continuation_index,
                     )
-                    outcome = rollout_score_margin_loop_safe(
-                        env,
-                        self._scorer,
+                    outcomes.append(
+                        rollout_score_margin_loop_safe(
+                            env,
+                            self._scorer,
+                            after_root,
+                            response.action,
+                            self._actor_seat,
+                            seed,
+                            cfg.continuation_epsilon,
+                            cfg.continuation_temperature,
+                            cfg.continuation_top_k,
+                            cfg.continuation_max_turns,
+                            cfg.score_margin_scale,
+                            cfg.max_loop_fallback_triggers,
+                        )
+                    )
+                leaf_outcomes.append(tuple(outcomes))
+        else:
+            tasks = [
+                _ParallelLeafTask(
+                    index=index,
+                    after_root=after_root,
+                    response_action=response.action,
+                    actor_seat=self._actor_seat,
+                    seeds=tuple(
+                        gameplay_continuation_seed(
+                            cfg,
+                            self._engine_seed,
+                            self._actor_seat,
+                            decision_index,
+                            det_index,
+                            continuation_index,
+                        )
+                        for continuation_index in range(cfg.discovery_continuations)
+                    ),
+                    continuation_epsilon=cfg.continuation_epsilon,
+                    continuation_temperature=cfg.continuation_temperature,
+                    continuation_top_k=cfg.continuation_top_k,
+                    continuation_max_turns=cfg.continuation_max_turns,
+                    score_margin_scale=cfg.score_margin_scale,
+                    max_loop_fallback_triggers=cfg.max_loop_fallback_triggers,
+                )
+                for index, (
+                    det_index,
+                    _root_key,
+                    after_root,
+                    _information_set,
+                    response,
+                ) in enumerate(leaf_specs)
+            ]
+            indexed = self._parallel_executor().map(_evaluate_parallel_leaf, tasks)
+            ordered: list[tuple[Any, ...] | None] = [None] * len(tasks)
+            for index, outcomes in indexed:
+                ordered[index] = outcomes
+            if any(outcomes is None for outcomes in ordered):
+                raise RuntimeError("Parallel resolver returned an incomplete leaf table.")
+            leaf_outcomes = [outcomes for outcomes in ordered if outcomes is not None]
+
+        leaves: list[ResolvedLeaf] = []
+        counters: Counter[str] = Counter()
+        for leaf_spec, outcomes in zip(leaf_specs, leaf_outcomes, strict=True):
+            det_index, root_key, after_root, information_set, response = leaf_spec
+            values = []
+            for outcome in outcomes:
+                if not math.isfinite(outcome.value):
+                    raise RuntimeError("Resolver produced a nonfinite leaf value.")
+                values.append(outcome.value)
+                counters["continuations"] += 1
+                counters["resolved_continuations"] += int(outcome.resolved)
+                counters["hard_caps"] += int(outcome.hard_cap_reached)
+                counters["loop_adjudications"] += int(outcome.loop_adjudicated)
+                counters["rollout_fallback_triggers"] += outcome.fallback_triggers
+            value = statistics.fmean(values)
+            leaves.append(
+                ResolvedLeaf(
+                    determinization=det_index,
+                    root_action=root_key,
+                    opponent_information_set=information_set,
+                    opponent_action=canonical_successor_action_key(
                         after_root,
                         response.action,
-                        self._actor_seat,
-                        seed,
-                        cfg.continuation_epsilon,
-                        cfg.continuation_temperature,
-                        cfg.continuation_top_k,
-                        cfg.continuation_max_turns,
-                        cfg.score_margin_scale,
-                        cfg.max_loop_fallback_triggers,
-                    )
-                    if not math.isfinite(outcome.value):
-                        raise RuntimeError("Resolver produced a nonfinite leaf value.")
-                    values.append(outcome.value)
-                    counters["continuations"] += 1
-                    counters["resolved_continuations"] += int(outcome.resolved)
-                    counters["hard_caps"] += int(outcome.hard_cap_reached)
-                    counters["loop_adjudications"] += int(outcome.loop_adjudicated)
-                    counters["rollout_fallback_triggers"] += outcome.fallback_triggers
-                value = statistics.fmean(values)
-                leaves.append(
-                    ResolvedLeaf(
-                        determinization=det_index,
-                        root_action=root_key,
-                        opponent_information_set=information_set,
-                        opponent_action=response_key,
-                        discovery_payoff=value,
-                        evaluation_payoff=value,
-                    )
+                    ),
+                    discovery_payoff=value,
+                    evaluation_payoff=value,
                 )
+            )
         resolution = resolve_two_ply(
             leaves,
             root_keys,

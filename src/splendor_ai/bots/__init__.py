@@ -40,6 +40,14 @@ from .value_reserve_bot import (
     effective_cost,
     effective_value,
 )
+from .value_reserve_search_bot import (
+    FrozenFullActionSearchBot,
+    ValueReserveLeafEvaluator,
+    ValueReserveLeafSearchBot,
+    ValueReserveSearchTelemetry,
+    canonical_action_identity,
+    reserved_option_value,
+)
 from .rolling_horizon_bot import (
     BranchingMutationRollingHorizonBot,
     RollingHorizonConfig,
@@ -49,6 +57,14 @@ from .rolling_horizon_bot import (
     transition_events,
     transition_value,
 )
+from .persistent_option_bot import (
+    OptionPlannerTelemetry,
+    PersistentCardOptionPlannerBot,
+    PersistentCardOptionSearch,
+)
+from .card_option_q_bot import CardOptionQBot, CardOptionTelemetry
+from .card_target_value_bot import CardTargetValueBot
+from .executor_conditioned_target_bot import ExecutorConditionedTargetBot
 
 __all__ = [
     "Bot",
@@ -82,12 +98,25 @@ __all__ = [
     "EFFICIENCY_FILTER",
     "ValueReserveTeacherBot",
     "ValueReserveTelemetry",
+    "FrozenFullActionSearchBot",
+    "ValueReserveLeafEvaluator",
+    "ValueReserveLeafSearchBot",
+    "ValueReserveSearchTelemetry",
     "can_afford",
     "colour_deficit",
     "deficit",
     "effective_cost",
     "effective_value",
+    "canonical_action_identity",
+    "reserved_option_value",
     "event_value",
     "transition_events",
     "transition_value",
+    "OptionPlannerTelemetry",
+    "PersistentCardOptionPlannerBot",
+    "PersistentCardOptionSearch",
+    "CardOptionQBot",
+    "CardOptionTelemetry",
+    "CardTargetValueBot",
+    "ExecutorConditionedTargetBot",
 ]

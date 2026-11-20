@@ -16,7 +16,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Play Splendor against a bot.")
     parser.add_argument(
         "--opponent",
-        choices=("greedy", "random", "search", "model"),
+        choices=("greedy", "random", "search", "model", "resolver"),
         default="greedy",
         help="Opponent to preselect for the first game.",
     )
@@ -26,6 +26,12 @@ def main() -> None:
         help="Checkpoint path when --opponent model (kind auto-detected).",
     )
     parser.add_argument("--seed", default="0", help="Initial game seed.")
+    parser.add_argument(
+        "--resolver-workers",
+        type=int,
+        default=10,
+        help="Within-decision CPU workers when --opponent resolver (default: 10).",
+    )
     parser.add_argument(
         "--seat",
         choices=("0", "1"),
@@ -41,6 +47,7 @@ def main() -> None:
         model_path=args.model_path,
         seed=args.seed,
         human_seat=args.seat,
+        resolver_workers=args.resolver_workers,
     )
 
 

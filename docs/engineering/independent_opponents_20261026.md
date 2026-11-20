@@ -1,0 +1,44 @@
+# Independent opponent assessment
+
+26 October 2026. Read-only public-source research and local evidence review. No model weights downloaded or loaded, no external source executed, no games, inference, training, or author contact. Public availability and promising design do not establish local strength, compatibility or timing.
+
+## Admission shortlist
+
+| Priority | Released player | Evidence available | Decision |
+|---|---|---|---|
+| 1 | BreckEmert exported NumPy policy | MIT webapp, exact source and a2,076,104-byte policy archive | First adaptation/qualification candidate; policy only |
+| 2 | domdomegg PPO512 browser policy | MIT source,267-input/77-action policy,1,757,492-byte raw weight artifact | Reserve independent family; policy only |
+
+The order emphasizes practical CPU inference, public exact artifacts and different development/training from our SplendoRust candidate. No inspected record links either selected model to SplendoRust training; this is a provenance-based independence assessment, not proof that all historical data are known. Neither player is admitted unchanged.
+
+### BreckEmert: independent learned action values
+
+Pin [Splendor-Webapp](https://github.com/BreckEmert/Splendor-Webapp/tree/6ec66efb02406e982510d2279ae1f29b84f80ace), commit `6ec66efb02406e982510d2279ae1f29b84f80ace`. The [model description](https://github.com/BreckEmert/Splendor-Webapp/blob/6ec66efb02406e982510d2279ae1f29b84f80ace/Splendor/RL/trained_agents/inference_model.txt) specifies a251→512→512→256→141 single-output-head network; [inference code](https://github.com/BreckEmert/Splendor-Webapp/blob/6ec66efb02406e982510d2279ae1f29b84f80ace/Splendor/RL/inference_model.py) provides NumPy float32 evaluation. Use `Splendor/RL/trained_agents/inference_model.npz`, Git blob `7e30faa595ce923ad2d0c536d7103e0558ff7195`,2,076,104bytes. The separate critic and optional search are outside the proposed profile. The [MIT license](https://github.com/BreckEmert/Splendor-Webapp/blob/6ec66efb02406e982510d2279ae1f29b84f80ace/LICENSE) is present in this actual artifact repository.
+
+The author's separate Splendor-AI project describes a dueling-DDQN training background and strong human play. We have not bound those claims to this exported single-head artifact, so do not call this checkpoint verified superhuman or assume its advertised results survive adaptation.
+
+The [released game](https://github.com/BreckEmert/Splendor-Webapp/blob/6ec66efb02406e982510d2279ae1f29b84f80ace/Splendor/Environment/gui_game.py) ends immediately at15 and can award multiple nobles after a purchase. Player features include full opponent reservations. Use only corrected legal action translation and lawful surrogate features, never this engine as our referee. Resolve the141 action mapping, source token-return helper, noble selection and payment subset before freezing an adapter. Small dense policy inference is a plausible one-second fit, not a measurement.
+
+### domdomegg: independently trained PPO policy
+
+Pin [domdomegg/splendor](https://github.com/domdomegg/splendor/tree/426fa50e06fe99b40620131ca962f418824bb73a), commit `426fa50e06fe99b40620131ca962f418824bb73a`. Use `play/weights.bin`, Git blob `73153f137bd98c23cb1fb36300efde98757c600a`,1,757,492bytes, with its pinned [weight metadata](https://github.com/domdomegg/splendor/blob/426fa50e06fe99b40620131ca962f418824bb73a/play/weights.json). This is the267-input, two512-wide-hidden-layer,77-action browser policy; the export omits value weights. The [README](https://github.com/domdomegg/splendor/blob/426fa50e06fe99b40620131ca962f418824bb73a/README.md) describes cloning, PPO self-play and distillation, and reports68.6% against its own greedy reference over400episodes. That does not establish strength against our player or expert humans. An [MIT license](https://github.com/domdomegg/splendor/blob/426fa50e06fe99b40620131ca962f418824bb73a/LICENSE) is present.
+
+The [encoder](https://github.com/domdomegg/splendor/blob/426fa50e06fe99b40620131ca962f418824bb73a/crates/splendor-core/src/encode.rs) explicitly exposes all opposing reserves, including blind reservations. Its presence field is not an unknown-card representation. Use a lawful completion, not true hidden cards or fake empty slots. The source's sequential returns/noble choices must share our atomic whole-turn clock and pre-reveal boundary. Colored-first payment is a declared legal subset, not all possible payments. Its different learning method adds diversity, but a weak screen must remain a negative result rather than justify new training.
+
+## Related or deferred alternatives
+
+**cestpasphoto/lyquentxy AlphaZero:** current inspected CP commit `64a528398903bc4b6db6870449992654c4e06681` supplies a609,737-byte two-player checkpoint, Git blob `4db6860053919c0c79b845a2deb8ed848596df03`. This is a related external reference, not the primary independent assessment. SplendoRust's [pinned comparator record](https://raw.githubusercontent.com/paytonjjones/splendorust/1828507b8d2f0e02bc03d102b9c6d29a54fa8d57/benchmarks/strength/native/README.md) identifies lyquentxy's CP fork; its [Entity training record](https://raw.githubusercontent.com/paytonjjones/splendorust/1828507b8d2f0e02bc03d102b9c6d29a54fa8d57/research/entity_baseline/HANDOFF.md) includes20,000 AlphaZero800 expert games. The [teacher manifest](https://raw.githubusercontent.com/paytonjjones/splendorust/1828507b8d2f0e02bc03d102b9c6d29a54fa8d57/research/e95/data/train/000000-plan.json) binds an earlier pretrained teacher. Entity was trained from scratch; the relationship is through teaching data, not copied weights. Current CP weight equality with that old teacher is unproven.
+
+CP's [current rules source](https://github.com/cestpasphoto/alpha-zero-general/blob/64a528398903bc4b6db6870449992654c4e06681/splendor/SplendorLogicNumba.py) also retains pure-return turns, multiple-noble handling, gold-at-cap differences and hidden-state exposure. Its search would need corrected transitions throughout, not just a legal root mask. Original contributions have a PolyForm Noncommercial license with inherited MIT portions. This is a larger adaptation and a less independent test than the proposed policy-only entrants.
+
+**AhinLendor:** [current source](https://github.com/inhabae/AhinLendor/tree/96e6f2daff83147495826c4a2073dc3c9c856cc9) has promising author-reported online/human results and a privacy-aware observer, but no trained weight artifact was found in the inspected complete tree or GitHub release assets. Its README says MIT; a standalone license file was not found. Its published larger search budgets are not local one-second evidence. Defer until an exact playable artifact and provenance are available; no author has been contacted.
+
+**Rinascimento RAVE MCTS:** licensed Java research code is a useful future non-neural lead. The earlier scout pins `EllingtonKirby/RinascimentoFramework` branch `ek/new_algorithms_and_params`, commit `967a18580a0878e1397ddbc1c15eed691d9aca88`. Integration and corrected-rules/privacy/timing qualification are materially larger tasks. It is not one of the two executable profiles authorized by the prepared design, and its current revision was not requalified here. [Historical primary-source assessment](../../outputs/external_opponent_search_20261018_02/scout_tournament.json).
+
+**Already-tested PPO and internal players:** the corrected roeey777 PPO lost0–60 to raw035 and adds little as primary opposition now. SplendoRust's16/32/64/6400 or network-only variants share lineage; our old rollout planner is also internal. Keep them as historical/internal controls, not independent confirmations.
+
+## Prepared decision and limits
+
+Follow the [bounded comparison](independent_one_second_comparison_20261026.md): qualify Breck first, then its60-game unchanged32 screen; use domdomegg only as the declared reserve. One selected opponent advances to400 fresh scored games, with unchanged32 facing the same opposition as optimized64. All required source/weight byte checks, actual-model parity, rules/privacy counterexamples and one-second measurements are pending. No opponent is yet called competitive, fast enough, or compatible.
+
+Machine-readable primary-source receipts: [independent source inventory](../../outputs/external_opponent_preparation_20261026_01/scout_independent/source_inventory.json), [hashed excerpts](../../outputs/external_opponent_preparation_20261026_01/scout_independent/source_excerpts.json), [lawful completion design](../../outputs/external_opponent_preparation_20261026_01/scout_independent/privacy_completion_design.json), [CP inventory](../../outputs/external_opponent_preparation_20261026_01/cestpasphoto_source_inventory.json). Model entries are Git metadata, not downloaded-weight authentication. All existing players, evidence and failures remain unchanged; larger-data work is deferred.

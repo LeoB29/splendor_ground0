@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
 from splendor_ai.encoding import canonical_successor_action_key
 from splendor_ai.engine.actions import Action
 from splendor_ai.engine.env import SplendorEnv
@@ -64,6 +66,30 @@ def test_gameplay_contract_is_frozen_from_049() -> None:
     assert EXPECTED_BRANCHES_PER_SEARCH == 192
     assert cfg.discovery_continuations == 4
     assert cfg.direct_pairs == 100
+
+
+def test_interactive_parallelism_is_opt_in_execution_metadata() -> None:
+    cfg = ResolverGameplayConfig()
+    with pytest.raises(ValueError, match="continuation_workers"):
+        FrozenPublicBeliefResolverBot(
+            cfg,
+            engine_seed=500_100,
+            actor_seat=0,
+            scorer=_CanonicalFakeScorer(),
+            continuation_workers=0,
+        )
+
+    bot = FrozenPublicBeliefResolverBot(
+        cfg,
+        engine_seed=500_100,
+        actor_seat=0,
+        scorer=_CanonicalFakeScorer(),
+        continuation_workers=10,
+    )
+    assert bot.continuation_workers == 10
+    assert bot.replay_metadata["continuation_workers"] == 10
+    assert bot.replay_metadata["resolver_contract"]["expected_branches_per_search"] == 192
+    bot.close()
 
 
 def test_gameplay_seed_namespaces_are_deterministic_and_disjoint() -> None:

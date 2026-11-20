@@ -130,6 +130,7 @@ class _GuiGameRecorder:
         self._serialize_snapshot = None
         self._rows: list[dict] = []
         self._game_info: dict = {}
+        self._opponent_bot = None
 
     def _ensure_ready(self) -> bool:
         if self._enabled is not None:
@@ -155,6 +156,9 @@ class _GuiGameRecorder:
         opponent_meta: dict = {"bot_class": type(opponent_bot).__name__, "gui_opponent_kind": opponent_kind}
         if opponent_kind == "model" and model_path:
             opponent_meta["checkpoint_path"] = model_path
+        replay_metadata = getattr(opponent_bot, "replay_metadata", None)
+        if replay_metadata is not None:
+            opponent_meta.update(replay_metadata)
         human_meta = {"bot_class": "HumanGuiPlayer", "gui_opponent_kind": "human"}
         seat_names = ["HumanGuiPlayer", "HumanGuiPlayer"]
         seat_meta = [dict(human_meta), dict(human_meta)]
@@ -168,6 +172,7 @@ class _GuiGameRecorder:
             "bot_seats": seat_names,
             "bot_metadata": seat_meta,
         }
+        self._opponent_bot = opponent_bot
 
     def record_step(self, env, state, action) -> None:
         if not self._enabled or not self._game_info:
@@ -198,6 +203,10 @@ class _GuiGameRecorder:
         try:
             winner = final_state.winner
             info = self._game_info
+            bot_metadata = [dict(item) for item in info["bot_metadata"]]
+            telemetry = getattr(self._opponent_bot, "telemetry", None)
+            if telemetry is not None:
+                bot_metadata[1 - info["human_seat"]]["final_telemetry"] = telemetry
             game_fields = {
                 "game_seed": info["seed"],
                 "game_turns": final_state.turn_index,
@@ -207,7 +216,7 @@ class _GuiGameRecorder:
                 "game_timed_out": False,
                 "game_termination_reason": "completed",
                 "game_bot_seats": info["bot_seats"],
-                "game_bot_metadata": info["bot_metadata"],
+                "game_bot_metadata": bot_metadata,
                 "game_loop_fallback_triggers_by_seat": [0, 0],
                 "game_model_loop_fallback_triggers": 0,
                 "human_player_id": info["human_seat"],
@@ -236,6 +245,8 @@ class _GuiGameRecorder:
                 "turns": final_state.turn_index,
                 "moves_recorded": len(self._rows),
             }
+            if telemetry is not None:
+                summary["opponent_telemetry"] = telemetry
             summary_path = HUMAN_GAMES_DIR / "games_summary.jsonl"
             with summary_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(summary))
@@ -246,12 +257,14 @@ class _GuiGameRecorder:
         finally:
             self._rows = []
             self._game_info = {}
+            self._opponent_bot = None
 
     def discard(self) -> None:
         if self._rows:
             self._log(f"Discarded {len(self._rows)} unrecorded moves from unfinished game.")
         self._rows = []
         self._game_info = {}
+        self._opponent_bot = None
 
 
 class SplendorGUI:
@@ -263,6 +276,7 @@ class SplendorGUI:
         model_path: str = "",
         seed: str = "0",
         human_seat: str = "0",
+        resolver_workers: int = 10,
     ) -> None:
         self.root = root
         self.root.title("Splendor AI Sandbox")
@@ -278,6 +292,9 @@ class SplendorGUI:
         self.return_pick_counts: dict[str, int] = {}
         self.take_pick_counts: dict[str, int] = {}
         self.confirm_gold_purchases = True
+        if resolver_workers < 1:
+            raise ValueError("resolver_workers must be at least 1.")
+        self.resolver_workers = resolver_workers
         self.recorder = _GuiGameRecorder(self._log)
 
         self.seed_var = tk.StringVar(value=seed)
@@ -288,6 +305,7 @@ class SplendorGUI:
         self.detail_var = tk.StringVar(value="Click a card or move to inspect details.")
 
         self._build_layout()
+        self.root.protocol("WM_DELETE_WINDOW", self._close)
         self._new_game()
 
     def _build_layout(self) -> None:
@@ -301,7 +319,7 @@ class SplendorGUI:
         ttk.Combobox(
             top,
             textvariable=self.bot_kind_var,
-            values=("greedy", "random", "search", "model"),
+            values=("greedy", "random", "search", "model", "resolver"),
             width=10,
             state="readonly",
         ).pack(side="left", padx=(4, 12))
@@ -466,12 +484,17 @@ class SplendorGUI:
             return
 
         try:
-            self.bot = self._build_bot()
+            human_seat = int(self.human_seat_var.get())
+            new_bot = self._build_bot(seed, human_seat)
         except Exception as exc:  # pragma: no cover - GUI error path
             messagebox.showerror("Bot load error", str(exc))
             return
 
-        self.human_seat = int(self.human_seat_var.get())
+        close = getattr(self.bot, "close", None)
+        if close is not None:
+            close()
+        self.bot = new_bot
+        self.human_seat = human_seat
         self.env = SplendorEnv(seed=seed)
         self.state = self.env.initial_state()
         self.pending_variant_actions = []
@@ -538,7 +561,7 @@ class SplendorGUI:
         except Exception as exc:  # pragma: no cover - advisory only, never block startup
             self._log(f"(Could not read recorded-games history: {exc})")
 
-    def _build_bot(self):
+    def _build_bot(self, engine_seed: int, human_seat: int):
         bot_kind = self.bot_kind_var.get()
         if bot_kind == "greedy":
             return GreedyHeuristicBot(seed=1)
@@ -555,7 +578,28 @@ class SplendorGUI:
             if not model_path:
                 raise ValueError("Select a model checkpoint before choosing the model opponent.")
             return self._load_model_bot(model_path)
+        if bot_kind == "resolver":
+            try:
+                from splendor_ai.eval.run_paired_public_belief_resolver_gameplay import (
+                    FrozenPublicBeliefResolverBot,
+                    ResolverGameplayConfig,
+                )
+            except ImportError as exc:
+                raise ValueError(f"Resolver opponent needs the full environment (torch): {exc}") from exc
+            return FrozenPublicBeliefResolverBot(
+                ResolverGameplayConfig(),
+                engine_seed=engine_seed,
+                actor_seat=1 - human_seat,
+                continuation_workers=self.resolver_workers,
+            )
         raise ValueError(f"Unsupported bot type: {bot_kind}")
+
+    def _close(self) -> None:
+        close = getattr(self.bot, "close", None)
+        if close is not None:
+            close()
+        self.recorder.discard()
+        self.root.destroy()
 
     def _load_model_bot(self, model_path: str):
         """Load a checkpoint with the right bot class, detected from its config."""
@@ -1447,6 +1491,7 @@ def launch_gui(
     model_path: str = "",
     seed: str = "0",
     human_seat: str = "0",
+    resolver_workers: int = 10,
 ) -> None:
     root = tk.Tk()
     style = ttk.Style()
@@ -1460,6 +1505,7 @@ def launch_gui(
         model_path=model_path,
         seed=seed,
         human_seat=human_seat,
+        resolver_workers=resolver_workers,
     )
     root.mainloop()
 

@@ -1013,6 +1013,15 @@ class ShallowSearchBot:
         actor = state.players[actor_id]
         return (
             action.action_type,
+            # Preserve distinct card targets and noble choices while still
+            # collapsing payment aliases that reach the same strategic state.
+            # Without these fields, all visible reserve targets commonly share
+            # one signature because reserving changes the same token totals and
+            # hand size regardless of the addressed market slot.
+            action.tier,
+            action.market_index,
+            action.reserved_index,
+            action.noble_id,
             actor.score,
             len(actor.reserved_cards),
             len(actor.purchased_cards),

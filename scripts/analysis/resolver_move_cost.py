@@ -6,12 +6,11 @@ parallelise over games, not within a decision. A single interactive move therefo
 costs roughly a minute rather than the few seconds implied by dividing `051`'s
 aggregate CPU time by the worker count.
 
-This matters because the outstanding "human versus resolver" measurement is
-impractical until the within-decision loop is parallelised. Branch seeds are
-derived deterministically by `gameplay_continuation_seed`, and the only
-cross-branch state is order-independent counters, so distributing branches across
-processes should be exact -- verify byte-identical decisions against the serial
-path before relying on it.
+This script intentionally retains the one-worker reference path. Experiment 074
+added an opt-in within-decision process pool for interactive play and verified it
+against this serial behavior. Use
+`scripts/analysis/resolver_parallel_equivalence_074.py` for the byte-identical
+serial/parallel comparison and measured interactive speedup.
 
 Run from the repository root:
 

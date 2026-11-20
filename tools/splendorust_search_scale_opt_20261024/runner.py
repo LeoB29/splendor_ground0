@@ -1,0 +1,752 @@
+"""Fresh bounded optimized PUCT64 versus optimized PUCT32 strength comparison.
+
+Preparation and launch are gated on the separate optimization's fully verified
+64-simulation acceptance and successful owning-watchdog cleanup.
+"""
+import argparse
+from contextlib import ExitStack
+from copy import deepcopy
+import os
+import math
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+import traceback
+
+import psutil
+from . import common as c, audit, statistics, schedule as schedules
+from tools.external_strength_screen_20261018 import rules, audit as ledger
+from tools.external_strength_screen_20261018.common import serialize_action, deserialize_action, legal_digest
+from tools.future_training_rules_20261021 import decode_training_snapshot, verify_runtime_sources
+from tools.local_player_qualification_128.clock import processor_topology
+from tools.splendorust_search_scale_20261024 import audit as scientific, qualification as original_qualification
+from tools.splendorust_search_scale_20261024.log_audit import verify_worker_logs
+from tools.splendorust_timing_opt_20261024.sampler import snapshot_api_modules
+
+def bytes_used():
+    return sum(path.stat().st_size for path in c.OUT.rglob('*') if path.is_file())
+
+
+class Envelope:
+    """One non-resettable job clock, aggregate resident-worker resource bound."""
+    def __init__(self, claim):
+        self.start, self.wall_start = claim['monotonic_origin'], claim['unix_origin']
+        self.end = self.start + c.JOB_SECONDS
+        self.stage = None
+        self.deadline, self.wall_deadline = self.end, self.wall_start + c.JOB_SECONDS
+        self.waited, self.admitted, self.admissions = 0., False, 0
+        self.evidence = None
+        self.resident = {}
+        self.peak_combined_rss = 0
+
+    def enable_evidence_accounting(self):
+        self.evidence = dict(baseline=bytes_used(), parent_bytes=0, workers={})
+        self.log_baseline = {name: (c.OUT/name).stat().st_size if (c.OUT/name).exists() else 0
+                             for name in ('runner_stdout.log', 'runner_stderr.log')}
+        c.WRITE_OBSERVER = self.note_write
+
+    def note_write(self, path, size):
+        if not path.resolve().is_relative_to((c.OUT/'workers').resolve()):
+            self.evidence['parent_bytes'] += size
+
+    def register_worker(self, folder):
+        self.evidence['workers'][folder] = None
+
+    def own_worker(self, child):
+        proc = psutil.Process(child.process.pid)
+        identity = (proc.pid, proc.create_time())
+        c.require(identity not in self.resident, 'Duplicate resident worker identity')
+        self.resident[identity] = proc
+
+    def close_worker(self, folder, child=None):
+        if child is not None:
+            identities = [identity for identity in self.resident if identity[0] == child.process.pid]
+            for identity in identities:
+                self.resident.pop(identity)
+        self.evidence['workers'][folder] = sum(path.stat().st_size for path in folder.rglob('*') if path.is_file())
+
+    def aggregate_worker_rss(self, exclude_pid=None, additional_rss=0):
+        seen, total = set(), additional_rss
+        for identity, root in self.resident.items():
+            if identity[0] == exclude_pid:
+                continue
+            try:
+                c.require(root.create_time() == identity[1], 'Resident root PID identity changed')
+                processes = [root] + root.children(recursive=True)
+            except psutil.NoSuchProcess:
+                raise ValueError('Resident worker disappeared before owned cleanup')
+            for process in processes:
+                try:
+                    child_identity = (process.pid, process.create_time())
+                    if child_identity not in seen:
+                        total += process.memory_info().rss
+                        seen.add(child_identity)
+                except psutil.NoSuchProcess:
+                    # Helpers may exit between enumeration and observation; the
+                    # owning StudyWorker independently checks required roles.
+                    continue
+        self.peak_combined_rss = max(self.peak_combined_rss, total)
+        c.require(total <= 2*c.GiB, 'Combined resident workers/helpers RSS exceeded 2GiB')
+        return total
+
+    def guard_worker_sample(self, child, telemetry):
+        """Include a new tree before its constructor has returned readiness."""
+        self.aggregate_worker_rss(exclude_pid=child.process.pid, additional_rss=telemetry['rss_bytes'])
+
+    def accounted_bytes(self):
+        if self.evidence is None:
+            return bytes_used()
+        total = self.evidence['baseline'] + self.evidence['parent_bytes']
+        for folder, closed in self.evidence['workers'].items():
+            total += closed if closed is not None else sum(path.stat().st_size for path in folder.rglob('*') if path.is_file())
+        for name, initial in self.log_baseline.items():
+            path = c.OUT/name
+            total += max(0, (path.stat().st_size if path.exists() else 0)-initial)
+        return total + 65536
+
+    def begin(self, stage):
+        mono, wall = time.monotonic(), time.time()
+        self.stage = stage
+        cap = c.STAGES[stage]
+        cutoff = c.JOB_SECONDS if stage == 'final' else c.COLLECTION_CUTOFF_SECONDS
+        self.deadline = min(mono+cap, self.start+cutoff, self.end)
+        self.wall_deadline = min(wall+cap, self.wall_start+cutoff, self.wall_start+c.JOB_SECONDS)
+        self.guard()
+        c.save(c.OUT/'stages'/f'{stage}_start.json', dict(time=c.now(), monotonic=mono, unix_time=wall,
+            monotonic_deadline=self.deadline, unix_deadline=self.wall_deadline, cap_seconds=cap))
+
+    def remaining(self):
+        return min(self.deadline-time.monotonic(), self.wall_deadline-time.time(),
+                   self.end-time.monotonic(), self.wall_start+c.JOB_SECONDS-time.time())
+
+    def effective_deadline(self):
+        return time.monotonic()+self.remaining()
+
+    def guard(self):
+        c.require(self.remaining() > 0, 'Stage/global real-clock deadline')
+        c.require(shutil.disk_usage(c.ROOT).free >= 5*c.GiB, 'Free disk reserve')
+        cap = (512 if self.stage == 'final' else 448)*c.MiB
+        c.require(self.accounted_bytes() < cap, 'Study evidence ceiling')
+        self.aggregate_worker_rss()
+
+    def timeout(self, maximum):
+        self.guard()
+        return min(maximum, self.remaining())
+
+    def admit(self):
+        self.guard()
+        begun = time.monotonic()
+        available = psutil.virtual_memory().available
+        stable = begun if available >= 2*c.GiB else None
+        minimum = available
+        fast = self.admitted and stable is not None
+        while not fast:
+            self.guard()
+            current, available = time.monotonic(), psutil.virtual_memory().available
+            minimum = min(minimum, available)
+            if available < 2*c.GiB:
+                stable = None
+            elif stable is None:
+                stable = current
+            c.require(self.waited+current-begun < 600, 'Cumulative RAM wait exceeded ten minutes')
+            if stable is not None and (self.admitted or current-stable >= 60):
+                break
+            time.sleep(.5)
+        elapsed = time.monotonic()-begun
+        self.waited += elapsed
+        self.admitted = True
+        self.admissions += 1
+        c.require(self.waited < 600, 'Cumulative RAM admission bound')
+        if not fast:
+            c.save(c.OUT/'memory_admissions'/f'{self.admissions:06d}.json', dict(time=c.now(), wait_seconds=elapsed,
+                cumulative_wait_seconds=self.waited, minimum_available_bytes=minimum,
+                stable_seconds=60 if self.admissions == 1 else 0))
+
+    def finish(self):
+        self.guard()
+        if self.evidence is not None:
+            c.require(bytes_used() <= self.accounted_bytes(), 'Unaccounted study evidence')
+        c.save(c.OUT/'stages'/f'{self.stage}_end.json', dict(time=c.now(), monotonic=time.monotonic(), unix_time=time.time()))
+
+
+def verify_runtime(freeze, envelope=None):
+    for item in freeze['inputs']:
+        if envelope:
+            envelope.guard()
+        c.verify([item])
+    c.require(sys.version == freeze['python'] and c.file_hash(sys.executable) == freeze['python_executable_sha256'],
+              'Python runtime changed')
+    c.require(processor_topology() == freeze['topology'], 'Processor topology changed')
+    for item in freeze['torch_runtime']:
+        path = Path(item['absolute_path'])
+        c.require(path.stat().st_size == item['bytes'] and c.file_hash(path) == item['sha256'], 'Pinned Torch runtime changed')
+    from tools.splendorust_search_scale_20261024.compression import runtime_contract
+    c.require(runtime_contract() == freeze['compression_runtime'], 'Compression runtime changed')
+    for item in freeze['external_runtime']:
+        if envelope:
+            envelope.guard()
+        path = Path(item['absolute_path'])
+        c.require(path.stat().st_size == item['bytes'] and c.file_hash(path) == item['sha256'],
+                  'Pinned sampler runtime changed')
+    c.require(snapshot_api_modules() == freeze['sampler_api_modules'],
+              'Loaded snapshot API modules or actual function owners changed')
+    c.require(statistics.runtime_contract() == freeze['statistics_runtime'], 'Statistics runtime changed')
+
+
+def qualification_acceptance(*, verify_inputs=True):
+    """Refuse preparation until the separate64 qualification and cleanup passed."""
+    names = ('freeze.json', 'completion.json', 'execution.json', 'qualification_outcome.json',
+        'sampler_qualification.json', 'qualification32_summary.json', 'ops32_summary.json',
+        'qualification64_summary.json', 'ops64_summary.json', 'verification_summary.json',
+        'all_game_replay.json', 'repeated_decision_summary.json', 'all_worker_log_integrity.json')
+    saved = {name: c.read(c.PRIOR/name) for name in names}
+    complete, execution, outcome = (saved[name] for name in ('completion.json', 'execution.json', 'qualification_outcome.json'))
+    c.require(complete['status'] == 'completed_verified' and complete['failure'] is None,
+              'Optimization must finish verified before comparison preparation')
+    c.require(execution['status'] == 'completed' and execution['exit_code'] == 0 and not execution['cleanup_errors'],
+              'Optimization owning watchdog cleanup must pass')
+    sha = c.file_hash(c.PRIOR/'freeze.json')
+    c.require(complete['freeze_sha256'] == execution['freeze_sha256'] == sha,
+              'Optimization acceptance freeze identities differ')
+    c.require(execution['charged_job_seconds'] < saved['freeze.json']['job_seconds'],
+              'Optimization exhausted its bounded allowance')
+    c.require(outcome['status'] == 'completed_verified' and outcome['optimized32_qualified'] is True and
+              outcome['optimized64_qualified'] is True and outcome['strength_games_launched'] == 0 and
+              outcome['next_strength_comparison'] == '64versus32', 'Both optimized quotas must be admitted')
+    for name in ('qualification32_summary.json', 'ops32_summary.json', 'qualification64_summary.json', 'ops64_summary.json'):
+        c.require(saved[name]['qualified'] is True, 'An optimization admission gate failed: '+name)
+    for name in ('sampler_qualification.json', 'verification_summary.json', 'all_game_replay.json',
+                 'repeated_decision_summary.json', 'all_worker_log_integrity.json'):
+        c.require(saved[name]['status'] == 'passed', 'Optimization verification incomplete: '+name)
+    c.require(saved['sampler_qualification.json']['polls'] == 20 and
+              saved['all_game_replay.json']['games'] == 12 and
+              saved['repeated_decision_summary.json']['requests'] == 24 and
+              saved['ops32_summary.json']['games'] == saved['ops64_summary.json']['games'] == 6,
+              'Optimization verification inventory incomplete')
+    if verify_inputs:
+        c.verify(saved['freeze.json']['inputs'])
+    return dict(status='passed', optimization_freeze_sha256=sha,
+                evidence=[c.artifact(c.PRIOR/name) for name in names],
+                optimized_quotas=[32, 64], saved_timing_rerun_required=False,
+                actual_entrypoint_requalification_required=True)
+
+
+def seed_inventory(schedule):
+    targets = {int(row['seed_decimal']) for row in schedule}
+    listed = subprocess.run(['rg', '--files', '--no-ignore', 'outputs', '-g', '*manifest*.json',
+        '-g', '*schedule*.json', '-g', '*seed_registry*.json'], cwd=c.ROOT,
+        capture_output=True, text=True, check=True)
+    checked, skipped, collisions = [], [], []
+    def visit(value, path):
+        if type(value) is int or isinstance(value, str) and value.isdecimal():
+            if int(value) in targets: collisions.append(path)
+        elif isinstance(value, list):
+            for item in value: visit(item, path)
+        elif isinstance(value, dict):
+            for item in value.values(): visit(item, path)
+    for name in sorted(listed.stdout.splitlines()):
+        path = (c.ROOT/name).resolve()
+        if path.is_relative_to(c.OUT.resolve()): continue
+        if path.stat().st_size > 8*c.MiB:
+            skipped.append(c.artifact(path)); continue
+        visit(c.read(path), path.relative_to(c.ROOT).as_posix())
+        checked.append(c.artifact(path))
+    c.require(not collisions, 'Fresh schedule overlaps registered prior evidence')
+    return dict(status='passed', checked=checked, skipped_oversized=skipped, collisions=collisions,
+                scope='registered JSON names up to8MiB; not exhaustive logs')
+
+
+def prepare():
+    # This is intentionally the first dependency gate: active/incomplete/failed
+    # qualification cannot cause a comparison freeze or any model invocation.
+    accepted = qualification_acceptance()
+    c.require(not (c.OUT/'freeze.json').exists(), 'Already frozen; no replacement')
+    c.OUT.mkdir(parents=True, exist_ok=True)
+    sources = verify_runtime_sources()
+    for name in ('prelaunch_tests.json', 'prelaunch_review.json'):
+        receipt = c.read(c.OUT/name)
+        c.require(receipt['status'] == 'passed', 'Prelaunch tests/review required')
+        c.verify(receipt['source_inventory'])
+    c.require(shutil.disk_usage(c.ROOT).free >= 7*c.GiB, 'Launch requires7GiB free disk')
+    prior = c.read(c.PRIOR/'freeze.json')
+    schedule = schedules.make_schedule()
+    c.save(c.OUT/'qualification_acceptance.json', accepted)
+    c.save(c.OUT/'seed_inventory.json', seed_inventory(schedule))
+    c.save(c.OUT/'schedule.json', schedule)
+    c.save(c.OUT/'model_free_qualification.json', original_qualification.model_free_checks(64))
+    items = {item['path']: item for item in prior['inputs']}
+    paths = set(path for path in c.PRIOR.rglob('*') if path.is_file())
+    paths.update((c.ROOT/'tools/splendorust_search_scale_opt_20261024').glob('*.py'))
+    paths.update(c.ROOT.glob('tests/test_splendorust_search_scale_opt*.py'))
+    paths.add(c.PROTOCOL)
+    paths.update(path for path in c.OUT.rglob('*') if path.is_file())
+    for path in paths:
+        if '__pycache__' in path.parts: continue
+        item = c.artifact(path)
+        if item['path'] in items:
+            c.require(items[item['path']] == item, 'Preserved qualification dependency changed')
+        items[item['path']] = item
+    freeze = dict(schema='splendorust_optimized64_vs32_strength_v1', time=c.now(),
+        inputs=sorted(items.values(), key=lambda item: item['path']),
+        qualification_acceptance=accepted, python=sys.version,
+        python_executable_sha256=c.file_hash(sys.executable), torch_runtime=prior['torch_runtime'],
+        external_runtime=prior['external_runtime'], sampler_api_modules=prior['sampler_api_modules'],
+        compression_runtime=prior['compression_runtime'], statistics_runtime=statistics.runtime_contract(),
+        topology=processor_topology(), native_artifacts=prior['native_artifacts'], source_guard=sources,
+        job_seconds=c.JOB_SECONDS, stage_seconds=c.STAGES, collection_cutoff_seconds=c.COLLECTION_CUTOFF_SECONDS,
+        automatic_retries=0, seconds_per_move=1., internal_seconds=.9, operational_margin_seconds=.7,
+        challenger_quota=64, opponent_quota=32, operational_games=6, main_games=200, pairs=100,
+        parent_class='tools.splendorust_timing_opt_20261024.common.CandidateStudyWorker',
+        unchanged_child_module='tools.splendorust_search_scale_20261024.worker',
+        profiles={role:c.artifact(c.profile_path(quota)) for role,quota in (('challenger',64),('opponent',32))},
+        max_rss_bytes=2*c.GiB, max_evidence_bytes=512*c.MiB, final_reserve_bytes=64*c.MiB,
+        final_reproductions_maximum=48, resource_forecast_factor=1.35,
+        larger_data_deferred=True, reference_promotion=False,
+        failure_policy='unchanged established classifier; attributable player failures lose; infrastructure/scientific failures stop',
+        authorization='User approved timing optimization, conditional64 requalification, and fresh paired64-versus32 confirmation')
+    verify_runtime(freeze)
+    c.save(c.OUT/'freeze.json', freeze)
+    print(c.canonical(dict(prepared=True, model_calls=0, inputs=len(items),
+        freeze_sha256=c.file_hash(c.OUT/'freeze.json'))), flush=True)
+
+
+def make_worker(name, envelope, freeze, quota):
+    from tools.splendorust_search_scale_20261024.adapters import validate_ready_metadata
+    from tools.future_training_rules_20261021 import SOURCE_HASHES
+    c.require(type(quota) is int and quota in (32,64) and 'torch' not in sys.modules,
+              'Fixed scientific quota and model-free referee required')
+    envelope.admit()
+    folder = c.OUT/'workers'/name
+    envelope.register_worker(folder)
+    child = c.CandidateStudyWorker('tools.splendorust_search_scale_20261024.worker', folder,
+        native_artifacts=freeze['native_artifacts'], aggregate_sample_guard=envelope.guard_worker_sample,
+        affinity=[freeze['topology']['selected_logical_processor']], initialization_timeout=envelope.timeout(60),
+        absolute_deadline=envelope.effective_deadline(), max_message_bytes=4*c.MiB, max_request_bytes=c.MiB,
+        max_log_bytes=16*c.MiB, max_rss_bytes=2*c.GiB, resource_guard=envelope.guard,
+        env={'PYTHONPATH':str(c.ROOT/'src')+os.pathsep+str(c.ROOT), 'STUDY_WORKER_DIR':str(folder),
+             'STUDY_SEARCH_SIMULATIONS':str(quota), 'CUDA_VISIBLE_DEVICES':'',
+             'RAYON_NUM_THREADS':'1', 'TOKIO_WORKER_THREADS':'1'})
+    try:
+        envelope.own_worker(child)
+        child.study_after_close = lambda: envelope.close_worker(folder, child)
+        telemetry = child._sample()
+        validate_ready_metadata(child.initialization['result'], expected_sources=SOURCE_HASHES,
+            worker_pid=child.process.pid, process_tree=telemetry['process_tree'], expected_quota=quota)
+        child.challenger_quota = quota
+        c.require(not child._failure, 'Worker supervision failed at readiness')
+        envelope.guard()
+        return child
+    except BaseException:
+        child.close()
+        raise
+
+
+def decision(child, state, envelope, role):
+    c.require(role in ('challenger','opponent') and child.challenger_quota == (64 if role == 'challenger' else 32),
+              'Role/quota binding differs')
+    envelope.admit()
+    observer, before = rules.observation_payload(state), rules.serialize_snapshot(state)
+    ledger.check_observer(before, observer)
+    legal = rules.legal_actions(state)
+    actions = [serialize_action(action) for action in legal]
+    request_id = f'request-{child._counter+1:08d}'
+    c.save(child.output_dir/'inputs'/f'{request_id}.json', dict(player='search', observer=observer, before=before))
+    def validate(result):
+        if not isinstance(result,dict) or set(result) != scientific.RESULT_FIELDS or not isinstance(result['diagnostics'],dict):
+            raise ValueError('PLAYER_MALFORMED_RESPONSE: response envelope fields')
+        if result['action'] not in actions:
+            raise ValueError('PLAYER_ILLEGAL_ACTION: response action')
+        return scientific.validate_result(result, observer, 'search', expected_quota=child.challenger_quota)
+    c.require(envelope.remaining() >= 1., 'Insufficient stage time for a full one-second decision')
+    allowance = envelope.timeout(1.)
+    c.require(allowance == 1., 'Stage guard shortened the next move allowance; do not dispatch')
+    receipt = child.request({'player':'search','observer':observer}, allowance, validate=validate)
+    row = dict(arm='search',player_role=role,quota=child.challenger_quota,mode='candidate',seat=state.current_player,
+        observer=observer,before=before,after=None,action=None,trace=None,completed=receipt['status']=='ok',clock=receipt,
+        worker_clock_file=(child.output_dir/f'{request_id}.json').relative_to(c.ROOT).as_posix())
+    if row['completed']:
+        result = receipt['result']
+        c.require(result['player']=='search' and result['observer_sha256']==c.digest(observer) and
+            result['legal_actions_sha256']==legal_digest(legal) and result['legal_count']==len(legal),
+            'Worker observation/legal-support binding differs')
+        row.update(action=result['action'],trace=result['diagnostics'])
+        row['after'] = rules.serialize_snapshot(rules.CorrectedEnv().step(state, deserialize_action(row['action'])))
+    return row
+
+
+def qualify(envelope,freeze):
+    c.require(qualification_acceptance(verify_inputs=False)==freeze['qualification_acceptance'],
+              'Qualification acceptance changed since comparison freeze')
+    costs=[]
+    for quota in (32,64):
+        with make_worker(f'qualification_{quota}',envelope,freeze,quota) as child:
+            begun=time.perf_counter()
+            receipt=child.request({'operation':'entrypoint_checks'},envelope.timeout(300))
+            c.save(c.OUT/f'entrypoint_checks_{quota}.json',receipt)
+            envelope.guard()
+            c.require(receipt['status']=='ok' and receipt['result']['status']=='entrypoint_counterexamples_passed',
+                'Actual corrected-entrypoint counterexamples failed; no retry')
+            c.require(receipt['result']['challenger_quota']==quota and
+                      receipt['result']['counts']['complete_decisions']==52,'Actual entrypoint inventory differs')
+            check_seconds=time.perf_counter()-begun
+        begun=time.perf_counter()
+        checked=verify_worker_logs(child.output_dir,boundary=envelope.guard,deadline=envelope.effective_deadline())
+        log_seconds=time.perf_counter()-begun
+        c.save(c.OUT/f'qualification_log_integrity_{quota}.json',checked)
+        costs.append(dict(quota=quota,initialization_seconds=child.initialization['elapsed_seconds'],
+                          counterexample_seconds=check_seconds,log_seconds=log_seconds))
+    begun=time.perf_counter()
+    verify_runtime(freeze,envelope)
+    source_seconds=time.perf_counter()-begun
+    synthetic=[dict(**spec,winner=None,reason='natural',complete=True) for spec in schedules.stage_schedule('main')]
+    begun=time.perf_counter()
+    analysis=statistics.analyze_games(synthetic,evidence_gates_passed=True,boundary=envelope.guard)
+    statistics.verify_analysis(synthetic,analysis,boundary=envelope.guard)
+    statistics_seconds=time.perf_counter()-begun
+    initialization=max(row['initialization_seconds'] for row in costs)
+    logs=max(row['log_seconds'] for row in costs)
+    # Whole entrypoint time/52 is a conservative observed per-decision check
+    # allowance because it includes native parity and independent validation.
+    validation=max(row['counterexample_seconds']/52 for row in costs)
+    fixed=1.35*(source_seconds+statistics_seconds+2*logs+48*(initialization+1.+validation+logs))+30.
+    result=dict(status='passed',saved_timing_rerun=False,actual_workers=2,costs=costs,
+        source_seconds=source_seconds,statistics_seconds=statistics_seconds,
+        initialization_seconds=initialization,validation_allowance_seconds=validation,
+        final_reproduction_maximum=48,forecast_seconds=fixed,
+        synthetic_statistics_scope='200 synthetic draws used only to measure computation; discarded')
+    c.save(c.OUT/'qualification_summary.json',result)
+    return result
+
+
+def game_folder(spec):
+    return c.OUT/'games'/spec['stage']/f"p{spec['pair_index']:03d}_g{spec['game_index']}"
+
+
+def measure_seal_cost(folders, boundary):
+    """Measure both real final-seal reads over closed operational evidence."""
+    begun=time.perf_counter(); artifacts=[]
+    for folder in folders:
+        for path in sorted(folder.rglob('*')):
+            if path.is_file():
+                boundary(); artifacts.append(c.artifact(path))
+    for item in artifacts:
+        boundary(); c.verify([item])
+    return dict(seconds=time.perf_counter()-begun,passes=2,files=len(artifacts),
+                bytes=sum(item['bytes'] for item in artifacts),inventory_sha256=c.digest(artifacts))
+
+
+def play_game(spec,envelope,freeze):
+    schedules.validate_spec(spec)
+    env=rules.CorrectedEnv(seed=int(spec['seed_decimal']))
+    state=env.initial_state()
+    initial=rules.serialize_snapshot(state)
+    decode_training_snapshot(initial)
+    folder=game_folder(spec)
+    c.save(folder/'initial.json',dict(**spec,initial=initial))
+    rows=[]; outcome=None; independent_seconds=0.; begun=time.perf_counter()
+    with ExitStack() as stack:
+        workers={role:stack.enter_context(make_worker(
+            f"{spec['stage']}_g{spec['game_index']}_{role}",envelope,freeze,spec[role+'_quota']))
+            for role in ('challenger','opponent')}
+        for ply in range(2000):
+            if state.terminal: break
+            seat=state.current_player
+            role='challenger' if seat==spec['challenger_seat'] else 'opponent'
+            row=decision(workers[role],state,envelope,role)
+            row.update(ply=ply,**{key:spec[key] for key in ('stage','pair_index','game_index')})
+            # Preserve the exact failure before budget/source/scientific checks.
+            c.save(folder/'moves'/f'{ply:04d}.json',row)
+            rows.append(row)
+            envelope.guard()
+            if row['completed']:
+                t=time.perf_counter()
+                scientific.audit_decision(row['observer'],row['action'],row['trace'],'search',
+                    before=row['before'],after=row['after'],expected_quota=row['quota'])
+                independent_seconds+=time.perf_counter()-t
+                state=decode_training_snapshot(row['after'])
+            else:
+                failure=audit.classify_failure(row['clock'])
+                outcome=dict(reason='forfeit',winner=1-seat,loser=seat,failed_role=role,failed_seat=seat,failure=failure)
+                break
+            if not state.terminal and (row['after']==row['before'] or row['action']['action_type']=='PASS' and
+                len(rows)>1 and rows[-2]['action'] and rows[-2]['action']['action_type']=='PASS'):
+                raise ValueError('Unresolved actual-game deadlock; no official result')
+        if outcome is None:
+            c.require(state.terminal,'2,000-ply safety cap reached; incomplete')
+            outcome=dict(reason='natural',winner=state.winner)
+    # Both trees have confirmed cleanup before a game can be accepted.
+    for role,child in workers.items():
+        t=time.perf_counter()
+        check=verify_worker_logs(child.output_dir,boundary=envelope.guard,deadline=envelope.effective_deadline())
+        independent_seconds+=time.perf_counter()-t
+        c.save(folder/f'log_integrity_{role}.json',check)
+    ending=dict(**spec,**outcome,final=rules.serialize_snapshot(state),complete=True,plies=len(rows),
+                collection_seconds=time.perf_counter()-begun)
+    t=time.perf_counter()
+    checked=audit.audit_game(initial,rows,ending,spec,boundary=envelope.guard)
+    independent_seconds+=time.perf_counter()-t
+    c.save(folder/'result.json',ending)
+    c.save(folder/'online_replay.json',checked)
+    hashing=None
+    if spec['stage']=='operational':
+        hashing=measure_seal_cost([folder]+[child.output_dir for child in workers.values()],envelope.guard)
+        independent_seconds+=hashing['seconds']
+        c.save(folder/'hashing_measurement.json',hashing)
+    c.save(folder/'cost.json',dict(independent_seconds=independent_seconds,
+        collection_seconds=time.perf_counter()-begun,complete_decisions=sum(row['completed'] for row in rows),
+        measured_two_pass_hash_seconds=None if hashing is None else hashing['seconds']))
+    return ending,rows,independent_seconds
+
+
+def final_evidence_forecast(schedule,boundary=lambda:None):
+    """Conservative byte projection from closed files, without reading outcomes.
+
+    A one-decision reproduction is charged an entire observed game's compressed
+    worker logs, plus its largest request/input and an additional full move row.
+    Final control files are projected separately; none consume an assumed-free
+    portion of the fixed 64 MiB reserve.
+    """
+    ops=[spec for spec in schedule if spec['stage']=='operational']
+    c.require(len(ops)==6,'Exactly six operational games required for byte forecast')
+    game_paths=[]; worker_paths=[]; worker_bounds=[]; replay_bytes=0; log_receipt_bytes=[]
+    largest_move=0
+    for spec in ops:
+        boundary(); folder=game_folder(spec)
+        paths=[path for path in folder.rglob('*') if path.is_file()]
+        game_paths.extend(paths)
+        moves=list((folder/'moves').glob('*.json'))
+        c.require(moves,'Operational move files absent from byte forecast')
+        largest_move=max(largest_move,max(path.stat().st_size for path in moves))
+        replay_bytes+=(folder/'online_replay.json').stat().st_size
+        for role in ('challenger','opponent'):
+            log_receipt_bytes.append((folder/f'log_integrity_{role}.json').stat().st_size)
+            worker=c.OUT/'workers'/f"{spec['stage']}_g{spec['game_index']}_{role}"
+            files=[path for path in worker.rglob('*') if path.is_file()]
+            inputs=list((worker/'inputs').glob('*.json'))
+            c.require(inputs,'Operational worker inputs absent from byte forecast')
+            receipts=[worker/path.name for path in inputs]
+            c.require(all(path.is_file() for path in receipts),'Operational receipt inventory missing')
+            logs=[path for path in files if path.suffix=='.gz']
+            c.require(logs,'Compressed operational logs absent from byte forecast')
+            variable=set(inputs+receipts+logs)
+            static=[path for path in files if path not in variable]
+            worker_paths.extend(files)
+            worker_bounds.append(dict(
+                static_bytes=sum(path.stat().st_size for path in static),
+                entire_game_compressed_log_bytes=sum(path.stat().st_size for path in logs),
+                largest_input_bytes=max(path.stat().st_size for path in inputs),
+                largest_receipt_bytes=max(path.stat().st_size for path in receipts),
+                reproduction_worker_files=len(static)+len(logs)+2))
+    qualification_paths=[path for folder in (c.OUT/'workers').glob('qualification*')
+                         for path in folder.rglob('*') if path.is_file()]
+    observed_paths=game_paths+worker_paths+qualification_paths
+    c.require(observed_paths,'No measured files for final seal forecast')
+    # Reserve 128 extra path bytes for longer final audit/control names. JSON
+    # bytes are measured using the actual canonical artifact representation.
+    seal_item_bytes=max(len(c.canonical(dict(path=path.relative_to(c.ROOT).as_posix(),
+        sha256='0'*64,bytes=2**63-1)).encode())+129 for path in observed_paths)
+    single_worker=max(sum(item[key] for key in ('static_bytes','entire_game_compressed_log_bytes',
+        'largest_input_bytes','largest_receipt_bytes')) for item in worker_bounds)
+    reproduction_files=max(item['reproduction_worker_files'] for item in worker_bounds)
+    reproduction_bytes=48*(single_worker+largest_move)
+    projected_sealed_files=math.ceil((len(game_paths)+len(worker_paths))*206/6)+len(qualification_paths)+48*reproduction_files
+    seal_bytes=projected_sealed_files*seal_item_bytes+1024
+    replay_control_bytes=math.ceil(replay_bytes*206/6)
+    log_control_bytes=(414+48)*max(log_receipt_bytes)
+    fixed_control_bytes=8*c.MiB
+    raw_final=reproduction_bytes+seal_bytes+replay_control_bytes+log_control_bytes+fixed_control_bytes
+    return dict(outcomes_used=False,conservative_factor=1.35,reproductions=48,
+        observed_workers=len(worker_bounds),observed_game_files=len(game_paths),
+        observed_worker_files=len(worker_paths),observed_worker_bounds=worker_bounds,
+        largest_move_row_bytes=largest_move,single_reproduction_worker_bound_bytes=single_worker,
+        projected_reproduction_bytes=reproduction_bytes,projected_sealed_files=projected_sealed_files,
+        artifact_item_bound_bytes=seal_item_bytes,projected_seal_bytes=seal_bytes,
+        projected_replay_control_bytes=replay_control_bytes,projected_log_control_bytes=log_control_bytes,
+        fixed_analysis_and_control_bytes=fixed_control_bytes,
+        projected_final_evidence_bytes=math.ceil(1.35*raw_final),reserve_bytes=64*c.MiB)
+
+
+def operational_gate(*,observed_seconds,observed_variable_bytes,current_bytes,independent_seconds,
+                     fixed_final_seconds,final_evidence_bytes,remaining_collection_seconds):
+    values=(observed_seconds,observed_variable_bytes,current_bytes,independent_seconds,fixed_final_seconds,final_evidence_bytes)
+    c.require(all(type(value) in (int,float) and math.isfinite(value) and value>=0 for value in values) and
+              type(remaining_collection_seconds) in (int,float) and math.isfinite(remaining_collection_seconds),
+              'Resource forecast requires finite measured quantities')
+    factor=200/6*1.35
+    final_factor=206/6*1.35
+    collection=observed_seconds*factor
+    evidence=current_bytes+observed_variable_bytes*factor
+    final=independent_seconds*final_factor+fixed_final_seconds
+    total_evidence=evidence+final_evidence_bytes
+    passed=(collection<min(14400,remaining_collection_seconds) and evidence<448*c.MiB and final<1800
+            and final_evidence_bytes<64*c.MiB and total_evidence<512*c.MiB)
+    return dict(passed=passed,operational_games=6,observed_seconds=observed_seconds,
+        observed_variable_bytes=observed_variable_bytes,projected_collection_seconds=collection,
+        remaining_collection_seconds=min(14400,remaining_collection_seconds),projected_prefinal_bytes=evidence,
+        projected_final_seconds=final,arithmetic_factor=factor,final_arithmetic_factor=final_factor,
+        projected_final_evidence_bytes=final_evidence_bytes,projected_total_evidence_bytes=total_evidence,
+        final_evidence_reserve_bytes=64*c.MiB,total_evidence_cap_bytes=512*c.MiB,outcomes_used=False)
+
+
+def operational(envelope,freeze,schedule,qualification):
+    start=time.perf_counter(); initial_bytes=bytes_used(); independent=0.; games=[]
+    for spec in (row for row in schedule if row['stage']=='operational'):
+        game,rows,cost=play_game(spec,envelope,freeze)
+        games.append(game); independent+=cost
+        c.require(game['reason']=='natural' and all(row['clock']['receipt_elapsed_seconds']<=.7 for row in rows),
+                  'Operational natural completion or0.700-second margin failed')
+        print(c.canonical(dict(stage='operational',completed_games=len(games),total=6)),flush=True)
+    c.require(len(games)==6,'Operational schedule incomplete')
+    final_bytes=final_evidence_forecast(schedule,envelope.guard)
+    c.save(c.OUT/'final_evidence_forecast.json',final_bytes)
+    used=bytes_used()
+    gate=operational_gate(observed_seconds=time.perf_counter()-start,observed_variable_bytes=used-initial_bytes,
+        current_bytes=used,independent_seconds=independent,fixed_final_seconds=qualification['forecast_seconds'],
+        final_evidence_bytes=final_bytes['projected_final_evidence_bytes'],
+        remaining_collection_seconds=min(envelope.start+c.COLLECTION_CUTOFF_SECONDS-time.monotonic(),
+            envelope.wall_start+c.COLLECTION_CUTOFF_SECONDS-time.time()))
+    c.save(c.OUT/'operational_gate.json',gate)
+    c.require(gate['passed'],'Outcome-blind operational resource forecast failed; no expansion')
+    return gate
+
+
+def verify_saved_decision(row):
+    path=c.ROOT/row['worker_clock_file']
+    c.require(path.resolve().is_relative_to((c.OUT/'workers').resolve()),'Clock outside owned evidence')
+    c.require(c.read(path)==row['clock'] and path.name==row['clock']['request_id']+'.json','Trusted clock record changed')
+    c.require(c.read(path.parent/'inputs'/path.name)==dict(player='search',observer=row['observer'],before=row['before']),
+              'Saved player input changed')
+    if row['completed']:
+        scientific.audit_decision(row['observer'],row['action'],row['trace'],'search',
+            before=row['before'],after=row['after'],expected_quota=row['quota'])
+    else:
+        audit.classify_failure(row['clock'])
+
+
+def final_checks(envelope,freeze,schedule):
+    c.require(schedule==schedules.make_schedule(),'Frozen schedule derivation changed')
+    records=[]; main_games=[]; replays=[]
+    for spec in schedule:
+        envelope.guard()
+        folder=game_folder(spec)
+        initial,game=c.read(folder/'initial.json'),c.read(folder/'result.json')
+        expected=rules.serialize_snapshot(rules.CorrectedEnv(seed=int(spec['seed_decimal'])).initial_state())
+        c.require(initial==dict(**spec,initial=expected),'Initial world/identity changed')
+        paths=sorted((folder/'moves').glob('*.json'))
+        c.require([path.name for path in paths]==[f'{i:04d}.json' for i in range(game['plies'])],
+                  'Operational/main move inventory changed')
+        rows=[c.read(path) for path in paths]
+        for row in rows:
+            envelope.guard(); verify_saved_decision(row)
+        replays.append(audit.audit_game(initial['initial'],rows,game,spec,boundary=envelope.guard))
+        if spec['stage']=='main':
+            records.extend(rows); main_games.append(game)
+    c.require(len(replays)==206 and len(main_games)==200,'Complete game inventory required')
+    c.save(c.OUT/'all_game_replay.json',dict(status='passed',games=206,receipts=replays))
+    c.save(c.OUT/'performance.json',audit.performance(records))
+    sample=audit.select_replay_sample(records,maximum=48)
+    c.save(c.OUT/'replay_sample_manifest.json',sample)
+    selected=sample['decisions']; repetitions=[]
+    c.require(len(selected)<=48,'Complete-decision reproduction bound')
+    for index,item in enumerate(selected):
+        envelope.guard()
+        original=next(row for row in records if all(row[key]==item[key]
+            for key in ('pair_index','game_index','ply','player_role')))
+        c.require(original['completed'],'Cannot reproduce an uncompleted timed-out decision')
+        with make_worker(f'audit_{index:02d}',envelope,freeze,original['quota']) as child:
+            repeated=decision(child,decode_training_snapshot(original['before']),envelope,original['player_role'])
+            c.save(c.OUT/'repeated_decisions'/f'{index:02d}.json',repeated)
+            envelope.guard()
+            c.require(repeated['completed'] and repeated['action']==original['action'] and
+                      repeated['trace']==original['trace'],'Sampled complete decision reproduction differs')
+            verify_saved_decision(repeated)
+        repetitions.append(item)
+    c.save(c.OUT/'repeated_decision_summary.json',dict(status='passed',requests=len(repetitions),identities=repetitions))
+    logs=[]
+    for folder in sorted((c.OUT/'workers').iterdir()):
+        envelope.guard()
+        logs.append(verify_worker_logs(folder,boundary=envelope.guard,deadline=envelope.effective_deadline()))
+    c.require(len(logs)==414+len(repetitions),'Two workers per game plus qualification/audit inventory required')
+    c.save(c.OUT/'all_worker_log_integrity.json',dict(status='passed',workers=len(logs),receipts=logs))
+    seal=[]
+    for subdir in ('games','workers'):
+        for path in sorted((c.OUT/subdir).rglob('*')):
+            if path.is_file():
+                envelope.guard(); seal.append(c.artifact(path))
+    c.save(c.OUT/'completed_game_seal.json',dict(artifacts=seal))
+    analysis=statistics.analyze_games(main_games,evidence_gates_passed=True,boundary=envelope.guard)
+    independent=statistics.verify_analysis(main_games,analysis,boundary=envelope.guard)
+    c.save(c.OUT/'analysis.json',analysis)
+    c.save(c.OUT/'independent_statistics.json',independent)
+    c.verify(seal)
+    verify_runtime(freeze,envelope)
+    c.require(qualification_acceptance(verify_inputs=False)==freeze['qualification_acceptance'],
+              'Preceding qualification acceptance changed')
+    return analysis
+
+
+def run_stages(envelope,freeze,schedule,*,qualification_started=False):
+    if qualification_started:
+        c.require(envelope.stage=='qualification','Startup qualification clock missing')
+    else:
+        envelope.begin('qualification')
+    qualified=qualify(envelope,freeze)
+    envelope.finish()
+    envelope.begin('operational')
+    operational(envelope,freeze,schedule,qualified)
+    envelope.finish()
+    envelope.begin('main')
+    games=[spec for spec in schedule if spec['stage']=='main']
+    c.require(len(games)==200,'Fixed200-game main schedule required')
+    for index,spec in enumerate(games):
+        play_game(spec,envelope,freeze)
+        print(c.canonical(dict(stage='main',completed_games=index+1,total=200)),flush=True)
+    envelope.finish()
+    envelope.begin('final')
+    result=final_checks(envelope,freeze,schedule)
+    envelope.finish()
+    return result
+
+
+def run(expected_sha):
+    c.require(c.file_hash(c.OUT/'freeze.json')==expected_sha,'Comparison freeze changed')
+    claim=c.read(c.OUT/'watchdog_claim.json')
+    c.require(claim['freeze_sha256']==expected_sha,'Watchdog freeze identity differs')
+    envelope,freeze=Envelope(claim),c.read(c.OUT/'freeze.json')
+    envelope.enable_evidence_accounting()
+    c.save(c.OUT/'launch.json',dict(time=c.now(),pid=os.getpid(),created=psutil.Process().create_time(),freeze_sha256=expected_sha))
+    status,failure='incomplete',None
+    try:
+        envelope.begin('qualification')
+        c.save(c.OUT/'supervisor_runtime_sources.json',dict(sources=verify_runtime_sources()))
+        verify_runtime(freeze,envelope)
+        envelope.admit()
+        schedule=c.read(c.OUT/'schedule.json')
+        c.require(schedule==schedules.make_schedule(),'Frozen schedule changed')
+        run_stages(envelope,freeze,schedule,qualification_started=True)
+        status='completed_verified'
+    except BaseException:
+        failure=traceback.format_exc()
+        c.save(c.OUT/'failure.json',dict(time=c.now(),stage=envelope.stage,error=failure))
+    c.save(c.OUT/'completion.json',dict(status=status,time=c.now(),failure=failure,stage=envelope.stage,
+        elapsed_seconds=time.monotonic()-envelope.start,wall_elapsed_seconds=time.time()-envelope.wall_start,
+        freeze_sha256=expected_sha,automatic_retries=0,larger_data_deferred=True,
+        challenger_quota=64,opponent_quota=32,main_games_required=200,
+        note='Acceptance also requires successful owning watchdog cleanup; no automatic player promotion.'))
+    print(c.canonical(dict(status=status,stage=envelope.stage,failure=failure)),flush=True)
+    return 0 if status=='completed_verified' else 1
+
+
+def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument('operation',choices=['prepare','run'])
+    parser.add_argument('--freeze-sha256')
+    args=parser.parse_args()
+    return prepare() if args.operation=='prepare' else run(args.freeze_sha256)
+
+
+if __name__=='__main__':
+    raise SystemExit(main())
+

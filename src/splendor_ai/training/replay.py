@@ -10,11 +10,15 @@ from typing import Any
 from splendor_ai.diagnostics import is_progress_transition, state_signature
 from splendor_ai.bots.base import Bot
 from splendor_ai.encoding import ActionCodec, encode_public_observation_tensor
-from splendor_ai.engine.actions import Action, ActionType
+from splendor_ai.engine.actions import Action
 from splendor_ai.engine.constants import ALL_TOKEN_TYPES, TOKEN_COLORS
 from splendor_ai.engine.data import build_base_deck_by_tier, build_base_nobles
 from splendor_ai.engine.env import SplendorEnv
 from splendor_ai.engine.state import PlayerState, SplendorState
+from splendor_ai.termination import (
+    adjudicate_scores as _adjudicate_scores,
+    is_forced_pass_turn,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,10 +139,7 @@ def collect_game_replay(
             }
         )
         next_state = env.step(state, chosen_action)
-        forced_pass = (
-            len(legal_actions) == 1
-            and legal_actions[0].action_type == ActionType.PASS
-        )
+        forced_pass = is_forced_pass_turn(legal_actions)
         forced_pass_streak = forced_pass_streak + 1 if forced_pass else 0
         if forced_pass_streak >= 2:
             state = next_state
@@ -339,20 +340,6 @@ def export_timed_out_traces_jsonl(
             handle.write(json.dumps(payload))
             handle.write("\n")
     return len(timed_out_games)
-
-
-def _adjudicate_scores(state: SplendorState) -> int | None:
-    scores = [player.score for player in state.players]
-    best_score = max(scores)
-    contenders = [idx for idx, score in enumerate(scores) if score == best_score]
-    if len(contenders) == 1:
-        return contenders[0]
-
-    fewest_cards = min(len(state.players[idx].purchased_cards) for idx in contenders)
-    fewest_card_contenders = [
-        idx for idx in contenders if len(state.players[idx].purchased_cards) == fewest_cards
-    ]
-    return fewest_card_contenders[0] if len(fewest_card_contenders) == 1 else None
 
 
 def _final_value_for_player(winner: int | None, player_id: int) -> float:
